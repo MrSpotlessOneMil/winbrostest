@@ -96,7 +96,7 @@ export function AttentionNeeded() {
       {/* Items — large touch targets, first item highlighted */}
       <div className="space-y-1.5">
         {items.map((item, idx) => {
-          const config = TYPE_CONFIG[item.type]
+          const config = TYPE_CONFIG[item.type as keyof typeof TYPE_CONFIG] || { icon: AlertTriangle, color: "text-zinc-400", bg: "bg-zinc-500/10", ring: "ring-zinc-500/20" }
           const Icon = config.icon
           const isFirst = idx === 0
 

@@ -1,0 +1,19 @@
+---
+source_file: "lib\marketing\tracking.ts"
+type: "code"
+community: "Community 10"
+location: "L32"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Community_10
+---
+
+# trackPageView()
+
+## Connections
+- [[fbq()]] - `calls` [EXTRACTED]
+- [[gtag()]] - `calls` [EXTRACTED]
+- [[tracking.ts]] - `contains` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Community_10

@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-import { getTenantById, tenantUsesFeature } from '@/lib/tenant'
+import { getTenantById, tenantUsesFeature, formatTenantCurrency } from '@/lib/tenant'
 import { notifyCustomerStatus } from '@/lib/cleaner-sms'
 import { sendSMS } from '@/lib/openphone'
 import { maybeMarkBooked } from '@/lib/maybe-mark-booked'
@@ -78,7 +78,7 @@ async function resolveContext(token: string, jobId: string) {
   const { data: job } = await client
     .from('jobs')
     .select(`
-      id, date, scheduled_at, address, service_type, status, notes, addons,
+      id, date, scheduled_at, address, service_type, status, notes, cleaner_notes, cleaner_pay_override, cleaners, addons,
       bedrooms, bathrooms, sqft, hours, price, paid, payment_status,
       cleaner_omw_at, cleaner_arrived_at, payment_method,
       customer_id, phone_number,
@@ -138,6 +138,34 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     completed_at: completedMap.get(item.id)?.completed_at || null,
   }))
 
+  // Tenant-specific scope extras — mirrors TENANT_SCOPE_EXTRAS on the customer
+  // quote page so what the customer sees is exactly what the cleaner sees.
+  // West Niagara: interior windows (sills & glass) on standard + deep.
+  const TENANT_CREW_SCOPE_EXTRAS: Record<string, Record<string, string[]>> = {
+    'west-niagara': {
+      standard_cleaning: ['Clean interior windows (sills & glass)'],
+      deep_cleaning: ['Clean interior windows (sills & glass)'],
+    },
+  }
+  const tenantExtras = TENANT_CREW_SCOPE_EXTRAS[tenant.slug]?.[serviceCategory] ?? []
+  if (tenantExtras.length > 0) {
+    const existingTexts = new Set(checklist.map((c) => c.text.trim().toLowerCase()))
+    let nextOrder = checklist.length > 0 ? Math.max(...checklist.map((c) => c.order)) + 1 : 1
+    for (const text of tenantExtras) {
+      if (existingTexts.has(text.trim().toLowerCase())) continue
+      const stableId = `scope_extra_${tenant.slug}_${text.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}`
+      checklist.push({
+        id: stableId,
+        text,
+        order: nextOrder++,
+        required: true,
+        completed: completedMap.get(stableId)?.completed || false,
+        completed_at: completedMap.get(stableId)?.completed_at || null,
+      })
+      existingTexts.add(text.trim().toLowerCase())
+    }
+  }
+
   // Inject add-on items that aren't already covered by the static checklist
   // e.g. "inside fridge" added to a standard cleaning should still appear
   // Dynamic lookup from pricing_addons table so ALL tenant addons are covered
@@ -182,29 +210,59 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   // Parse structured tags from notes
   const estimate = getEstimateFromNotes(job.notes)
 
-  // Cleaner pay: use PAY tag from notes, fallback to price × cleaner_pay_percentage
-  let cleanerPay = estimate.cleanerPay ?? null
-  if (cleanerPay == null && job.price) {
+  // Unified cleaner pay: override > PAY tag > hourly model > percentage (NEVER cross models)
+  const numCleaners = job.cleaners ? Number(job.cleaners) : 1
+  let cleanerPay: number | null = null
+  let cleanerPayRate: number | null = null // hourly rate when hours unknown
+  if (job.cleaner_pay_override != null) {
+    cleanerPay = Number(job.cleaner_pay_override)
+  } else if (estimate.cleanerPay != null) {
+    cleanerPay = estimate.cleanerPay
+  } else if (tenant.workflow_config?.cleaner_pay_model === 'hourly') {
+    // Hourly model: calculate total if hours known, otherwise expose rate only
+    const isDeep = job.service_type?.toLowerCase().includes('deep')
+    const rate = isDeep
+      ? (tenant.workflow_config.cleaner_pay_hourly_deep || 30)
+      : (tenant.workflow_config.cleaner_pay_hourly_standard || 25)
+    if (job.hours) {
+      const totalPay = rate * Number(job.hours)
+      cleanerPay = numCleaners > 1 ? totalPay / numCleaners : totalPay
+    } else {
+      // No hours — show rate only, NEVER fall through to percentage
+      cleanerPayRate = rate
+    }
+  } else if (job.price) {
+    // Percentage model — only for tenants that are NOT hourly
     const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
     if (payPercentage) {
-      cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
+      let payBase = parseFloat(String(job.price))
+      if (job.notes && typeof job.notes === 'string' && job.notes.includes('NORMAL_PRICE:')) {
+        const match = job.notes.match(/NORMAL_PRICE:(\d+(?:\.\d+)?)/)
+        if (match) payBase = parseFloat(match[1])
+      }
+      const totalPay = payBase * (payPercentage / 100)
+      cleanerPay = numCleaners > 1 ? totalPay / numCleaners : totalPay
     }
   }
 
   // Strip structured tags from notes so frontend only shows human-readable instructions
   const cleanedNotes = job.notes
     ? job.notes
-        .split('\n')
+        .split(/[\n|]/)
+        .map((s: string) => s.trim())
         .filter((line: string) => {
-          const trimmed = line.trim().toUpperCase()
-          return (
+          const trimmed = line.toUpperCase()
+          return line && (
             !trimmed.startsWith('OVERRIDE:') &&
             !trimmed.startsWith('PAYMENT:') &&
             !trimmed.startsWith('HOURS:') &&
-            !trimmed.startsWith('PAY:')
+            !trimmed.startsWith('PAY:') &&
+            !trimmed.startsWith('PROMO:') &&
+            !trimmed.startsWith('NORMAL_PRICE:') &&
+            !trimmed.startsWith('__SYS')
           )
         })
-        .join('\n')
+        .join(' — ')
         .trim() || null
     : null
 
@@ -216,12 +274,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       address: job.address,
       service_type: job.service_type,
       status: job.status,
-      notes: cleanedNotes,
+      notes: job.cleaner_notes || cleanedNotes,
       bedrooms: job.bedrooms,
       bathrooms: job.bathrooms,
       sqft: job.sqft,
       hours: job.hours,
       cleaner_pay: cleanerPay,
+      cleaner_pay_rate: cleanerPayRate,
       currency: tenant.currency || 'usd',
       total_hours: estimate.totalHours ?? null,
       hours_per_cleaner: estimate.hoursPerCleaner ?? null,
@@ -270,6 +329,15 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const validStatuses = ['omw', 'here', 'done']
     if (!validStatuses.includes(body.status)) {
       return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
+    }
+
+    // Guard: can't mark OMW/arrived/done for jobs in the future
+    if (job.date) {
+      const jobDate = new Date(job.date + 'T23:59:59')
+      const now = new Date()
+      if (jobDate > new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)) {
+        return NextResponse.json({ error: 'Cannot update status for future jobs' }, { status: 400 })
+      }
     }
 
     // Enforce sequential: can't skip steps
@@ -341,7 +409,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
             }).eq('id', parseInt(jobId))
 
             if (customerPhone) {
-              await sendSMS(tenant, customerPhone, `Hey ${custName}! Your ${businessName} service is complete. Your card on file has been charged $${(chargeCents / 100).toFixed(2)}. Thank you for choosing ${businessName}!`)
+              await sendSMS(tenant, customerPhone, `Hey ${custName}! Your ${businessName} service is complete. Your card on file has been charged ${formatTenantCurrency(tenant, chargeCents / 100)}. Thank you for choosing ${businessName}!`)
             }
             console.log(`[crew/job] Auto-charged $${(chargeCents / 100).toFixed(2)} for job ${jobId}`)
           } else {
@@ -378,9 +446,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const completed = !!body.completed
     const itemId = body.checklist_item_id
 
-    // Add-on checklist items have string IDs (e.g. "addon_inside_fridge")
-    // — can't store in job_checklist_items FK. Accept toggle silently.
-    if (typeof itemId === 'string' && String(itemId).startsWith('addon_')) {
+    // Add-on + tenant-scope-extra checklist items have string IDs (e.g.
+    // "addon_inside_fridge", "scope_extra_west-niagara_..."). These aren't
+    // rows in cleaning_checklists, so they can't be stored via the integer
+    // FK in job_checklist_items. Accept the toggle silently — the UI will
+    // keep the local checked state for the session.
+    if (typeof itemId === 'string' && (String(itemId).startsWith('addon_') || String(itemId).startsWith('scope_extra_'))) {
       return NextResponse.json({ success: true })
     }
 

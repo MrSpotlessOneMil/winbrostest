@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { getQuotePricing, computeQuoteTotal, isWindowCleaningTenant } from "@/lib/quote-pricing"
 import { getStripeClientForTenant, getTenantRedirectDomain, findOrCreateStripeCustomer } from "@/lib/stripe-client"
+import { normalizeAddons, type AddonInput, type NormalizedAddon } from "@/lib/service-scope"
 
 /** Safely add months without JS Date overflow (Jan 31 + 1 month = Feb 28, not Mar 3) */
 function addMonths(date: Date, months: number): Date {
@@ -83,6 +84,22 @@ export async function GET(
     .eq("active", true)
     .order("discount_per_visit", { ascending: true })
 
+  // Load cleaner checklists (per service_category) so the customer-facing
+  // "What's included" list is 1:1 with what the cleaner actually sees in the
+  // field. Shared source of truth: cleaning_checklists table.
+  const { data: checklistRows } = await supabase
+    .from('cleaning_checklists')
+    .select('service_category, item_text, item_order, required')
+    .eq('tenant_id', tenant.id)
+    .order('item_order', { ascending: true })
+
+  const checklistsByCategory: Record<string, string[]> = {}
+  for (const row of checklistRows || []) {
+    const cat = row.service_category as string
+    if (!checklistsByCategory[cat]) checklistsByCategory[cat] = []
+    checklistsByCategory[cat].push(row.item_text as string)
+  }
+
   // Build service agreement text
   const wc = tenant.workflow_config as Record<string, unknown> || {}
   const cancellationFee = Number(wc.cancellation_fee_cents || 5000) / 100
@@ -114,6 +131,7 @@ export async function GET(
     custom_base_price: quote.custom_base_price ? Number(quote.custom_base_price) : null,
     custom_terms: quote.custom_terms || null,
     quote_notes: quote.notes || null,
+    checklists: checklistsByCategory,
     tenant: {
       name: tenant.business_name || tenant.name,
       slug: tenant.slug,
@@ -222,50 +240,54 @@ export async function PATCH(
     return NextResponse.json({ error: "selected_tier is required" }, { status: 400 })
   }
 
-  // Normalize addons — support both {key, quantity} objects and plain strings
+  // Normalize addons with inclusion flag — single source of truth.
+  // Custom-priced quotes → default included. Tiered → included if in tier upgrades.
+  // Explicit { included: true/false } on an incoming addon object always wins.
   const rawAddons = (selected_addons || []) as unknown[]
-  const normalizedAddons: { key: string; quantity: number }[] = rawAddons
-    .filter((a): a is string | { key: string; quantity?: number } =>
+  const filteredRawAddons: AddonInput[] = rawAddons.filter(
+    (a): a is AddonInput =>
       typeof a === "string" || (typeof a === "object" && a !== null && "key" in a)
-    )
-    .map((a) =>
-      typeof a === "string"
-        ? { key: a, quantity: 1 }
-        : { key: a.key, quantity: Math.max(1, Math.floor(a.quantity ?? 1)) }
-    )
+  )
+  const tierForNormalization = hasCustomPrice ? 'custom' : (selected_tier as string)
+  const normalizedAddons: NormalizedAddon[] = normalizeAddons(
+    filteredRawAddons,
+    tierForNormalization,
+    hasCustomPrice
+  )
 
   // Compute price server-side (never trust client-side price)
   const quoteServiceCategory = quote.service_category || 'standard'
   let subtotal: number
 
   if (hasCustomPrice) {
-    // Custom-priced quote: base price is salesman's price, add-ons are additive
+    // Custom-priced quote: locked base is the salesman's price.
+    // Only add-ons explicitly marked NOT included contribute extra charge.
     const customBase = Number(quote.custom_base_price) || 0
-    const addonKeys: string[] = normalizedAddons.map(a => a.key)
     const pricing = await getQuotePricing(tenant.id, tenant.slug, {
       squareFootage: quote.square_footage,
       bedrooms: quote.bedrooms,
       bathrooms: quote.bathrooms,
     }, quoteServiceCategory)
-    const addonTotal = addonKeys.reduce((sum, key) => {
-      const addon = pricing.addons.find(a => a.key === key)
+    const addonTotal = normalizedAddons.reduce((sum, a) => {
+      if (a.included) return sum
+      const addon = pricing.addons.find((p) => p.key === a.key)
       if (!addon) return sum
-      return sum + addon.price
+      return sum + addon.price * (a.quantity || 1)
     }, 0)
     subtotal = customBase + addonTotal
   } else {
-    const addonKeys: string[] = normalizedAddons.map(a => a.key)
     const computed = await computeQuoteTotal(
       tenant.id,
       tenant.slug,
       selected_tier as string,
-      addonKeys,
+      normalizedAddons,
       {
         squareFootage: quote.square_footage,
         bedrooms: quote.bedrooms,
         bathrooms: quote.bathrooms,
       },
-      quoteServiceCategory
+      quoteServiceCategory,
+      false
     )
     subtotal = computed.subtotal
   }

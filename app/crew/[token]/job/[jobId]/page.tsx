@@ -98,15 +98,29 @@ export default function JobDetailPage() {
       setData(prev => prev ? { ...prev, job: { ...prev.job, payment_method: method } } : prev)
     } catch {}
   }
+
   async function handleCancelAccepted() {
-    if (!confirm("Are you sure you can't make this job? It will be reassigned.")) return
+    if (!confirm("Are you sure you can't make this job? It will be reassigned to another cleaner.")) return
     setUpdating("cancel")
     try {
-      const res = await fetch(apiBase, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel_accepted" }) })
-      if (!res.ok) { const err = await res.json(); alert(err.error || "Failed"); return }
+      const res = await fetch(apiBase, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel_accepted" }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        alert(err.error || "Failed to cancel")
+        return
+      }
       router.push(`/crew/${token}`)
-    } catch { alert("Network error") } finally { setUpdating(null) }
+    } catch {
+      alert("Network error")
+    } finally {
+      setUpdating(null)
+    }
   }
+
   async function handleAcceptDecline(action: "accept" | "decline") {
     setUpdating(action)
     try {
@@ -327,35 +341,6 @@ export default function JobDetailPage() {
         {isActive && !isPending && (
           <div className="bg-white rounded-2xl p-5 slide-up" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", animationDelay: "0.15s" }}>
             <p className="font-bold text-slate-800 mb-5 text-sm">Job Progress</p>
-
-            {/* Visual step tracker */}
-            <div className="flex items-center justify-between mb-6 px-2">
-              {steps.map((step, i) => (
-                <div key={step.key} className="flex items-center flex-1">
-                  {/* Step circle */}
-                  <div className="flex flex-col items-center gap-1.5">
-                    <div
-                      className="size-12 rounded-2xl flex items-center justify-center transition-all duration-500"
-                      style={{
-                        background: step.done ? step.color : "#f1ede6",
-                        color: step.done ? "#ffffff" : "#c4bfb6",
-                        boxShadow: step.done ? `0 4px 12px ${step.color}40` : "none",
-                        animation: step.done ? "pulse 2s ease-in-out infinite" : "none",
-                      }}
-                    >
-                      {step.done ? <CheckCircle2 className="size-6" /> : step.icon}
-                    </div>
-                    <span className="text-[10px] font-bold text-slate-500">{step.label}</span>
-                  </div>
-                  {/* Connector line */}
-                  {i < steps.length - 1 && (
-                    <div className="flex-1 h-1 rounded-full mx-2 transition-all duration-500"
-                      style={{ background: steps[i + 1].done || step.done ? (step.done ? step.color : "#e2ddd5") : "#e2ddd5" }}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
 
             {/* Action button — only show the NEXT step as one big button */}
             {(() => {
@@ -616,7 +601,8 @@ function InfoPill({ icon, text }: { icon: React.ReactNode; text: string }) {
 }
 
 function NotesDisplay({ notes }: { notes: string }) {
-  const segments = notes.split(/\||\n/).map(s => s.trim()).filter(Boolean)
+  const INTERNAL = /^(PROMO:|NORMAL_PRICE:|__SYS)/i
+  const segments = notes.split(/\||\n/).map(s => s.trim()).filter(s => s && !INTERNAL.test(s))
   const desc: string[] = []; const bullets: string[] = []
   for (const seg of segments) { if (seg.startsWith("*")) bullets.push(seg.replace(/^\*\s*/, "")); else desc.push(seg) }
   return (

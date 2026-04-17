@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { getTenantById, tenantUsesFeature } from '@/lib/tenant'
 import { getQuotePricing, isWindowCleaningTenant } from '@/lib/quote-pricing'
+import { normalizeAddons, isEffectivelyIncluded, type AddonInput } from '@/lib/service-scope'
 import { sendSMS } from '@/lib/openphone'
 import { scheduleRetargetingSequence } from '@/lib/scheduler'
 import { cancelPendingTasks } from '@/lib/lifecycle-engine'
@@ -168,37 +169,31 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     bathrooms: null,
   }, 'standard')
 
+  const hasCustomPrice = customPrice != null && customPrice > 0
+  const tierForPricing = hasCustomPrice ? 'custom' : (selectedTier || 'standard')
+
+  // Single inclusion rule — service-scope.isEffectivelyIncluded is the source of truth.
+  // Custom-priced quotes default every addon to included unless explicitly opted billable.
+  const computeAddonTotal = (): number => {
+    let addonTotal = 0
+    for (const key of selectedAddons) {
+      const addon = pricing.addons.find(a => a.key === key)
+      if (!addon) continue
+      if (isEffectivelyIncluded({ key }, tierForPricing, hasCustomPrice)) continue
+      if (addon.priceType === 'per_unit') {
+        addonTotal += addon.price * (addonQuantities[key] || 1)
+      } else {
+        addonTotal += addon.price
+      }
+    }
+    return addonTotal
+  }
+
   let total: number
-  if (customPrice != null && customPrice > 0) {
-    let addonTotal = 0
-    for (const key of selectedAddons) {
-      const addon = pricing.addons.find(a => a.key === key)
-      if (!addon) continue
-      if (selectedTier) {
-        const tierDef = pricing.tiers.find(t => t.key === selectedTier)
-        if (tierDef && tierDef.included.includes(key)) continue
-      }
-      if (addon.priceType === 'per_unit') {
-        addonTotal += addon.price * (addonQuantities[key] || 1)
-      } else {
-        addonTotal += addon.price
-      }
-    }
-    total = customPrice + addonTotal
+  if (hasCustomPrice) {
+    total = (customPrice as number) + computeAddonTotal()
   } else if (selectedTier && pricing.tierPrices[selectedTier]) {
-    let addonTotal = 0
-    const tierDef = pricing.tiers.find(t => t.key === selectedTier)
-    for (const key of selectedAddons) {
-      if (tierDef && tierDef.included.includes(key)) continue
-      const addon = pricing.addons.find(a => a.key === key)
-      if (!addon) continue
-      if (addon.priceType === 'per_unit') {
-        addonTotal += addon.price * (addonQuantities[key] || 1)
-      } else {
-        addonTotal += addon.price
-      }
-    }
-    total = pricing.tierPrices[selectedTier].price + addonTotal
+    total = pricing.tierPrices[selectedTier].price + computeAddonTotal()
   } else {
     return NextResponse.json({ error: 'Must provide selected_tier or custom_price' }, { status: 400 })
   }
@@ -255,12 +250,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     customerId = newCustomer.id
   }
 
-  // ── Normalize addons for storage ───────────────────────────────────
+  // ── Normalize addons for storage (preserves included flag) ─────────
 
-  const normalizedAddons = selectedAddons.map(key => ({
+  const addonInputs: AddonInput[] = selectedAddons.map((key) => ({
     key,
     quantity: addonQuantities[key] || 1,
   }))
+  const normalizedAddons = normalizeAddons(addonInputs, tierForPricing, hasCustomPrice)
 
   // ── Create quote record ────────────────────────────────────────────
 

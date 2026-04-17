@@ -106,11 +106,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       description: post.metaDescription,
       type: "article",
       publishedTime: post.publishedAt,
-      authors: ["Dominic"],
+      authors: ["Spotless Scrubbers"],
       siteName: "Spotless Scrubbers",
     },
     alternates: {
-      canonical: `${SPOTLESS_BUSINESS.url}/spotless/blog/${post.slug}`,
+      canonical: `${SPOTLESS_BUSINESS.url}/blog/${post.slug}`,
     },
   }
 }
@@ -132,7 +132,7 @@ export default async function BlogPostPage({ params }: PageProps) {
     notFound()
   }
 
-  const postUrl = `${SPOTLESS_BUSINESS.url}/spotless/blog/${post.slug}`
+  const postUrl = `${SPOTLESS_BUSINESS.url}/blog/${post.slug}`
 
   // Find previous and next posts for navigation (seed + DB)
   const allPosts = await getAllPosts()
@@ -151,14 +151,9 @@ export default async function BlogPostPage({ params }: PageProps) {
     description: post.metaDescription,
     datePublished: post.publishedAt,
     author: {
-      "@type": "Person",
-      name: "Dominic",
-      jobTitle: "Owner",
-      worksFor: {
-        "@type": "LocalBusiness",
-        name: SPOTLESS_BUSINESS.name,
-        url: SPOTLESS_BUSINESS.url,
-      },
+      "@type": "Organization",
+      name: SPOTLESS_BUSINESS.name,
+      url: SPOTLESS_BUSINESS.url,
     },
     publisher: {
       "@type": "Organization",
@@ -178,7 +173,7 @@ export default async function BlogPostPage({ params }: PageProps) {
       <BreadcrumbJsonLd
         items={[
           { name: "Home", url: SPOTLESS_BUSINESS.url },
-          { name: "Blog", url: `${SPOTLESS_BUSINESS.url}/spotless/blog` },
+          { name: "Blog", url: `${SPOTLESS_BUSINESS.url}/blog` },
           { name: post.title, url: postUrl },
         ]}
       />
@@ -188,11 +183,11 @@ export default async function BlogPostPage({ params }: PageProps) {
       <div className="bg-slate-50 border-b border-slate-200">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <nav className="flex items-center gap-2 text-sm text-slate-500">
-            <Link href="/spotless" className="hover:text-[#2195b4] transition-colors">
+            <Link href="/" className="hover:text-[#2195b4] transition-colors">
               Home
             </Link>
             <span>/</span>
-            <Link href="/spotless/blog" className="hover:text-[#2195b4] transition-colors">
+            <Link href="/blog" className="hover:text-[#2195b4] transition-colors">
               Blog
             </Link>
             <span>/</span>
@@ -232,12 +227,12 @@ export default async function BlogPostPage({ params }: PageProps) {
             <div className="flex items-center justify-between border-t border-b border-slate-200 py-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-[#2195b4] flex items-center justify-center text-white font-bold text-sm">
-                  D
+                  SS
                 </div>
                 <div>
-                  <div className="text-sm font-semibold text-slate-900">Dominic</div>
+                  <div className="text-sm font-semibold text-slate-900">Spotless Scrubbers</div>
                   <div className="text-xs text-slate-500">
-                    Owner, {SPOTLESS_BUSINESS.name}
+                    {SPOTLESS_BUSINESS.name} Team
                   </div>
                 </div>
               </div>
@@ -259,8 +254,8 @@ export default async function BlogPostPage({ params }: PageProps) {
                 Need a Cleaning? Let Us Handle It.
               </h3>
               <p className="text-slate-600 mb-6">
-                Drop your info and Dominic will get back to you within the hour.
-                No pressure, no automated calls. Just an honest quote from a real person.
+                Drop your info and get a confirmed quote in minutes.
+                No pressure, no spam. Just fast, professional service.
               </p>
               <BookingForm source={`blog_${post.slug}`} />
             </div>
@@ -281,7 +276,7 @@ export default async function BlogPostPage({ params }: PageProps) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               {prevPost ? (
                 <Link
-                  href={`/spotless/blog/${prevPost.slug}`}
+                  href={`/blog/${prevPost.slug}`}
                   className="group block"
                 >
                   <span className="text-xs text-slate-500 mb-1 block">
@@ -296,7 +291,7 @@ export default async function BlogPostPage({ params }: PageProps) {
               )}
               {nextPost ? (
                 <Link
-                  href={`/spotless/blog/${nextPost.slug}`}
+                  href={`/blog/${nextPost.slug}`}
                   className="group block text-right"
                 >
                   <span className="text-xs text-slate-500 mb-1 block">
@@ -315,7 +310,7 @@ export default async function BlogPostPage({ params }: PageProps) {
           {/* Back to blog */}
           <div className="mt-8 text-center">
             <Link
-              href="/spotless/blog"
+              href="/blog"
               className="text-sm font-medium text-[#2195b4] hover:underline"
             >
               &larr; Back to all posts

@@ -104,7 +104,6 @@ export async function GET(request: NextRequest) {
     } else if (Array.isArray(row.cleaner_assignments) && row.cleaner_assignments.length > 0) {
       const active = row.cleaner_assignments.find((a: any) => a.status === "confirmed")
         || row.cleaner_assignments.find((a: any) => a.status === "accepted")
-        || row.cleaner_assignments.find((a: any) => a.status === "pending")
       if (active) {
         const c = Array.isArray(active.cleaners) ? active.cleaners[0] : active.cleaners
         if (c?.name) cleanerName = c.name
@@ -194,6 +193,8 @@ export async function PATCH(request: NextRequest) {
     if (body.price !== undefined) updates.price = body.price
     if (body.status !== undefined) updates.status = body.status
     if (body.notes !== undefined) updates.notes = body.notes
+    if (body.cleaner_notes !== undefined) updates.cleaner_notes = body.cleaner_notes
+    if (body.cleaner_pay_override !== undefined) updates.cleaner_pay_override = body.cleaner_pay_override === null ? null : Number(body.cleaner_pay_override)
     if (body.phone_number !== undefined) updates.phone_number = body.phone_number
 
     // Update linked customer record if customer fields provided
@@ -546,6 +547,8 @@ export async function POST(request: NextRequest) {
         hours: body.duration_minutes ? Number(body.duration_minutes) / 60 : undefined,
         price: body.estimated_value != null ? Number(body.estimated_value) : undefined,
         notes: body.notes || undefined,
+        cleaner_notes: body.cleaner_notes || undefined,
+        cleaner_pay_override: body.cleaner_pay_override != null ? Number(body.cleaner_pay_override) : undefined,
         status: body.status === "quoted" ? "quoted" : "scheduled",
         booked: body.status !== "quoted",
         addons: body.addons ? JSON.stringify(body.addons) : undefined,

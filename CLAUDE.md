@@ -28,14 +28,29 @@ Next.js 16 / TypeScript / Tailwind / Shadcn/ui • Supabase (Postgres + RLS via 
 - **Dual-caller routes:** Core logic extracted (e.g. `executeCompleteJob()`) — POST adds auth, cron calls directly
 
 ### Key Directories
-- `app/(dashboard)/` — dashboard pages
-- `app/api/actions/` — dashboard action routes
-- `app/api/cron/` — cron routes
-- `app/api/webhooks/` — webhook routes (stripe, openphone, telegram, vapi, ghl, housecall-pro)
-- `app/api/admin/` — admin routes (tenants CRUD, onboard wizard, connection tests, webhook registration, users)
-- `app/api/automation/` — automation triggers
-- `lib/` — utility modules
-- `scripts/` — SQL migrations
+
+**Monorepo structure:**
+- `packages/core/src/` — shared code (auth, SMS, payments, scheduling). Edit here if the change affects both apps.
+- `apps/house-cleaning/` — house cleaning app (Spotless, Cedar Rapids, West Niagara)
+- `apps/window-washing/` — window washing app (WinBros)
+
+**Each app contains its own `app/`, `lib/`, `components/`, `hooks/`, `integrations/`.**
+Root-level `app/` and `lib/` are dead code from before the migration. Do not edit them.
+
+**Common route structure (under each app's `app/`):**
+- `(dashboard)/` — dashboard pages
+- `api/actions/` — dashboard action routes
+- `api/cron/` — cron routes
+- `api/webhooks/` — webhook routes (stripe, openphone, telegram, vapi, ghl, housecall-pro)
+- `api/admin/` — admin routes (tenants CRUD, onboard wizard, connection tests, webhook registration, users)
+- `api/automation/` — automation triggers
+- `scripts/` — SQL migrations (root level, shared)
+
+### Git & Deployment
+- Push to `main` only. The `Test` branch is retired.
+- `git push origin main` deploys both apps automatically.
+- Vercel projects: `osiris-house-cleaning` and `osiris-window-washing` under `mrspotlessonemils-projects` (Pro).
+- Never use the `dominics-projects-2073b92a` Vercel account.
 
 ### Core Tables (not exhaustive)
 - `tenants` — API keys, workflow_config, timezone
@@ -52,6 +67,7 @@ Next.js 16 / TypeScript / Tailwind / Shadcn/ui • Supabase (Postgres + RLS via 
 - **`ignoreBuildErrors: true`** — TS errors won't block Vercel builds. Don't rely on build to catch type issues.
 - **Variable shadowing** — routes with existing `tenant` var: destructure auth as `authTenant`.
 - **`getAdminClient()` is dead** — all admin routes now use `getSupabaseServiceClient()`. Don't reintroduce local `createClient` wrappers.
+- **Prebuild only syncs new files** — each app's prebuild copies from `packages/core/src/` to its `lib/`, but skips files that already exist. Editing a core file won't propagate if the app already has its own copy. To push a core fix to an app, delete the app's copy so core takes over, or edit the app's `lib/` directly.
 
 ### Pre-Flight Checklist (verify before finishing ANY route)
 

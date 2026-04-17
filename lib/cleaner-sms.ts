@@ -127,29 +127,31 @@ export async function notifyCleanerAssignment(
   if (job.hours) details.push(`${job.hours} hrs`)
   if (job.frequency && job.frequency !== 'one-time') details.push(`Recurring: ${humanize(job.frequency)}`)
 
-  // Cleaner pay — use percentage of job price (matches portal), fallback to hourly rate
-  const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
-  if (payPercentage && job.price) {
-    const cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
-    details.push(`Your pay: ${formatTenantCurrency(tenant, cleanerPay)}`)
-  } else if (job.hours) {
-    const rate = cleaner.hourly_rate || 25
-    details.push(`Your pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`)
+  // Team size
+  const numCleaners = (job as any).cleaners ? Number((job as any).cleaners) : 1
+  if (numCleaners > 1) {
+    details.push(`${numCleaners}-person team required`)
+  }
+
+  // Cleaner pay: unified priority chain (matches notifyCleanerAwarded)
+  let payAmount: number | null = null
+  if ((job as any).cleaner_pay_override) {
+    payAmount = (job as any).cleaner_pay_override / (numCleaners || 1)
+  } else if (cleaner.hourly_rate && job.hours) {
+    payAmount = cleaner.hourly_rate * Number(job.hours) / (numCleaners || 1)
+  }
+  if (payAmount != null) {
+    details.push(`Your pay: $${payAmount.toFixed(0)}`)
+  }
+
+  let link = ''
+  if (cleaner.portal_token && job.id) {
+    link = `\n\nTap the link to view full details & accept:\n${jobUrl(cleaner.portal_token, job.id)}`
   }
 
   const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
   const custStr = custName ? `\nCustomer: ${custName}` : ''
-
-  // Notes preview (first 100 chars — strip internal quote metadata, keep special instructions)
-  const rawNotes = (job.notes || '').replace(/^Quote #[A-F0-9]+ approved[^\n]*\n?/i, '').trim()
-  const notesPreview = rawNotes ? `\n${rawNotes.slice(0, 100)}${rawNotes.length > 100 ? '...' : ''}` : ''
-
-  let link = ''
-  if (cleaner.portal_token && job.id) {
-    link = `\n\nView full details, checklist & confirm:\n${jobUrl(cleaner.portal_token, job.id)}`
-  }
-
-  const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${notesPreview}${link}`
+  const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${link}\n\nReply ACCEPT or DECLINE.`
 
   const result = await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 
@@ -197,15 +199,38 @@ export async function notifyCleanerAwarded(
   const time = formatTime(job.scheduled_at)
   const address = job.address || customer?.address || 'See details'
   const service = job.service_type ? humanize(job.service_type) : 'Cleaning'
-  // Cleaner pay — use percentage of job price (matches portal), fallback to hourly rate
-  const payPercentage2 = tenant.workflow_config?.cleaner_pay_percentage
+  // Unified cleaner pay calculation:
+  // 1. cleaner_pay_override (exact amount per cleaner) — highest priority
+  // 2. Hourly model: rate × hours (split per person for multi-cleaner)
+  // 3. Percentage model: % of job price (with NORMAL_PRICE fallback for promos)
   let payStr = ''
-  if (payPercentage2 && job.price) {
-    const cleanerPay = parseFloat(String(job.price)) * (payPercentage2 / 100)
-    payStr = `\nYour pay: ${formatTenantCurrency(tenant, cleanerPay)}`
-  } else if (job.hours) {
-    const rate = cleaner.hourly_rate || 25
-    payStr = `\nYour pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`
+  const numCleaners = (job as any).cleaners ? Number((job as any).cleaners) : 1
+  const override = (job as any).cleaner_pay_override
+  if (override != null) {
+    payStr = `\nYour pay: ${formatTenantCurrency(tenant, Number(override))}`
+  } else if (tenant.workflow_config?.cleaner_pay_model === 'hourly' && job.hours) {
+    const isDeep = job.service_type?.toLowerCase().includes('deep')
+    const rate = isDeep
+      ? (tenant.workflow_config.cleaner_pay_hourly_deep || 30)
+      : (tenant.workflow_config.cleaner_pay_hourly_standard || 25)
+    const totalPay = rate * Number(job.hours)
+    const perPerson = numCleaners > 1 ? totalPay / numCleaners : totalPay
+    payStr = `\nYour pay: ${formatTenantCurrency(tenant, perPerson)}`
+  } else {
+    const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
+    let payBase = job.price ? parseFloat(String(job.price)) : 0
+    if (job.notes && typeof job.notes === 'string' && job.notes.includes('NORMAL_PRICE:')) {
+      const match = job.notes.match(/NORMAL_PRICE:(\d+(?:\.\d+)?)/)
+      if (match) payBase = parseFloat(match[1])
+    }
+    if (payPercentage && payBase) {
+      const totalPay = payBase * (payPercentage / 100)
+      const perPerson = numCleaners > 1 ? totalPay / numCleaners : totalPay
+      payStr = `\nYour pay: ${formatTenantCurrency(tenant, perPerson)}`
+    } else if (job.hours) {
+      const rate = cleaner.hourly_rate || 25
+      payStr = `\nYour pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`
+    }
   }
 
   let link = ''
@@ -546,6 +571,15 @@ export async function processCleanerStatusUpdate(
   const job = (activeAssignment as any).jobs
   const customer = job?.customers
   const jobId = job?.id
+
+  // Future-job guard: prevent status updates for jobs more than 1 day in the future
+  const jobDate = new Date(job.date || job.scheduled_at)
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  tomorrow.setHours(23, 59, 59, 999)
+  if (jobDate > tomorrow) {
+    return { success: false, error: 'Cannot update status for future jobs' }
+  }
 
   // Update job status/timestamps
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }

@@ -16,6 +16,7 @@ import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pr
 import ScheduleGantt, { type GanttJob } from "@/components/dashboard/schedule-gantt"
 import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loader2 } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
+import { JobDetailDrawer } from "@/components/winbros/job-detail-drawer"
 import "./calendar.css"
 
 type CalendarJob = {
@@ -43,6 +44,8 @@ type CalendarJob = {
   parent_job_id?: number | null
   membership_id?: string | null
   leads?: { source: string }[]
+  credited_salesman_id?: number | null
+  credited_salesman?: { id: number; name: string } | null
 }
 
 type CalendarEventDetails = {
@@ -70,6 +73,7 @@ type CalendarEventDetails = {
   customerPhone: string
   customerEmail: string
   customerId: string
+  salesmanName: string
 }
 
 type PendingMove = {
@@ -290,6 +294,14 @@ function resolveLeadSource(job: CalendarJob): string {
   return ""
 }
 
+function resolveSalesmanName(job: CalendarJob): string {
+  if (job.credited_salesman) {
+    const s = Array.isArray(job.credited_salesman) ? job.credited_salesman[0] : job.credited_salesman
+    return s?.name || ""
+  }
+  return ""
+}
+
 function resolveStart(job: CalendarJob) {
   // date column is the actual date (YYYY-MM-DD), scheduled_at is a time string
   const dateStr = job.date || job.scheduled_date
@@ -400,13 +412,16 @@ function getSavedDate(): string | undefined {
 }
 
 export default function JobsPage() {
-  const { user } = useAuth()
+  const { user, isAdmin, isSalesman, cleanerId: authCleanerId } = useAuth()
   const router = useRouter()
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
+  const [myCleanerId, setMyCleanerId] = useState<number | null>(null)
+  const [crewMemberIds, setCrewMemberIds] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
   const [jobServiceTypes, setJobServiceTypes] = useState<string[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
+  const [drawerJobId, setDrawerJobId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const calendarRef = useRef<FullCalendar | null>(null)
   const [ganttView, setGanttView] = useState(getSavedIsGantt)
@@ -969,6 +984,29 @@ export default function JobsPage() {
     []
   )
 
+  // Resolve logged-in user's cleaner_id for field view filtering
+  useEffect(() => {
+    if (isAdmin || !user?.id) return
+    // Salesmen get their cleaner_id directly from auth context
+    if (isSalesman && authCleanerId) {
+      setMyCleanerId(authCleanerId)
+      // Fetch crew info for the salesman so they can see full crew schedule
+      fetch(`/api/actions/salesman-crew?cleaner_id=${authCleanerId}`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.crew_member_ids && Array.isArray(d.crew_member_ids)) {
+            setCrewMemberIds(d.crew_member_ids)
+          }
+        })
+        .catch(() => {})
+      return
+    }
+    fetch("/api/actions/settings", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setMyCleanerId(d.cleaner_id ?? -1))
+      .catch(() => setMyCleanerId(-1))
+  }, [isAdmin, isSalesman, authCleanerId, user?.id])
+
   useEffect(() => {
     async function fetchJobs() {
       try {
@@ -1013,19 +1051,55 @@ export default function JobsPage() {
     fetchJobs()
   }, [])
 
+  // For field (non-admin) users, filter to only their jobs
+  // Salesmen see all jobs on their crew's schedule
+  const visibleJobs = useMemo(() => {
+    if (isAdmin || !myCleanerId || myCleanerId <= 0) return jobs
+
+    // Salesmen see all jobs assigned to any crew member
+    if (isSalesman && crewMemberIds.length > 0) {
+      return jobs.filter((job) => {
+        // Show jobs assigned to any crew member
+        if (job.cleaner_id && crewMemberIds.includes(job.cleaner_id)) return true
+        // Also show jobs the salesman sold (regardless of crew assignment)
+        if ((job as any).credited_salesman_id === myCleanerId) return true
+        // Check cleaner assignments
+        const assignedId = resolveCleanerId(job)
+        if (assignedId && crewMemberIds.includes(Number(assignedId))) return true
+        return false
+      })
+    }
+
+    return jobs.filter((job) => {
+      // Direct cleaner assignment
+      if (job.cleaner_id === myCleanerId) return true
+      // Check cleaner resolved from assignments
+      const assignedId = resolveCleanerId(job)
+      if (assignedId && Number(assignedId) === myCleanerId) return true
+      // Check crew_day_members if present
+      if (Array.isArray(job.cleaner_assignments)) {
+        for (const a of job.cleaner_assignments) {
+          const c = Array.isArray(a.cleaners) ? a.cleaners[0] : a.cleaners
+          if (c?.id === myCleanerId) return true
+        }
+      }
+      return false
+    })
+  }, [jobs, isAdmin, isSalesman, myCleanerId, crewMemberIds])
+
   const cleanerColorMap = useMemo(() => {
     const names = [...new Set(
-      jobs.map(j => resolveCleanerName(j)).filter(Boolean)
+      visibleJobs.map(j => resolveCleanerName(j)).filter(Boolean)
     )] as string[]
     const map = new Map<string, string>()
     names.sort().forEach((name, i) => {
       map.set(name, CLEANER_COLORS[i % CLEANER_COLORS.length])
     })
     return map
-  }, [jobs])
+  }, [visibleJobs])
 
   const baseEvents = useMemo<EventInput[]>(() => {
-    return jobs.map((job) => {
+    return visibleJobs.map((job) => {
       const start = resolveStart(job)
       const end = resolveEnd(job)
       const location = resolveLocation(job)
@@ -1041,13 +1115,17 @@ export default function JobsPage() {
         : job.title || job.service_type || customerName
       const className = eventClassForStatus(job.status)
       const cleanerColor = cleanerName ? cleanerColorMap.get(cleanerName) : undefined
+      // Salesman visual distinction
+      const isMySale = isSalesman && myCleanerId && job.credited_salesman_id === myCleanerId
+      const isNotMySale = isSalesman && myCleanerId && job.credited_salesman_id !== myCleanerId
+      const salesmanClasses = isMySale ? ['event-salesman-sold'] : isNotMySale ? ['event-salesman-not-sold'] : []
 
       return {
         id: String(job.id),
-        title,
+        title: isMySale ? `${title} [SOLD]` : isNotMySale ? `${title}` : title,
         start,
         end,
-        classNames: [className, ...(job.membership_id ? ['event-membership'] : [])],
+        classNames: [className, ...(job.membership_id ? ['event-membership'] : []), ...salesmanClasses],
         borderColor: cleanerColor,
         extendedProps: {
           description,
@@ -1072,14 +1150,15 @@ export default function JobsPage() {
           leadSource: resolveLeadSource(job),
           customerPhone: customer?.phone_number || job.phone_number || "",
           customerEmail: customer?.email || "",
+          salesmanName: resolveSalesmanName(job),
           customerId: customer?.id ? String(customer.id) : "",
         },
       }
     })
-  }, [jobs, cleanerColorMap])
+  }, [visibleJobs, cleanerColorMap])
 
   const ganttJobs = useMemo<GanttJob[]>(() => {
-    return jobs.map((job) => ({
+    return visibleJobs.map((job) => ({
       id: String(job.id),
       customerName: resolveCustomerName(job),
       cleanerName: resolveCleanerName(job) || "",
@@ -1089,10 +1168,10 @@ export default function JobsPage() {
       status: job.status || "scheduled",
       color: cleanerColorMap.get(resolveCleanerName(job) || ""),
     }))
-  }, [jobs, cleanerColorMap])
+  }, [visibleJobs, cleanerColorMap])
 
   const handleGanttJobClick = useCallback((jobId: string) => {
-    const job = jobs.find((j) => String(j.id) === jobId)
+    const job = visibleJobs.find((j) => String(j.id) === jobId)
     if (!job) return
     const start = resolveStart(job)
     const end = resolveEnd(job)
@@ -1125,6 +1204,7 @@ export default function JobsPage() {
       customerPhone: customer?.phone_number || job.phone_number || "",
       customerEmail: customer?.email || "",
       customerId: customer?.id ? String(customer.id) : "",
+      salesmanName: resolveSalesmanName(job),
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1133,19 +1213,19 @@ export default function JobsPage() {
     setAddChargeOpen(false)
     setSendToCleanerId("")
     setSendToCleanerResult(null)
-  }, [jobs])
+  }, [visibleJobs])
 
   // Open job details after creation once jobs list refreshes
   useEffect(() => {
     if (pendingJobOpenRef.current) {
       const jobId = pendingJobOpenRef.current
-      const job = jobs.find((j) => String(j.id) === jobId)
+      const job = visibleJobs.find((j) => String(j.id) === jobId)
       if (job) {
         pendingJobOpenRef.current = null
         handleGanttJobClick(jobId)
       }
     }
-  }, [jobs, handleGanttJobClick])
+  }, [visibleJobs, handleGanttJobClick])
 
   const handleSelect = (info: DateSelectArg) => {
     const d = info.start
@@ -1179,7 +1259,7 @@ export default function JobsPage() {
       membership_id: "",
       selected_tier_index: "",
       lead_source: "",
-      credited_salesman_id: "",
+      credited_salesman_id: isSalesman && authCleanerId ? String(authCleanerId) : "",
     })
     setCreateError("")
     setPhoneLookedUp("")
@@ -1249,6 +1329,7 @@ export default function JobsPage() {
       customerPhone: info.event.extendedProps.customerPhone || "",
       customerEmail: info.event.extendedProps.customerEmail || "",
       customerId: info.event.extendedProps.customerId || "",
+      salesmanName: info.event.extendedProps.salesmanName || "",
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1392,7 +1473,7 @@ export default function JobsPage() {
     const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
 
     // Resolve all assigned cleaner IDs from cleaner_assignments (not just the primary FK)
-    const job = jobs.find(j => String(j.id) === selectedEvent.jobId)
+    const job = visibleJobs.find(j => String(j.id) === selectedEvent.jobId)
     const assignments = job?.cleaner_assignments
     let initialCleanerIds: string[] = []
     if (Array.isArray(assignments) && assignments.length > 0) {
@@ -2337,7 +2418,7 @@ export default function JobsPage() {
         {/* Schedule monitoring strip — at-a-glance daily summary */}
         {(() => {
           const today = new Date().toISOString().split("T")[0]
-          const todayJobs = jobs.filter(j => {
+          const todayJobs = visibleJobs.filter(j => {
             const jobDate = j.date || j.scheduled_date || ""
             return jobDate.startsWith(today)
           })
@@ -2454,8 +2535,16 @@ export default function JobsPage() {
                 const price = arg.event.extendedProps.price
                 const status = arg.event.extendedProps.status
                 const service = arg.event.extendedProps.service
+                const salesmanName = arg.event.extendedProps.salesmanName || ''
+                const cleanerName = arg.event.extendedProps.cleanerName || ''
                 const view = arg.view.type
                 const dotColor = status === 'completed' ? '#22c55e' : status === 'in_progress' ? '#f59e0b' : '#6366f1'
+                const soldBadge = salesmanName
+                  ? `<span style="font-size:8px;background:rgba(245,158,11,0.15);color:#f59e0b;padding:0 3px;border-radius:3px;font-weight:500;white-space:nowrap">Sold: ${salesmanName.split(' ')[0]}</span>`
+                  : ''
+                const crewBadge = cleanerName
+                  ? `<span style="font-size:8px;background:rgba(59,130,246,0.15);color:#60a5fa;padding:0 3px;border-radius:3px;font-weight:500;white-space:nowrap">Crew: ${cleanerName.split(' ')[0]}</span>`
+                  : ''
                 if (view === 'dayGridMonth') {
                   const timeText = arg.timeText || ''
                   return {
@@ -2463,6 +2552,7 @@ export default function JobsPage() {
                       <div style="display:flex;align-items:center;gap:3px;padding:1px 3px;overflow:hidden;white-space:nowrap">
                         <span style="font-size:10px;opacity:0.75;flex-shrink:0">${timeText}</span>
                         <span style="font-weight:600;font-size:11px;overflow:hidden;text-overflow:ellipsis">${arg.event.title}</span>
+                        ${soldBadge}
                       </div>
                     `
                   }
@@ -2475,10 +2565,11 @@ export default function JobsPage() {
                         <span style="width:6px;height:6px;border-radius:50%;background:${dotColor};flex-shrink:0"></span>
                         <span style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${arg.event.title}</span>
                       </div>
-                      <div style="display:flex;gap:4px;font-size:10px;opacity:0.85;margin-top:1px">
+                      <div style="display:flex;gap:4px;font-size:10px;opacity:0.85;margin-top:1px;flex-wrap:wrap">
                         ${price ? `<span style="font-weight:500">$${Number(price).toLocaleString()}</span>` : ''}
                         ${service ? `<span style="opacity:0.7">${service}</span>` : ''}
                       </div>
+                      ${(soldBadge || crewBadge) ? `<div style="display:flex;gap:3px;margin-top:1px;flex-wrap:wrap">${soldBadge}${crewBadge}</div>` : ''}
                     </div>
                   `
                 }
@@ -2511,6 +2602,24 @@ export default function JobsPage() {
                     recurBadge.title = `Recurring: ${freq}`
                     recurBadge.style.cssText = "font-size:0.7em;opacity:0.7;"
                     titleEl.appendChild(recurBadge)
+                  }
+
+                  // Sold by badge (list view)
+                  const smName = info.event.extendedProps.salesmanName
+                  if (smName) {
+                    const soldBadge = document.createElement("span")
+                    soldBadge.textContent = ` Sold: ${smName.split(' ')[0]}`
+                    soldBadge.style.cssText = "font-size:0.65em;font-weight:600;margin-left:4px;padding:1px 4px;border-radius:4px;background:rgba(245,158,11,0.15);color:#f59e0b;"
+                    titleEl.appendChild(soldBadge)
+                  }
+
+                  // Crew badge (list view)
+                  const crName = info.event.extendedProps.cleanerName
+                  if (crName) {
+                    const crewBadge = document.createElement("span")
+                    crewBadge.textContent = ` Crew: ${crName.split(' ')[0]}`
+                    crewBadge.style.cssText = "font-size:0.65em;font-weight:600;margin-left:4px;padding:1px 4px;border-radius:4px;background:rgba(59,130,246,0.15);color:#60a5fa;"
+                    titleEl.appendChild(crewBadge)
                   }
                 }
                 const service = info.event.extendedProps.service || ""
@@ -2587,7 +2696,7 @@ export default function JobsPage() {
             membership_id: "",
             selected_tier_index: "",
             lead_source: "",
-            credited_salesman_id: "",
+            credited_salesman_id: isSalesman && authCleanerId ? String(authCleanerId) : "",
           })
           setCreateError("")
           setPhoneLookedUp("")
@@ -2751,9 +2860,36 @@ export default function JobsPage() {
                     )}
                   </div>
                 )}
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <strong>Cleaner:</strong> {selectedEvent?.cleaner || "Unassigned"}
+                <div style={{ marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
+                  <strong>Crew:</strong>{" "}
+                  <span style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "2px 8px",
+                    borderRadius: 8,
+                    fontSize: "0.7rem",
+                    fontWeight: 600,
+                    backgroundColor: "rgba(59, 130, 246, 0.15)",
+                    color: "#60a5fa",
+                    border: "1px solid rgba(59, 130, 246, 0.25)",
+                  }}>{selectedEvent?.cleaner || "Unassigned"}</span>
                 </div>
+                {selectedEvent?.salesmanName && (
+                  <div style={{ marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
+                    <strong>Sold by:</strong>{" "}
+                    <span style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "2px 8px",
+                      borderRadius: 8,
+                      fontSize: "0.7rem",
+                      fontWeight: 600,
+                      backgroundColor: "rgba(245, 158, 11, 0.15)",
+                      color: "#fbbf24",
+                      border: "1px solid rgba(245, 158, 11, 0.25)",
+                    }}>{selectedEvent.salesmanName}</span>
+                  </div>
+                )}
                 {selectedEvent?.team && (
                   <div style={{ marginBottom: "0.5rem" }}>
                     <strong>Team:</strong> {selectedEvent.team}
@@ -3083,6 +3219,19 @@ export default function JobsPage() {
                     style={{ padding: "0.4rem 0.5rem" }}
                   >
                     <DollarSign className="w-4 h-4" />
+                  </button>
+                  <button
+                    className="cal-modal-btn"
+                    onClick={() => {
+                      if (selectedEvent?.jobId) {
+                        setDrawerJobId(selectedEvent.jobId)
+                        setSelectedEvent(null)
+                      }
+                    }}
+                    title="View full job/visit details"
+                    style={{ fontSize: "0.8rem" }}
+                  >
+                    Full Details
                   </button>
                   <button
                     className="cal-modal-btn cal-modal-btn-edit"
@@ -4373,6 +4522,14 @@ export default function JobsPage() {
           </div>
         </div>
       )}
+
+      {/* Job Detail Drawer — full execution flow slides in from right */}
+      <JobDetailDrawer
+        jobId={drawerJobId}
+        open={drawerJobId !== null}
+        onClose={() => setDrawerJobId(null)}
+        onJobUpdated={refreshJobs}
+      />
     </>
   )
 }

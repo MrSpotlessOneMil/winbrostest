@@ -22,6 +22,7 @@ import {
   Users,
   Send,
 } from "lucide-react"
+import { getPaidAddons, isEffectivelyIncluded } from "@/lib/service-scope"
 
 interface Quote {
   id: string
@@ -41,6 +42,8 @@ interface Quote {
   preconfirm_status: string | null
   cleaner_pay: number | null
   description: string | null
+  selected_addons: string[] | { key: string; label?: string; price?: number; included?: boolean; quantity?: number; custom?: boolean }[] | null
+  custom_base_price: number | null
 }
 
 interface CleanerOption {
@@ -759,6 +762,36 @@ export default function QuotesPage() {
                           </span>
                         )}
                       </div>
+                      {/* Add-ons — billable and included shown separately */}
+                      {(() => {
+                        if (!quote.selected_addons || !Array.isArray(quote.selected_addons) || quote.selected_addons.length === 0) return null
+                        const tier = quote.selected_tier || "standard"
+                        const hasCustomPriceQuote = quote.custom_base_price != null
+                        const objects = (quote.selected_addons as Array<string | { key: string; included?: boolean; label?: string }>).map((a) =>
+                          typeof a === "string" ? { key: a } : a
+                        )
+                        const billable = objects.filter((a) => !isEffectivelyIncluded({ key: a.key, included: a.included }, tier, hasCustomPriceQuote))
+                        const included = objects.filter((a) => isEffectivelyIncluded({ key: a.key, included: a.included }, tier, hasCustomPriceQuote))
+                        const fmtKey = (k: string) => k.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+                        const getLabel = (a: { key: string; label?: string }) => a.label || fmtKey(a.key)
+                        if (billable.length === 0 && included.length === 0) return null
+                        return (
+                          <div className="mt-1 text-xs text-muted-foreground space-y-0.5">
+                            {billable.length > 0 && (
+                              <div>
+                                <span className="font-medium">Add-ons:</span>{" "}
+                                {billable.map(getLabel).join(", ")}
+                              </div>
+                            )}
+                            {included.length > 0 && (
+                              <div>
+                                <span className="font-medium text-emerald-600">Included:</span>{" "}
+                                {included.map(getLabel).join(", ")}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     {/* Right: Actions */}

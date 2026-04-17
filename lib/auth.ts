@@ -337,6 +337,7 @@ export function setSessionCookie(response: NextResponse, token: string): void {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
+    domain: process.env.NODE_ENV === 'production' ? '.cleanmachine.live' : undefined,
     expires: expiresAt,
   })
 }
@@ -347,6 +348,7 @@ export function clearSessionCookie(response: NextResponse): void {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
+    domain: process.env.NODE_ENV === 'production' ? '.cleanmachine.live' : undefined,
     expires: new Date(0),
   })
 }

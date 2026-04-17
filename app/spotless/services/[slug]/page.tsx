@@ -31,7 +31,7 @@ export async function generateMetadata({
     title: `${service.title} in Los Angeles | Spotless Scrubbers`,
     description: service.metaDescription,
     alternates: {
-      canonical: `${SPOTLESS_BUSINESS.url}/spotless/services/${slug}`,
+      canonical: `${SPOTLESS_BUSINESS.url}/services/${slug}`,
     },
   }
 }
@@ -88,7 +88,7 @@ export default async function ServicePage({
         <section className="bg-gradient-to-b from-[#a8e0ef]/30 to-white py-16 sm:py-20">
           <div className="max-w-4xl mx-auto px-4 sm:px-6">
             <Link
-              href="/spotless/services"
+              href="/services"
               className="inline-flex items-center gap-1 text-sm text-[#2195b4] hover:text-[#155f73] mb-6"
             >
               &larr; All Services
@@ -176,7 +176,7 @@ export default async function ServicePage({
               {SPOTLESS_AREAS.map((area) => (
                 <Link
                   key={area.slug}
-                  href={`/spotless/services/${service.slug}/${area.slug}`}
+                  href={`/services/${service.slug}/${area.slug}`}
                   className="px-4 py-3 rounded-lg bg-white border border-slate-200 text-sm font-medium text-slate-700 hover:border-[#2195b4] hover:text-[#2195b4] transition-colors text-center"
                 >
                   {area.city}
@@ -213,7 +213,7 @@ export default async function ServicePage({
                 (s) => (
                   <Link
                     key={s.slug}
-                    href={`/spotless/services/${s.slug}`}
+                    href={`/services/${s.slug}`}
                     className="px-5 py-2.5 rounded-lg bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors"
                   >
                     {s.shortTitle}

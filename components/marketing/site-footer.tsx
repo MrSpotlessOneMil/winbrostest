@@ -52,7 +52,7 @@ export function SiteFooter() {
               {SPOTLESS_SERVICES.map((service) => (
                 <li key={service.slug}>
                   <Link
-                    href={`/spotless/services/${service.slug}`}
+                    href={`/services/${service.slug}`}
                     className="text-sm hover:text-white transition-colors"
                   >
                     {service.shortTitle}
@@ -69,7 +69,7 @@ export function SiteFooter() {
               {topAreas.map((area) => (
                 <li key={area.slug}>
                   <Link
-                    href={`/spotless/areas/${area.slug}`}
+                    href={`/areas/${area.slug}`}
                     className="text-sm hover:text-white transition-colors"
                   >
                     {area.city}
@@ -78,7 +78,7 @@ export function SiteFooter() {
               ))}
               <li>
                 <Link
-                  href="/spotless/areas"
+                  href="/areas"
                   className="text-sm text-[#2195b4] hover:text-[#a8e0ef] transition-colors"
                 >
                   View all areas...
@@ -92,32 +92,32 @@ export function SiteFooter() {
             <h3 className="font-semibold text-white mb-4">Quick Links</h3>
             <ul className="space-y-2">
               <li>
-                <Link href="/spotless" className="text-sm hover:text-white transition-colors">
+                <Link href="/" className="text-sm hover:text-white transition-colors">
                   Home
                 </Link>
               </li>
               <li>
-                <Link href="/spotless/services" className="text-sm hover:text-white transition-colors">
+                <Link href="/services" className="text-sm hover:text-white transition-colors">
                   Services
                 </Link>
               </li>
               <li>
-                <Link href="/spotless/areas" className="text-sm hover:text-white transition-colors">
+                <Link href="/areas" className="text-sm hover:text-white transition-colors">
                   Service Areas
                 </Link>
               </li>
               <li>
-                <Link href="/spotless/about" className="text-sm hover:text-white transition-colors">
+                <Link href="/about" className="text-sm hover:text-white transition-colors">
                   About Us
                 </Link>
               </li>
               <li>
-                <Link href="/spotless/blog" className="text-sm hover:text-white transition-colors">
+                <Link href="/blog" className="text-sm hover:text-white transition-colors">
                   Blog
                 </Link>
               </li>
               <li>
-                <Link href="/spotless/contact" className="text-sm hover:text-white transition-colors">
+                <Link href="/contact" className="text-sm hover:text-white transition-colors">
                   Book a Cleaning
                 </Link>
               </li>
@@ -162,15 +162,15 @@ export function SiteFooter() {
             &copy; {new Date().getFullYear()} {SPOTLESS_BUSINESS.name}. All rights reserved.
           </p>
           <div className="flex items-center gap-4 text-sm text-slate-500">
-            <Link href="/spotless/privacy" className="hover:text-slate-300 transition-colors">
+            <Link href="/privacy" className="hover:text-slate-300 transition-colors">
               Privacy Policy
             </Link>
             <span className="text-slate-700">|</span>
-            <Link href="/spotless/terms" className="hover:text-slate-300 transition-colors">
+            <Link href="/terms" className="hover:text-slate-300 transition-colors">
               Terms of Service
             </Link>
             <span className="text-slate-700">|</span>
-            <Link href="/spotless/accessibility" className="hover:text-slate-300 transition-colors">
+            <Link href="/accessibility" className="hover:text-slate-300 transition-colors">
               Accessibility
             </Link>
           </div>

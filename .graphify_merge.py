@@ -1,0 +1,103 @@
+import json
+from pathlib import Path
+
+c1_nodes = [
+    {"id":"osiris_platform","label":"Osiris Platform","file_type":"document","source_file":"CLAUDE.md"},
+    {"id":"cleaner_portal","label":"Cleaner Portal","file_type":"document","source_file":"CHANGELOG-cleaner-portal.md"},
+    {"id":"telegram_removal","label":"Telegram Removal / SMS Migration","file_type":"document","source_file":"CHANGELOG-cleaner-portal.md"},
+    {"id":"openphone_sms","label":"OpenPhone SMS System","file_type":"document","source_file":"CHANGELOG-cleaner-portal.md"},
+    {"id":"hcp_integration","label":"HousecallPro Integration","file_type":"document","source_file":"HCP_INTEGRATION_HANDOFF.md"},
+    {"id":"membership_feature","label":"Membership Feature","file_type":"document","source_file":"Membership_Feature.md"},
+    {"id":"multi_tenant_setup","label":"Multi-Tenant Setup Guide","file_type":"document","source_file":"MULTI_TENANT_SETUP_GUIDE.md"},
+    {"id":"spotless_scrubbers","label":"Spotless Scrubbers","file_type":"document","source_file":"apps/house-cleaning/public/llms.txt"},
+    {"id":"winbros","label":"WinBros Window Cleaning","file_type":"document","source_file":"Documentation/LIVE-TENANTS.md"},
+    {"id":"cedar_rapids","label":"Cedar Rapids House Cleaners","file_type":"document","source_file":"Documentation/LIVE-TENANTS.md"},
+    {"id":"dynamic_lead_automation","label":"Dynamic Lead Automation System","file_type":"document","source_file":"docs/plans/2025-01-31-dynamic-lead-automation.md"},
+    {"id":"osiris_brain","label":"Osiris Brain Knowledge System","file_type":"document","source_file":"docs/superpowers/plans/2026-03-28-osiris-brain-knowledge-system.md"},
+    {"id":"lifecycle_messaging","label":"Lifecycle Messaging System","file_type":"document","source_file":"Documentation/CHANGES.md"},
+    {"id":"master_plan","label":"Osiris Master Plan","file_type":"document","source_file":"Documentation/Master plan 2-19-2026.md"},
+    {"id":"supabase_db","label":"Supabase PostgreSQL Database","file_type":"document","source_file":"CLAUDE.md"},
+    {"id":"stripe_payments","label":"Stripe Payment System","file_type":"document","source_file":"docs/API-SETUP.md"},
+    {"id":"vapi_voice_ai","label":"VAPI Voice AI","file_type":"document","source_file":"docs/API-SETUP.md"},
+    {"id":"vercel_deployment","label":"Vercel Deployment","file_type":"document","source_file":"CLAUDE.md"},
+    {"id":"rls_security","label":"Row Level Security (RLS)","file_type":"document","source_file":"CLAUDE.md"},
+    {"id":"cron_locking_pattern","label":"Cron Locking Pattern","file_type":"document","source_file":"Documentation/verified cron race conditions 2-19-2026.md"},
+    {"id":"scheduled_tasks","label":"Scheduled Tasks Queue","file_type":"document","source_file":"CLAUDE.md"},
+    {"id":"pricing_formula","label":"Pricing Formula (bed/bath based)","file_type":"document","source_file":"docs/pricing-test-prompt.md"},
+    {"id":"lead_followup_sequence","label":"5-Stage Lead Follow-up Sequence","file_type":"document","source_file":"docs/plans/2025-01-31-dynamic-lead-automation.md"},
+    {"id":"route_optimizer","label":"Route Optimization System","file_type":"document","source_file":"Documentation/Master plan 2-19-2026.md"},
+    {"id":"cross_tenant_isolation","label":"Cross-Tenant Isolation Hardening","file_type":"document","source_file":"Documentation/Master plan 2-19-2026.md"},
+    {"id":"context_aware_sms_bot","label":"Context-Aware SMS Bot","file_type":"document","source_file":"Documentation/Master plan 2-19-2026.md"},
+    {"id":"brain_sources_table","label":"brain_sources Table","file_type":"document","source_file":"docs/superpowers/plans/2026-03-28-osiris-brain-knowledge-system.md"},
+    {"id":"brain_chunks_table","label":"brain_chunks Table (pgvector)","file_type":"document","source_file":"docs/superpowers/plans/2026-03-28-osiris-brain-knowledge-system.md"},
+    {"id":"brain_decisions_table","label":"brain_decisions Table","file_type":"document","source_file":"docs/superpowers/plans/2026-03-28-osiris-brain-knowledge-system.md"},
+]
+
+c2_nodes = [
+    {"id":"rls_service_client_fix","label":"RLS Service Client Fix for Payment Routes","file_type":"document","source_file":"Documentation/RLS/fix RLS service client for payment routes 2-19-2026.md"},
+    {"id":"rls_cleanup_verified","label":"RLS Cleanup Post-Enforcement Verification","file_type":"document","source_file":"Documentation/RLS/verified RLS Cleanup 2-25-2026.md"},
+    {"id":"cross_tenant_vulnerability","label":"Cross-Tenant Action Route Vulnerability","file_type":"document","source_file":"Documentation/RLS/verified RLS Cleanup 2-25-2026.md"},
+    {"id":"rls_cron_bugs_verified","label":"RLS Cron Bugs Fix and Verification","file_type":"document","source_file":"Documentation/RLS/verified RLS cron bugs 2-19-2026.md"},
+    {"id":"rls_enforcement_verified","label":"RLS Tenant Isolation Enforcement Verification","file_type":"document","source_file":"Documentation/RLS/verified RLS enforcement 2-19-2026.md"},
+    {"id":"getTenantScopedClient","label":"getTenantScopedClient() - Anon Key + Custom JWT","file_type":"document","source_file":"Documentation/RLS/verified RLS enforcement 2-19-2026.md"},
+    {"id":"tenant_isolation_rls_policy","label":"tenant_isolation RLS Policy (16 Tables)","file_type":"document","source_file":"Documentation/RLS/verified RLS enforcement 2-19-2026.md"},
+    {"id":"getSupabaseServiceClient","label":"getSupabaseServiceClient() - Service Role Client","file_type":"document","source_file":"Documentation/RLS/fix RLS service client for payment routes 2-19-2026.md"},
+    {"id":"llms_txt_spotless","label":"llms.txt - Spotless Scrubbers Public Info","file_type":"document","source_file":"public/llms.txt"},
+    {"id":"quote_tiers_qa_spec","label":"quote-tiers-qa.spec.ts E2E Test Suite","file_type":"document","source_file":"test-results/"},
+]
+
+c1_edges = [
+    {"source":"osiris_platform","target":"supabase_db","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"osiris_platform","target":"stripe_payments","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"osiris_platform","target":"vapi_voice_ai","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"osiris_platform","target":"openphone_sms","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"osiris_platform","target":"vercel_deployment","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"osiris_platform","target":"rls_security","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"osiris_platform","target":"hcp_integration","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"osiris_brain","target":"brain_sources_table","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"osiris_brain","target":"brain_chunks_table","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"osiris_brain","target":"brain_decisions_table","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"dynamic_lead_automation","target":"vapi_voice_ai","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"dynamic_lead_automation","target":"openphone_sms","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"dynamic_lead_automation","target":"lead_followup_sequence","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"master_plan","target":"hcp_integration","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"master_plan","target":"rls_security","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"master_plan","target":"route_optimizer","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"master_plan","target":"context_aware_sms_bot","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"cleaner_portal","target":"telegram_removal","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"cleaner_portal","target":"openphone_sms","relation":"implements","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"spotless_scrubbers","target":"osiris_platform","relation":"conceptually_related_to","confidence":"INFERRED","confidence_score":0.9,"weight":0.9},
+    {"source":"winbros","target":"osiris_platform","relation":"conceptually_related_to","confidence":"INFERRED","confidence_score":0.9,"weight":0.9},
+    {"source":"cedar_rapids","target":"osiris_platform","relation":"conceptually_related_to","confidence":"INFERRED","confidence_score":0.9,"weight":0.9},
+    {"source":"cross_tenant_isolation","target":"rls_security","relation":"implements","confidence":"INFERRED","confidence_score":0.85,"weight":0.9},
+]
+
+c2_edges = [
+    {"source":"rls_service_client_fix","target":"rls_cron_bugs_verified","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"rls_cleanup_verified","target":"rls_enforcement_verified","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"cross_tenant_vulnerability","target":"rls_cleanup_verified","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"rls_enforcement_verified","target":"getTenantScopedClient","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"getTenantScopedClient","target":"tenant_isolation_rls_policy","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"rls_cron_bugs_verified","target":"getSupabaseServiceClient","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+    {"source":"rls_service_client_fix","target":"rls_enforcement_verified","relation":"references","confidence":"EXTRACTED","confidence_score":1.0,"weight":1.0},
+]
+
+all_nodes = c1_nodes + c2_nodes
+all_edges = c1_edges + c2_edges
+hyperedges = [
+    {"id":"telegram_to_sms_migration","label":"Telegram to SMS Migration","nodes":["telegram_removal","cleaner_portal","openphone_sms"],"relation":"participate_in","confidence":"EXTRACTED","confidence_score":0.95},
+    {"id":"lead_to_payment_pipeline","label":"Lead Intake to Payment Pipeline","nodes":["dynamic_lead_automation","vapi_voice_ai","openphone_sms","hcp_integration","stripe_payments","lead_followup_sequence"],"relation":"form","confidence":"EXTRACTED","confidence_score":0.9},
+    {"id":"data_integrity_infrastructure","label":"Data Integrity Infrastructure","nodes":["rls_security","cron_locking_pattern","cross_tenant_isolation","supabase_db"],"relation":"implement","confidence":"INFERRED","confidence_score":0.85},
+    {"id":"rls_enforcement_cascade","label":"RLS Enforcement Cascade","nodes":["rls_enforcement_verified","rls_cron_bugs_verified","rls_service_client_fix","rls_cleanup_verified"],"relation":"form","confidence":"EXTRACTED","confidence_score":1.0},
+]
+
+seen = set()
+deduped = []
+for n in all_nodes:
+    if n['id'] not in seen:
+        seen.add(n['id'])
+        deduped.append(n)
+
+merged = {'nodes': deduped, 'edges': all_edges, 'hyperedges': hyperedges, 'input_tokens': 0, 'output_tokens': 0}
+Path('.graphify_semantic.json').write_text(json.dumps(merged, indent=2))
+print(f'Semantic: {len(deduped)} nodes, {len(all_edges)} edges, {len(hyperedges)} hyperedges')

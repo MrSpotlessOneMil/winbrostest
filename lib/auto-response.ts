@@ -8,6 +8,7 @@ import OpenAI from 'openai'
 import type { IntentAnalysis } from './ai-intent'
 import type { Tenant } from './tenant'
 import { getTenantServiceDescription, getTenantBusinessContext, tenantUsesFeature } from './tenant'
+import { getPromoConfig, CAMPAIGN_CONTEXTS } from './promo-config'
 
 export interface AutoResponseResult {
   response: string
@@ -221,6 +222,7 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
     parts.push('IMPORTANT: This customer has an active booking. Do NOT try to re-book them or run the booking flow.')
     parts.push('Instead, help them with questions about their upcoming service (date, time, what to expect, prep instructions).')
     parts.push('If they want to reschedule, cancel, or have a complaint, use [ESCALATE:reason].')
+    parts.push('CRITICAL: When mentioning the booking date, use the EXACT day-of-week shown above. Do NOT guess or calculate the day yourself — use exactly what is listed.')
     parts.push('')
   }
 
@@ -250,6 +252,23 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
     if (ctx.customer.address) parts.push(`Address on file: ${ctx.customer.address}`)
     if (ctx.customer.notes) parts.push(`Notes: ${ctx.customer.notes}`)
     parts.push('')
+  }
+
+  // Promotional offer context — use centralized promo-config
+  if (ctx.lead?.form_data) {
+    const fd = ctx.lead.form_data as Record<string, unknown>
+    const promoConfig = getPromoConfig(fd)
+    if (promoConfig) {
+      parts.push(...promoConfig.aiContext)
+      parts.push('')
+    } else {
+      // Check for non-promo campaign contexts (book-now, airbnb-turnover)
+      const campaign = fd.utm_campaign as string
+      if (campaign && CAMPAIGN_CONTEXTS[campaign]) {
+        parts.push(...CAMPAIGN_CONTEXTS[campaign])
+        parts.push('')
+      }
+    }
   }
 
   if (parts.length === 0) {
@@ -315,7 +334,7 @@ export async function generateAutoResponse(
     }
   }
 
-  const businessName = tenant?.business_name_short || tenant?.business_name || 'WinBros'
+  const businessName = tenant?.business_name_short || tenant?.business_name || 'our team'
   const sdrName = tenant?.sdr_persona || 'Mary'
   const serviceArea = tenant?.service_area || 'your area'
   // Get the service type from tenant - this differentiates window cleaning from house cleaning etc.
@@ -1590,6 +1609,7 @@ async function generateHouseCleaningResponse(
     if (brainChunks.length > 0) {
       brainBlock = '\n\nINDUSTRY INTELLIGENCE (from top cleaning business coaches — use to inform your approach, do NOT quote directly):\n'
       brainBlock += 'IMPORTANT: This intelligence is for YOUR reference only. NEVER offer discounts, deals, or lower prices regardless of what the coaching suggests. You have ZERO price authority.\n'
+      brainBlock += 'ALSO: NEVER ask for the customer\'s email address, regardless of what the coaching suggests. The quote link handles email collection.\n'
       for (const chunk of brainChunks) {
         brainBlock += `- ${chunk.chunkText}\n`
       }
@@ -1620,6 +1640,7 @@ async function generateHouseCleaningResponse(
         if (extraChunks.length > 0) {
           brainBlock = '\n\nINDUSTRY INTELLIGENCE (from top cleaning business coaches — use to inform your approach, do NOT quote directly):\n'
           brainBlock += 'IMPORTANT: NEVER offer discounts, deals, or lower prices. You have ZERO price authority.\n'
+          brainBlock += 'ALSO: NEVER ask for the customer\'s email address. The quote link handles email collection.\n'
           for (const chunk of extraChunks) {
             brainBlock += `- ${chunk.chunkText}\n`
           }

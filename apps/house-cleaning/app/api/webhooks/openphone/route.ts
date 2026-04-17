@@ -4,6 +4,7 @@ import { normalizePhone, maskPhone, maskEmail } from "@/lib/phone-utils"
 import { getSupabaseClient } from "@/lib/supabase"
 import { analyzeBookingIntent, isObviouslyNotBooking } from "@/lib/ai-intent"
 import { generateAutoResponse, loadCustomerContext, type KnownCustomerInfo } from "@/lib/auto-response"
+import { generateHCResponse } from "./hc-sms-responder"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp, scheduleTask, cancelTask, scheduleRetargetingSequence } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
@@ -21,6 +22,54 @@ export const maxDuration = 60 // Pro plan: prevent cold-start + debounce + AI fr
  * The AI uses ||| to separate messages that should be sent as individual texts.
  * Returns the full concatenated content for DB storage.
  */
+/**
+ * Route to HC responder for house cleaning tenants, fallback to generic for WinBros.
+ * The HC responder is co-located (./hc-sms-responder.ts) so Turbopack always bundles it.
+ */
+async function smartAutoResponse(
+  message: string,
+  intent: any,
+  tenant: any,
+  conversationHistory: Array<{ role: 'client' | 'assistant'; content: string }>,
+  knownInfo: KnownCustomerInfo | undefined,
+  options: { isReturningCustomer?: boolean; isRetargetingReply?: boolean; customerContext?: any },
+  supabaseClient: any,
+  customer?: any,
+) {
+  // House cleaning tenants -> new HC responder with full brain + sales playbook
+  const isHC = tenant && !tenantUsesFeature(tenant, 'use_hcp_mirror')
+  console.log(`[smartAutoResponse] tenant=${tenant?.slug} isHC=${isHC} use_hcp_mirror=${tenant?.workflow_config?.use_hcp_mirror}`)
+  if (isHC) {
+    try {
+      console.log(`[smartAutoResponse] Calling HC responder for ${tenant?.slug}`)
+      const result = await generateHCResponse({
+        message,
+        tenant,
+        conversationHistory,
+        customer: customer || null,
+        knownInfo: knownInfo || null,
+        customerContext: options.customerContext || null,
+        isRetargetingReply: options.isRetargetingReply,
+        isReturningCustomer: options.isReturningCustomer,
+        supabaseClient,
+      })
+      if (result.shouldSend && result.response) {
+        console.log(`[OpenPhone] HC responder handled: "${result.response.slice(0, 60)}..."`)
+        return result
+      }
+      // If HC responder returns empty/shouldn't send, fall through to generic
+      if (!result.shouldSend) return result
+    } catch (err) {
+      console.error(`[smartAutoResponse] HC responder CRASHED for ${tenant?.slug}:`, err)
+    }
+  }
+
+  console.log(`[smartAutoResponse] Using generic fallback for ${tenant?.slug}`)
+
+  // WinBros or fallback -> existing generic auto-response
+  return generateAutoResponse(message, intent, tenant, conversationHistory, knownInfo, options)
+}
+
 async function sendMultiPartSMS(
   tenant: any,
   phone: string,
@@ -29,6 +78,26 @@ async function sendMultiPartSMS(
   customerId: number,
   metadata: Record<string, any>
 ): Promise<{ success: boolean; fullContent: string; messageIds: string[] }> {
+  // ── SANITIZE: strip emojis, em dashes, email-asking, markdown BEFORE anything else ──
+  let sanitized = fullResponse
+  // Strip emojis
+  sanitized = sanitized.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{231A}-\u{231B}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}\u{2934}-\u{2935}\u{2B05}-\u{2B07}\u{2B1B}-\u{2B1C}\u{2B50}\u{2B55}\u{3030}\u{303D}\u{3297}\u{3299}]/gu, '')
+  // Replace em/en dashes
+  sanitized = sanitized.replace(/\u2014/g, ',').replace(/\u2013/g, '-')
+  // Strip markdown
+  sanitized = sanitized.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/^#{1,6}\s+/gm, '').replace(/^[-*+]\s+/gm, '')
+  // Strip any sentence containing "email"
+  if (sanitized.toLowerCase().includes('email')) {
+    const sentences = sanitized.split(/(?<=[.!?])\s+/)
+    sanitized = sentences.filter(s => !s.toLowerCase().includes('email')).join(' ')
+  }
+  // Clean up whitespace
+  sanitized = sanitized.replace(/  +/g, ' ').replace(/ +\n/g, '\n').trim()
+  if (sanitized !== fullResponse) {
+    console.log(`[SMS Sanitizer] Cleaned output in sendMultiPartSMS — stripped emojis/dashes/email/markdown`)
+  }
+  fullResponse = sanitized
+
   // ── Pre-Send Guard: catch dangerous AI outputs before they reach the customer ──
   try {
     const { guardMessage } = await import('@/lib/sms-guard')
@@ -764,6 +833,10 @@ export async function POST(request: NextRequest) {
     .select("*")
     .single()
 
+  if (custErr) {
+    return NextResponse.json({ success: false, error: `Failed to upsert customer: ${custErr.message}` }, { status: 500 })
+  }
+
   // Backfill lead_source for customers who genuinely entered via SMS.
   // Only set if null — never overwrite an existing source (e.g. housecall_pro, meta, vapi).
   // Also check leads table: if there's already a lead from a non-SMS source, use that instead.
@@ -784,10 +857,6 @@ export async function POST(request: NextRequest) {
       .update({ lead_source: backfillSource })
       .eq("id", customer.id)
     customer.lead_source = backfillSource
-  }
-
-  if (custErr) {
-    return NextResponse.json({ success: false, error: `Failed to upsert customer: ${custErr.message}` }, { status: 500 })
   }
 
   // ============================================
@@ -1047,8 +1116,7 @@ export async function POST(request: NextRequest) {
           // Immediately send review link + recurring offer (no tip — strike while iron is hot)
           const reviewLink = tenant.google_review_link || "https://g.page/review"
 
-          const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
-          const replyMsg = `That's wonderful to hear! We'd really appreciate a quick review - it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - you'd get ${recurringDiscount} off every visit and never have to think about scheduling. Would that be something you'd be interested in?`
+          const replyMsg = `That's wonderful to hear! We'd really appreciate a quick review - it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings and never have to think about scheduling. Would that be something you'd be interested in?`
           const replyResult = await sendSMS(tenant, phone, replyMsg, { skipThrottle: true })
 
           // Only save outbound message if SMS was actually sent (prevents ghost messages)
@@ -1137,8 +1205,7 @@ export async function POST(request: NextRequest) {
         } else {
           // Neutral — treat as positive (any reply to "how was your cleaning" is engagement)
           const reviewLink = tenant.google_review_link || "https://g.page/review"
-          const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
-          const neutralMsg = `Glad to hear it! We'd really appreciate a quick review, it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - you'd get ${recurringDiscount} off every visit. Would that be something you'd be interested in?`
+          const neutralMsg = `Glad to hear it! We'd really appreciate a quick review, it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - never have to think about scheduling. Would that be something you'd be interested in?`
           await sendSMS(tenant, phone, neutralMsg, { skipThrottle: true })
 
           await client.from("messages").insert({
@@ -1278,7 +1345,6 @@ export async function POST(request: NextRequest) {
   // Different from auto_response_paused which is temporary (manual takeover, auto-unpauses after 15min).
   if (customer?.auto_response_disabled === true) {
     console.log(`[OpenPhone] Auto-response PERMANENTLY DISABLED for customer ${customer.id} (${maskPhone(phone)}) — owner set this in dashboard`)
-    await updateDisposition(client, currentMsgId, 'filtered_paused')
     // Still store the message so it shows in conversation history
     await client.from("messages").insert({
       tenant_id: tenant?.id,
@@ -2479,8 +2545,13 @@ export async function POST(request: NextRequest) {
 
       // ── Cleaning jobs: create quote and send link ──
       const svcType = (job?.service_type || '').toLowerCase()
-      const quoteCategory = svcType.includes('move') ? 'move_in_out' : svcType.includes('deep') ? 'deep' : 'standard'
+      const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
       const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || null
+
+      // Check if lead came from a promo campaign (shared config)
+      const { getPromoConfig } = await import('@/lib/promo-config')
+      const promoConfig2 = getPromoConfig(bookedLead?.form_data)
+      const isMetaPromo2 = !!promoConfig2
 
       const { data: newQuote, error: quoteError } = await client
         .from("quotes")
@@ -2495,13 +2566,18 @@ export async function POST(request: NextRequest) {
           bathrooms: job?.notes?.match(/(\d+(?:\.\d+)?)\s*bath/i)?.[1] ? parseFloat(job.notes.match(/(\d+(?:\.\d+)?)\s*bath/i)![1]) : null,
           square_footage: job?.notes?.match(/(\d+)\s*(?:sq|sqft|sf)/i)?.[1] ? parseInt(job.notes.match(/(\d+)\s*(?:sq|sqft|sf)/i)![1]) : null,
           service_category: quoteCategory,
+          selected_tier: promoConfig2?.tier || null,
+          custom_base_price: promoConfig2?.price || null,
+          selected_addons: promoConfig2?.addons || [],
           service_date: job?.date || null,
           service_time: job?.scheduled_at || null,
           notes: [
+            promoConfig2 ? `$${promoConfig2.price} Meta Promo` : null,
             job?.service_type ? `Service: ${job.service_type}` : null,
             job?.date ? `Date: ${job.date}` : null,
             job?.scheduled_at ? `Time: ${job.scheduled_at}` : null,
           ].filter(Boolean).join(' | ') || null,
+          ...(promoConfig2 ? { custom_terms: promoConfig2.terms } : {}),
         })
         .select("id, token")
         .single()
@@ -2518,9 +2594,11 @@ export async function POST(request: NextRequest) {
       const appDomain = getClientConfig().domain.replace(/\/+$/, '')
       const quoteUrl = `${appDomain}/quote/${newQuote.token}`
 
-      const quoteMsg = customer.first_name
-        ? `Hey ${customer.first_name}! Here's your quote — pick the option that works best for you: ${quoteUrl}`
-        : `Here's your quote — pick the option that works best for you: ${quoteUrl}`
+      const quoteMsg = promoConfig2
+        ? promoConfig2.quoteSms.replace('{name}', customer.first_name || 'there').replace('{url}', quoteUrl)
+        : (customer.first_name
+          ? `Hey ${customer.first_name}! Here's your quote — pick the option that works best for you: ${quoteUrl}`
+          : `Here's your quote — pick the option that works best for you: ${quoteUrl}`)
 
       const quoteSmsResult = await sendSMS(tenant!, phone, quoteMsg, { skipThrottle: true, bypassFilters: true })
       if (quoteSmsResult.success) {
@@ -2663,7 +2741,7 @@ export async function POST(request: NextRequest) {
         const resp = await anthropicClient.messages.create({
           model: 'claude-sonnet-4-5-20250929',
           max_tokens: 200,
-          system: `You are ${sdrName} from ${businessName}. The customer (${customerName}) has a confirmed booking. Respond naturally and helpfully to their questions. You have access to their account info below — share it if they ask.\n\nCustomer info:\n${customerCtx || 'No additional details on file.'}${jobCtx}\n\nRules:\n- Keep it to 1-3 sentences (this is SMS)\n- Do NOT re-ask booking questions or ask for their email\n- Answer their questions directly and warmly\n- For estimate appointments: pricing is determined on-site by the team member who visits. If the customer asks about price, explain that a team member will provide an on-site quote at their appointment.\n- If you don't have the info they're asking about, say so honestly\n- If they say thanks, say you're welcome and let them know to reach out if they need anything\n- Do NOT use emojis unless the customer uses them first\n- Do NOT use markdown formatting`,
+          system: `You are ${sdrName} from ${businessName}. The customer (${customerName}) has a confirmed booking. Respond naturally and helpfully to their questions. You have access to their account info below — share it if they ask.\n\nCustomer info:\n${customerCtx || 'No additional details on file.'}${jobCtx}\n\nRules:\n- Keep it to 1-3 sentences (this is SMS)\n- Do NOT re-ask booking questions or ask for their email\n- Answer their questions directly and warmly\n- ${tenant?.workflow_config?.use_hcp_mirror === true || tenant?.service_type === 'window_cleaning' ? 'For estimate appointments: pricing is determined on-site by the team member who visits. If the customer asks about price, explain that a team member will provide an on-site quote at their appointment.' : 'Pricing is based on bedrooms and bathrooms and has already been provided via the quote link. If the customer asks about pricing, reference the quote link. NEVER mention in-person estimates, visits, or anyone coming to their home to provide a quote.'}\n- If you don't have the info they're asking about, say so honestly\n- If they say thanks, say you're welcome and let them know to reach out if they need anything\n- Do NOT use emojis unless the customer uses them first\n- Do NOT use markdown formatting`,
           messages: [{ role: 'user', content: `Conversation:\n${historyCtx}\n\nCustomer: "${combinedMessage}"\n\nRespond as ${sdrName}. SMS text only.` }],
         })
         const txt = resp.content.find(b => b.type === 'text')
@@ -2790,13 +2868,10 @@ export async function POST(request: NextRequest) {
 
       // Generate AI response with full booking context
       const quickIntent = await analyzeBookingIntent(combinedMessage, conversationHistory)
-      const autoResponse = await generateAutoResponse(
-        combinedMessage,
-        quickIntent,
-        tenant,
-        conversationHistory,
-        knownInfo,
-        { isReturningCustomer: false, isRetargetingReply, customerContext: postBookingCtx }
+      const autoResponse = await smartAutoResponse(
+        combinedMessage, quickIntent, tenant, conversationHistory, knownInfo,
+        { isReturningCustomer: false, isRetargetingReply, customerContext: postBookingCtx },
+        client, customer
       )
 
       // Send AI response (strip [BOOKING_COMPLETE] — never re-trigger for assigned leads)
@@ -3136,13 +3211,10 @@ export async function POST(request: NextRequest) {
           estimatedPrice: typeof leadFormData.estimated_price === 'number' ? leadFormData.estimated_price : null,
         }
 
-        const autoResponse = await generateAutoResponse(
-          combinedMessage,
-          quickIntent,
-          tenant,
-          conversationHistory,
-          knownInfo,
-          { isReturningCustomer: isSeasonalReply, isRetargetingReply, customerContext: customerCtx }
+        const autoResponse = await smartAutoResponse(
+          combinedMessage, quickIntent, tenant, conversationHistory, knownInfo,
+          { isReturningCustomer: isSeasonalReply, isRetargetingReply, customerContext: customerCtx },
+          client, customer
         )
 
         if (autoResponse.shouldSend && (autoResponse.response || autoResponse.bookingComplete)) {
@@ -3443,69 +3515,64 @@ export async function POST(request: NextRequest) {
                 console.log(`[OpenPhone] No preferred date provided — using next business day: ${jobDate}`)
               }
 
-              // WinBros: create job (estimate visit for salesman)
-              // House cleaning: NO job yet — job is created when customer puts card on file via quote page
-              let newJob: { id: number } | null = null
-              if (isWindowCleaningTenant) {
-                const { data: job, error: jobError } = await client.from("jobs").insert({
-                  tenant_id: tenant?.id,
-                  customer_id: customer.id,
-                  phone_number: phone,
-                  service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
+              // Create job (WinBros: estimate type for salesman visit; others: cleaning)
+              let { data: newJob, error: jobError } = await client.from("jobs").insert({
+                tenant_id: tenant?.id,
+                customer_id: customer.id,
+                phone_number: phone,
+                service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
+                address: bookingData.address || customer.address || null,
+                price: servicePrice || null,
+                date: jobDate,
+                scheduled_at: bookingData.preferredTime || '09:00',
+                status: 'quoted',
+                booked: false,
+                notes: jobNotes || null,
+                job_type: isWindowCleaningTenant ? 'estimate' : 'cleaning',
+              }).select("id").single()
+
+              if (jobError || !newJob?.id) {
+                console.error(`[OpenPhone] Job creation failed for ${maskPhone(phone)}:`, jobError || 'no job returned')
+                console.error(`[OpenPhone] Insert payload: tenant=${tenant?.id}, customer=${customer.id}, type=${bookingData.serviceType}, date=${bookingData.preferredDate}, price=${servicePrice}`)
+                // Don't proceed with Stripe link — we need a valid job first
+                return NextResponse.json({
+                  success: false,
+                  error: "job_creation_failed",
+                  flow: "sms_booking_job_error",
+                  existingLeadId: existingLead.id,
+                  details: jobError?.message || "Job insert returned no data",
+                })
+              }
+              console.log(`[OpenPhone] Job created from SMS booking: ${newJob.id} — service: ${bookingData.serviceType}, date: ${bookingData.preferredDate}, price: $${servicePrice || 'TBD'}`)
+
+              // Sync to HouseCall Pro
+              if (tenant && isWindowCleaningTenant) {
+                await syncNewJobToHCP({
+                  tenant,
+                  jobId: newJob.id,
+                  phone,
+                  firstName: customer.first_name,
+                  lastName: customer.last_name,
+                  email: finalEmail || customer.email || null,
                   address: bookingData.address || customer.address || null,
-                  price: servicePrice || null,
-                  date: jobDate,
-                  scheduled_at: bookingData.preferredTime || '09:00',
-                  status: 'quoted',
-                  booked: false,
-                  notes: jobNotes || null,
-                  frequency: bookingData.frequency || 'one-time',
-                  job_type: 'estimate',
-                }).select("id").single()
-
-                if (jobError || !job?.id) {
-                  console.error(`[OpenPhone] Job creation failed for ${maskPhone(phone)}:`, jobError || 'no job returned')
-                  await updateDisposition(client, currentMsgId, 'error_ai')
-                  return NextResponse.json({
-                    success: false,
-                    error: "job_creation_failed",
-                    flow: "sms_booking_job_error",
-                    existingLeadId: existingLead.id,
-                    details: jobError?.message || "Job insert returned no data",
-                  })
-                }
-                newJob = job
-                console.log(`[OpenPhone] WinBros estimate job created: ${newJob.id}`)
-
-                // Sync to HouseCall Pro
-                if (tenant) {
-                  await syncNewJobToHCP({
-                    tenant,
-                    jobId: newJob.id,
-                    phone,
-                    firstName: customer.first_name,
-                    lastName: customer.last_name,
-                    email: finalEmail || customer.email || null,
-                    address: bookingData.address || customer.address || null,
-                    serviceType: bookingData.serviceType || null,
-                    scheduledDate: jobDate,
-                    scheduledTime: bookingData.preferredTime || '09:00',
-                    price: servicePrice,
-                    notes: 'Estimate Visit | Booked via SMS',
-                    source: 'sms',
-                    isEstimate: true,
-                  })
-                }
+                  serviceType: bookingData.serviceType || null,
+                  scheduledDate: jobDate,
+                  scheduledTime: bookingData.preferredTime || '09:00',
+                  price: servicePrice,
+                  notes: 'Estimate Visit | Booked via SMS',
+                  source: 'sms',
+                  isEstimate: true,
+                })
               } else {
                 console.log(`[OpenPhone] House cleaning — skipping job creation (quote-only flow for ${maskPhone(phone)})`)
               }
 
-              // Update lead to qualified
+              // Update lead to qualified (booked requires payment + cleaner assigned)
               await client
                 .from("leads")
                 .update({
                   status: "qualified",
-                  ...(newJob ? { converted_to_job_id: newJob.id } : {}),
+                  converted_to_job_id: newJob.id,
                   form_data: {
                     ...parseFormData(existingLead.form_data),
                     booking_data: bookingData,
@@ -3518,6 +3585,11 @@ export async function POST(request: NextRequest) {
                 // Determine service_category from booking data
                 const svcType = (bookingData.serviceType || '').toLowerCase()
                 const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
+
+                // Check if lead came from a promo campaign (shared config)
+                const { getPromoConfig: getPromoConfig3 } = await import('@/lib/promo-config')
+                const promoConfig3 = getPromoConfig3(existingLead?.form_data)
+                const isMetaPromo3 = !!promoConfig3
 
                 // Create quote record
                 const { data: newQuote, error: quoteError } = await client
@@ -3533,14 +3605,19 @@ export async function POST(request: NextRequest) {
                     bathrooms: bookingData.bathrooms || null,
                     square_footage: bookingData.squareFootage || null,
                     service_category: quoteCategory,
+                    selected_tier: promoConfig3?.tier || null,
+                    custom_base_price: promoConfig3?.price || null,
+                    selected_addons: promoConfig3?.addons || [],
                     service_date: jobDate || null,
                     service_time: bookingData.preferredTime || null,
                     notes: [
+                      promoConfig3 ? `$${promoConfig3.price} Meta Promo` : null,
                       bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
                       bookingData.hasPets ? 'Has pets' : null,
                       jobDate ? `Preferred date: ${jobDate}` : null,
                       bookingData.preferredTime ? `Preferred time: ${bookingData.preferredTime}` : null,
                     ].filter(Boolean).join(' | ') || null,
+                    ...(promoConfig3 ? { custom_terms: promoConfig3.terms } : {}),
                   })
                   .select("id, token")
                   .single()
@@ -3569,9 +3646,11 @@ export async function POST(request: NextRequest) {
 
                 // Send short SMS with quote link
                 const customerFirstName = bookingData.firstName || customer.first_name || ''
-                const quoteMsg = customerFirstName
-                  ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
-                  : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                const quoteMsg = promoConfig3
+                  ? promoConfig3.quoteSms.replace('{name}', customerFirstName || 'there').replace('{url}', quoteUrl)
+                  : (customerFirstName
+                    ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                    : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`)
 
                 const quoteSms = await sendSMS(tenant as any, phone, quoteMsg, { skipThrottle: true, bypassFilters: true })
                 if (quoteSms.success) {
@@ -3830,13 +3909,10 @@ export async function POST(request: NextRequest) {
         phone: phone,
       }
 
-      const autoResponse = await generateAutoResponse(
-        combinedMessage,
-        intentResult,
-        tenant,
-        conversationHistory,
-        knownInfoNew,
-        { isReturningCustomer: isSeasonalReply, isRetargetingReply, customerContext: customerCtx }
+      const autoResponse = await smartAutoResponse(
+        combinedMessage, intentResult, tenant, conversationHistory, knownInfoNew,
+        { isReturningCustomer: isSeasonalReply, isRetargetingReply, customerContext: customerCtx },
+        client, customer
       )
 
       // Capture booking completion for use after lead creation
@@ -3998,8 +4074,13 @@ export async function POST(request: NextRequest) {
 
     let lead: { id: string } | null = null
     let leadErr: { message: string } | null = null
+    // Capture original lead form_data for promo detection before it gets overwritten
+    let originalLeadFormData: Record<string, unknown> | null = null
 
     if (existingSourcedLead) {
+      originalLeadFormData = typeof existingSourcedLead.form_data === 'object' && existingSourcedLead.form_data
+        ? existingSourcedLead.form_data as Record<string, unknown>
+        : null
       // Reuse the existing lead — preserve original source (e.g. housecall_pro)
       console.log(`[OpenPhone] Found existing ${existingSourcedLead.source} lead ${existingSourcedLead.id} for ${maskPhone(phone)}, reusing instead of creating duplicate SMS lead`)
       const existingFd = typeof existingSourcedLead.form_data === 'object' && existingSourcedLead.form_data ? existingSourcedLead.form_data : {}
@@ -4260,6 +4341,11 @@ export async function POST(request: NextRequest) {
               const svcType = (bookingData.serviceType || '').toLowerCase()
               const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
 
+              // Check if this lead came from a promo campaign (shared config)
+              const { getPromoConfig: getPromoConfig1 } = await import('@/lib/promo-config')
+              const promoConfig1 = getPromoConfig1(originalLeadFormData)
+              const isMetaPromo = !!promoConfig1
+
               const { data: newQuote, error: quoteError } = await client.from("quotes").insert({
                 tenant_id: tenant.id,
                 customer_id: customer.id,
@@ -4271,12 +4357,17 @@ export async function POST(request: NextRequest) {
                 bathrooms: bookingData.bathrooms || null,
                 square_footage: bookingData.squareFootage || null,
                 service_category: quoteCategory,
+                selected_tier: promoConfig1?.tier || null,
+                custom_base_price: promoConfig1?.price || null,
+                selected_addons: promoConfig1?.addons || [],
                 service_date: jobDate || null,
                 service_time: bookingData.preferredTime || null,
                 notes: [
+                  promoConfig1 ? `$${promoConfig1.price} Meta Promo` : null,
                   bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
                   bookingData.hasPets ? 'Has pets' : null,
                 ].filter(Boolean).join(' | ') || null,
+                ...(promoConfig1 ? { custom_terms: promoConfig1.terms } : {}),
               }).select("id, token").single()
 
               if (quoteError || !newQuote) {
@@ -4292,9 +4383,16 @@ export async function POST(request: NextRequest) {
                 const quoteUrl = `${appDomain}/quote/${newQuote.token}`
 
                 const customerFirstName = bookingData.firstName || customer.first_name || ''
-                const quoteMsg = customerFirstName
-                  ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
-                  : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                let quoteMsg: string
+                if (isMetaPromo && promoConfig1) {
+                  quoteMsg = promoConfig1.quoteSms
+                    .replace('{name}', customerFirstName || 'there')
+                    .replace('{url}', quoteUrl)
+                } else {
+                  quoteMsg = customerFirstName
+                    ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                    : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                }
 
                 const quoteSms = await sendSMS(tenant as any, phone, quoteMsg, { skipThrottle: true, bypassFilters: true })
                 if (quoteSms.success) {

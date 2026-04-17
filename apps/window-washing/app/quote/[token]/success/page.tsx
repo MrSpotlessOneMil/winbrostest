@@ -79,7 +79,7 @@ export default function QuoteSuccessPage() {
             You&apos;re All Set, {customerName}!
           </h1>
           <p className="text-slate-500 text-lg leading-relaxed">
-            Your card is on file and your cleaning is confirmed{dateTimeDisplay ? ` for ${dateTimeDisplay}` : ''}.
+            Your card is on file and your service is confirmed{dateTimeDisplay ? ` for ${dateTimeDisplay}` : ''}.
           </p>
         </div>
 
@@ -95,8 +95,8 @@ export default function QuoteSuccessPage() {
                 <span className="text-emerald-600 text-xs font-bold">1</span>
               </div>
               <div>
-                <p className="text-slate-800 text-sm font-medium">Cleaner Assigned</p>
-                <p className="text-slate-500 text-xs">We&apos;ll assign a cleaner and send you a text with their details.</p>
+                <p className="text-slate-800 text-sm font-medium">Crew Assigned</p>
+                <p className="text-slate-500 text-xs">We&apos;ll assign a crew and send you a text with their details.</p>
               </div>
             </div>
 
@@ -105,8 +105,8 @@ export default function QuoteSuccessPage() {
                 <span className="text-emerald-600 text-xs font-bold">2</span>
               </div>
               <div>
-                <p className="text-slate-800 text-sm font-medium">Cleaning Day</p>
-                <p className="text-slate-500 text-xs">Your cleaner will text you when they&apos;re on the way and when they&apos;ve arrived.</p>
+                <p className="text-slate-800 text-sm font-medium">Service Day</p>
+                <p className="text-slate-500 text-xs">Your crew will text you when they&apos;re on the way and when they&apos;ve arrived.</p>
               </div>
             </div>
 
@@ -116,7 +116,7 @@ export default function QuoteSuccessPage() {
               </div>
               <div>
                 <p className="text-slate-800 text-sm font-medium">Payment</p>
-                <p className="text-slate-500 text-xs">Your card is only charged once the cleaning is complete.</p>
+                <p className="text-slate-500 text-xs">Your card is only charged once the service is complete.</p>
               </div>
             </div>
           </div>

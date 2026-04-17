@@ -22,7 +22,7 @@ export function leadFollowupSecond(name: string): string {
 /**
  * Payment link message with amount and secure link
  */
-export function paymentLink(name: string, amount: number, link: string, currency = 'USD'): string {
+export function paymentLink(name: string, amount: number, link: string, currency: string): string {
   const formattedAmount = amount.toLocaleString('en-US', {
     style: 'currency',
     currency: currency.toUpperCase(),
@@ -130,7 +130,7 @@ export function paymentFailed(paymentUrl: string): string {
 /**
  * Payment retry — sent when admin manually retries or auto-retry triggers
  */
-export function paymentRetry(businessName: string, amount: number, paymentUrl: string, currency = 'USD'): string {
+export function paymentRetry(businessName: string, amount: number, paymentUrl: string, currency: string): string {
   const formattedAmount = amount.toLocaleString('en-US', {
     style: 'currency',
     currency: currency.toUpperCase(),

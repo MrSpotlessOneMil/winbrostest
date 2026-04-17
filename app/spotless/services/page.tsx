@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   description:
     "Professional house cleaning, deep cleaning, move-in/out, post-construction, commercial, and Airbnb cleaning across Los Angeles County. Insured, 5-star rated.",
   alternates: {
-    canonical: `${SPOTLESS_BUSINESS.url}/spotless/services`,
+    canonical: `${SPOTLESS_BUSINESS.url}/services`,
   },
 }
 
@@ -46,7 +46,7 @@ const SERVICE_FAQS = [
   {
     question: "How do I book a cleaning service?",
     answer:
-      "Booking is easy - fill out our online form on any service page, or call us directly. We will confirm your appointment within the hour and match you with the best cleaner for your needs. Same-day bookings are available for select services.",
+      "Booking is easy - fill out our online form on any service page, or call us directly. We confirm your appointment instantly and match you with the best cleaner for your needs. Same-day bookings are available for select services.",
   },
 ]
 
@@ -136,13 +136,13 @@ export default function ServicesPage() {
                   {/* CTAs */}
                   <div className="flex gap-3">
                     <Link
-                      href={`/spotless/services/${service.slug}`}
+                      href={`/services/${service.slug}`}
                       className="flex-1 text-center px-4 py-2.5 rounded-lg border border-[#2195b4] text-[#2195b4] font-semibold text-sm hover:bg-[#2195b4]/5 transition-colors"
                     >
                       Learn More
                     </Link>
                     <Link
-                      href={`/spotless/services/${service.slug}#book`}
+                      href={`/services/${service.slug}#book`}
                       className="flex-1 text-center px-4 py-2.5 rounded-lg bg-[#2195b4] text-white font-semibold text-sm hover:bg-[#155f73] transition-colors"
                     >
                       Book Now

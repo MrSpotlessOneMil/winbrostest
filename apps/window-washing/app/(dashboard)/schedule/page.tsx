@@ -3,57 +3,73 @@
 import { useEffect, useState, useCallback, useMemo } from "react"
 import { useAuth } from "@/lib/auth-context"
 import {
-  ChevronLeft, ChevronRight, Loader2, Plus, X,
-  Check, Clock, MapPin, User, Calendar,
+  ChevronLeft, ChevronRight, Loader2, ChevronDown,
+  Clock, MapPin, GripVertical, Plus, Package,
 } from "lucide-react"
+import { useRouter } from "next/navigation"
+import {
+  DndContext, DragOverlay, useDraggable, useDroppable,
+  PointerSensor, TouchSensor, useSensor, useSensors,
+  type DragStartEvent, type DragEndEvent,
+} from "@dnd-kit/core"
 
-// ── Types ──────────────────────────────────────────────────────────────────
-
-type Job = {
+/* ─── Types ─── */
+interface ScheduleJob {
   id: number
-  date: string
-  scheduled_at: string | null
-  service_type: string
-  address: string | null
-  status: string
-  price: number | null
-  hours: number | null
-  phone_number: string | null
-  job_type: string | null
-  notes: string | null
-  cleaner_id: number | null
-  cleaner_name: string | null
-  is_team_lead: boolean
-  frequency: string | null
-  customers: { first_name: string | null; last_name: string | null } | null
-}
-
-type Cleaner = {
-  id: number
-  name: string
-  phone: string
-  is_team_lead: boolean
-  employee_type: string | null
-  active: boolean
-}
-
-type CreateForm = {
   customer_name: string
-  phone: string
   address: string
-  service_type: string
-  date: string
-  time: string
-  assign_to: string
+  time: string | null
+  services: string[]
+  price: number
+  status: string
+  credited_salesman_id?: number | null
+  salesman_name?: string | null
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+interface UnscheduledJob {
+  id: number
+  customer_name: string
+  address: string
+  date: string | null
+  time: string | null
+  services: string[]
+  price: number
+  status: string
+  credited_salesman_id: number | null
+  salesman_name: string | null
+}
 
+interface CrewSchedule {
+  team_lead_id: number | null
+  team_lead_name: string
+  first_job_town: string
+  daily_revenue: number
+  jobs: ScheduleJob[]
+  members: string[]
+}
+
+interface SalesmanAppointment {
+  id: number
+  salesman_name: string
+  customer_name: string
+  address: string
+  time: string
+  type: string
+}
+
+interface WeekDayData {
+  date: string
+  crews: CrewSchedule[]
+  salesmanAppointments: SalesmanAppointment[]
+  totalRevenue: number
+  totalJobs: number
+}
+
+/* ─── Helpers ─── */
 function getMonday(d: Date): Date {
   const dt = new Date(d)
   const day = dt.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  dt.setDate(dt.getDate() + diff)
+  dt.setDate(dt.getDate() + (day === 0 ? -6 : 1 - day))
   dt.setHours(0, 0, 0, 0)
   return dt
 }
@@ -65,708 +81,609 @@ function addDays(d: Date, n: number): Date {
 }
 
 function toDateStr(d: Date): string {
-  return d.toISOString().split("T")[0]
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
-function formatTimeShort(isoStr: string | null): string {
-  if (!isoStr) return ""
-  const d = new Date(isoStr)
-  const h = d.getHours()
-  const m = d.getMinutes()
-  const suffix = h >= 12 ? "PM" : "AM"
-  const hour = h % 12 || 12
-  return m === 0 ? `${hour}${suffix}` : `${hour}:${m.toString().padStart(2, "0")}${suffix}`
-}
-
-function getEndTime(scheduledAt: string | null, hours: number | null): string {
-  if (!scheduledAt) return ""
-  const start = new Date(scheduledAt)
-  const duration = hours || 2
-  const end = new Date(start.getTime() + duration * 60 * 60 * 1000)
-  return formatTimeShort(end.toISOString())
-}
-
-function extractCity(address: string | null): string {
+function extractTown(address: string): string {
   if (!address) return ""
   const parts = address.split(",")
-  if (parts.length >= 2) {
-    return parts[parts.length - 2].trim().split(" ")[0]
+  if (parts.length >= 2) return parts[parts.length - 2].trim()
+  return address.split(" ").slice(-2).join(" ")
+}
+
+const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
+  completed: { bg: "bg-green-500/15 border-green-500/30", text: "text-green-400" },
+  in_progress: { bg: "bg-amber-500/15 border-amber-500/30", text: "text-amber-400" },
+  scheduled: { bg: "bg-blue-500/15 border-blue-500/30", text: "text-blue-400" },
+  confirmed: { bg: "bg-blue-500/15 border-blue-500/30", text: "text-blue-400" },
+  pending: { bg: "bg-purple-500/15 border-purple-500/30", text: "text-purple-400" },
+  quoted: { bg: "bg-purple-500/15 border-purple-500/30", text: "text-purple-400" },
+}
+
+function getJobColor(job: ScheduleJob): { card: string; accent: string } {
+  if (job.services.some(s => s.toLowerCase().includes("service plan"))) {
+    return { card: "bg-green-500/10 border-green-500/25", accent: "text-green-400" }
   }
-  return parts[0].trim().split(" ").slice(-1)[0] || ""
+  if (job.services.some(s => s.toLowerCase().includes("estimate") || s.toLowerCase().includes("salesman"))) {
+    return { card: "bg-amber-500/10 border-amber-500/25", accent: "text-amber-400" }
+  }
+  return { card: "bg-teal-500/10 border-teal-500/25", accent: "text-teal-400" }
 }
 
-function formatServiceType(st: string | null): string {
-  if (!st) return "Service"
-  return st
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, c => c.toUpperCase())
+function humanizeStatus(s: string): string {
+  return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
 }
 
-const STATUS_BORDER: Record<string, string> = {
-  completed: "border-l-green-500",
-  in_progress: "border-l-yellow-500",
-  scheduled: "border-l-blue-500",
-  confirmed: "border-l-blue-500",
-  pending: "border-l-purple-500",
-  quoted: "border-l-purple-500",
-  cancelled: "border-l-zinc-500",
-  not_completed: "border-l-red-500",
-}
-
-const STATUS_ICON: Record<string, React.ReactNode> = {
-  completed: <Check className="h-3 w-3 text-green-400" />,
-  in_progress: <Clock className="h-3 w-3 text-yellow-400 animate-pulse" />,
-  not_completed: <X className="h-3 w-3 text-red-400" />,
-}
-
-// ── Component ──────────────────────────────────────────────────────────────
-
-export default function ScheduleAdminPage() {
-  const { isAdmin } = useAuth()
-  const [viewMode, setViewMode] = useState<"day" | "week">("week")
-  const [currentDate, setCurrentDate] = useState(() => new Date())
-  const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [cleaners, setCleaners] = useState<Cleaner[]>([])
-  const [loading, setLoading] = useState(true)
-  const [expandedLeads, setExpandedLeads] = useState<Set<string>>(new Set())
-  const [showCreateModal, setShowCreateModal] = useState(false)
-  const [createForm, setCreateForm] = useState<CreateForm>({
-    customer_name: "",
-    phone: "",
-    address: "",
-    service_type: "exterior_windows",
-    date: toDateStr(new Date()),
-    time: "08:00",
-    assign_to: "",
+/* ─── Draggable Job Card ─── */
+function DraggableJobCard({
+  job,
+  fromDate,
+  fromTLId,
+}: {
+  job: ScheduleJob
+  fromDate: string
+  fromTLId: number | null
+}) {
+  const colors = getJobColor(job)
+  const statusStyle = STATUS_STYLE[job.status] || STATUS_STYLE.scheduled
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `job-${job.id}`,
+    data: { job, fromDate, fromTLId },
   })
-  const [creating, setCreating] = useState(false)
-
-  const weekDays = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
-    [weekStart],
-  )
-
-  const teamLeads = useMemo(
-    () => cleaners.filter(c => c.is_team_lead),
-    [cleaners],
-  )
-
-  // ── Data fetching ──
-
-  const loadData = useCallback(async () => {
-    setLoading(true)
-    try {
-      const dateStr = viewMode === "week" ? toDateStr(weekStart) : toDateStr(currentDate)
-      const range = viewMode === "week" ? "week" : "day"
-
-      const [jobsRes, crewsRes] = await Promise.all([
-        fetch(`/api/actions/my-jobs?date=${dateStr}&range=${range}`),
-        fetch(`/api/actions/crews?date=${dateStr}&week=${viewMode === "week"}`),
-      ])
-
-      const jobsData = await jobsRes.json()
-      const crewsData = await crewsRes.json()
-
-      setJobs(jobsData.jobs || [])
-      setCleaners(crewsData.cleaners || [])
-    } catch (err) {
-      console.error("Failed to load schedule data:", err)
-    }
-    setLoading(false)
-  }, [weekStart, currentDate, viewMode])
-
-  useEffect(() => { loadData() }, [loadData])
-
-  // ── Computed data ──
-
-  // Group jobs by date, then by cleaner_id
-  const jobsByDateAndCleaner = useMemo(() => {
-    const map = new Map<string, Map<number, Job[]>>()
-    for (const job of jobs) {
-      const date = job.date
-      if (!map.has(date)) map.set(date, new Map())
-      const cleanerId = job.cleaner_id || 0
-      const cleanerMap = map.get(date)!
-      if (!cleanerMap.has(cleanerId)) cleanerMap.set(cleanerId, [])
-      cleanerMap.get(cleanerId)!.push(job)
-    }
-    return map
-  }, [jobs])
-
-  // Get team leads with jobs on a specific date
-  function getLeadsForDate(dateStr: string): { cleaner: Cleaner; jobs: Job[] }[] {
-    const cleanerMap = jobsByDateAndCleaner.get(dateStr)
-    if (!cleanerMap) return []
-
-    const results: { cleaner: Cleaner; jobs: Job[] }[] = []
-
-    for (const tl of teamLeads) {
-      const tlJobs = cleanerMap.get(tl.id)
-      if (tlJobs && tlJobs.length > 0) {
-        results.push({ cleaner: tl, jobs: tlJobs })
-      }
-    }
-
-    // Include unassigned jobs (cleaner_id = 0 or null)
-    const unassigned = cleanerMap.get(0)
-    if (unassigned && unassigned.length > 0) {
-      results.push({
-        cleaner: { id: 0, name: "Unassigned", phone: "", is_team_lead: false, employee_type: null, active: true },
-        jobs: unassigned,
-      })
-    }
-
-    // Include non-team-lead cleaners who have jobs
-    for (const [cleanerId, cJobs] of cleanerMap) {
-      if (cleanerId === 0) continue
-      if (teamLeads.some(tl => tl.id === cleanerId)) continue
-      const cleaner = cleaners.find(c => c.id === cleanerId)
-      if (cleaner) {
-        results.push({ cleaner, jobs: cJobs })
-      }
-    }
-
-    return results
-  }
-
-  // Toggle expanded state for a team lead on a given date
-  function toggleExpand(dateStr: string, cleanerId: number) {
-    const key = `${dateStr}-${cleanerId}`
-    setExpandedLeads(prev => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  // ── Navigation ──
-
-  function navigateBack() {
-    if (viewMode === "week") {
-      setWeekStart(prev => addDays(prev, -7))
-    } else {
-      setCurrentDate(prev => addDays(prev, -1))
-    }
-  }
-
-  function navigateForward() {
-    if (viewMode === "week") {
-      setWeekStart(prev => addDays(prev, 7))
-    } else {
-      setCurrentDate(prev => addDays(prev, 1))
-    }
-  }
-
-  function goToday() {
-    const now = new Date()
-    setCurrentDate(now)
-    setWeekStart(getMonday(now))
-  }
-
-  function isToday(d: Date): boolean {
-    const now = new Date()
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
-  }
-
-  // ── Create job ──
-
-  async function handleCreate() {
-    setCreating(true)
-    try {
-      const scheduledAt = `${createForm.date}T${createForm.time}:00`
-      await fetch("/api/actions/my-jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customer_name: createForm.customer_name,
-          phone_number: createForm.phone,
-          address: createForm.address,
-          service_type: createForm.service_type,
-          date: createForm.date,
-          scheduled_at: scheduledAt,
-          cleaner_id: createForm.assign_to ? Number(createForm.assign_to) : null,
-        }),
-      })
-      setShowCreateModal(false)
-      setCreateForm({
-        customer_name: "",
-        phone: "",
-        address: "",
-        service_type: "exterior_windows",
-        date: toDateStr(new Date()),
-        time: "08:00",
-        assign_to: "",
-      })
-      loadData()
-    } catch (err) {
-      console.error("Failed to create job:", err)
-    }
-    setCreating(false)
-  }
-
-  // ── Render ───────────────────────────────────────────────────────────────
-
-  const dateLabel = viewMode === "week"
-    ? `${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} — ${addDays(weekStart, 6).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
-    : currentDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
 
   return (
-    <div className="space-y-4 animate-fade-in">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-xl font-bold">Schedule</h1>
+    <div
+      ref={setNodeRef}
+      className={`rounded px-1.5 py-1 border text-[10px] cursor-grab active:cursor-grabbing transition-opacity ${colors.card} ${isDragging ? "opacity-30" : ""}`}
+    >
+      {/* Drag handle row */}
+      <div className="flex items-center gap-1" {...listeners} {...attributes}>
+        <GripVertical className="size-2.5 opacity-40 shrink-0" />
+        <span className="font-bold text-foreground truncate flex-1">
+          {job.customer_name}
+        </span>
+      </div>
+      <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
+        <MapPin className="size-2 shrink-0" />
+        <span className="truncate">{extractTown(job.address)}</span>
+      </div>
+      {job.time && (
+        <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
+          <Clock className="size-2 shrink-0" />
+          <span>{job.time}</span>
+        </div>
+      )}
+      <div className="flex items-center justify-between mt-0.5">
+        <span className={`truncate ${colors.accent}`}>
+          {job.services[0] || "Job"}
+        </span>
+        <span className="font-bold text-foreground">${job.price}</span>
+      </div>
+      <div className="flex items-center gap-1 mt-0.5">
+        <span className={`inline-block px-1 rounded border text-[8px] font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
+          {humanizeStatus(job.status)}
+        </span>
+        {job.salesman_name && (
+          <span className="text-[8px] text-amber-400 bg-amber-500/15 px-1 rounded font-medium truncate">
+            Sold: {job.salesman_name.split(" ")[0]}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
 
-        <div className="flex items-center gap-2">
-          {/* View toggle */}
-          <div className="flex rounded-lg border border-border/50 overflow-hidden">
-            <button
-              onClick={() => setViewMode("day")}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                viewMode === "day"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted/50 text-muted-foreground"
-              }`}
-            >
-              Day
-            </button>
-            <button
-              onClick={() => setViewMode("week")}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                viewMode === "week"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted/50 text-muted-foreground"
-              }`}
-            >
-              Week
-            </button>
+/* ─── Draggable Bank Job Card ─── */
+function DraggableBankCard({ job }: { job: UnscheduledJob }) {
+  const statusStyle = STATUS_STYLE[job.status] || STATUS_STYLE.pending
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `bank-${job.id}`,
+    data: { job, fromDate: null, fromTLId: null, fromBank: true },
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`rounded-md px-2.5 py-2 border bg-zinc-800/80 border-zinc-700/50 text-xs cursor-grab active:cursor-grabbing transition-opacity ${isDragging ? "opacity-30" : ""}`}
+    >
+      <div className="flex items-center gap-1.5" {...listeners} {...attributes}>
+        <GripVertical className="size-3 opacity-40 shrink-0" />
+        <span className="font-semibold text-foreground truncate flex-1">
+          {job.customer_name}
+        </span>
+        <span className="font-bold text-green-400 text-[11px]">${job.price}</span>
+      </div>
+      {job.services[0] && (
+        <div className="text-[10px] text-muted-foreground mt-1 truncate pl-4">
+          {job.services[0]}
+        </div>
+      )}
+      {job.address && (
+        <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5 pl-4">
+          <MapPin className="size-2 shrink-0" />
+          <span className="truncate">{extractTown(job.address)}</span>
+        </div>
+      )}
+      <div className="flex items-center gap-1.5 mt-1 pl-4">
+        <span className={`inline-block px-1 rounded border text-[8px] font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
+          {humanizeStatus(job.status)}
+        </span>
+        {job.salesman_name && (
+          <span className="text-[8px] text-amber-400 bg-amber-500/15 px-1 rounded font-medium truncate">
+            Sold: {job.salesman_name.split(" ")[0]}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ─── Droppable TL Cell ─── */
+function DroppableTLCell({ id, children }: { id: string; children: React.ReactNode }) {
+  const { isOver, setNodeRef } = useDroppable({ id })
+  return (
+    <div
+      ref={setNodeRef}
+      className={`rounded-md transition-colors min-h-[2rem] ${isOver ? "bg-primary/10 ring-1 ring-primary/30" : ""}`}
+    >
+      {children}
+    </div>
+  )
+}
+
+/* ═══ MAIN PAGE ═══ */
+export default function SchedulePage() {
+  const { user } = useAuth()
+  const router = useRouter()
+  const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
+  const [viewMode, setViewMode] = useState<"week" | "day">("week")
+  const [selectedDay, setSelectedDay] = useState(() => toDateStr(new Date()))
+  const [loading, setLoading] = useState(true)
+  const [weekData, setWeekData] = useState<WeekDayData[]>([])
+  const [updating, setUpdating] = useState(false)
+
+  // Unscheduled bank state
+  const [bankJobs, setBankJobs] = useState<UnscheduledJob[]>([])
+  const [bankLoading, setBankLoading] = useState(true)
+  const [bankCollapsed, setBankCollapsed] = useState(false)
+
+  // UI state
+  const [expandedTLs, setExpandedTLs] = useState<Set<string>>(new Set())
+  const [dragItem, setDragItem] = useState<{ job: ScheduleJob | UnscheduledJob; fromDate: string | null; fromTLId: number | null; fromBank?: boolean } | null>(null)
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+  )
+
+  // Week days
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart])
+  const todayStr = toDateStr(new Date())
+
+  // Fetch week data (7 parallel fetches)
+  const fetchWeekData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const fetches = weekDays.map(async (day) => {
+        const dateStr = toDateStr(day)
+        try {
+          const res = await fetch(`/api/actions/schedule-day?date=${dateStr}`)
+          if (res.ok) {
+            const data = await res.json()
+            const dayCrews: CrewSchedule[] = data.crews || []
+            return {
+              date: dateStr,
+              crews: dayCrews,
+              salesmanAppointments: data.salesmanAppointments || [],
+              totalRevenue: dayCrews.reduce((s: number, c: CrewSchedule) => s + (c.daily_revenue || 0), 0),
+              totalJobs: dayCrews.reduce((s: number, c: CrewSchedule) => s + (c.jobs?.length || 0), 0),
+            }
+          }
+        } catch {
+          // ignore
+        }
+        return {
+          date: dateStr,
+          crews: [],
+          salesmanAppointments: [],
+          totalRevenue: 0,
+          totalJobs: 0,
+        }
+      })
+      setWeekData(await Promise.all(fetches))
+    } catch {
+      setWeekData([])
+    }
+    setLoading(false)
+  }, [weekDays])
+
+  // Fetch unscheduled bank jobs
+  const fetchBankJobs = useCallback(async () => {
+    setBankLoading(true)
+    try {
+      const res = await fetch("/api/actions/unscheduled-jobs")
+      if (res.ok) {
+        const data = await res.json()
+        setBankJobs(data.jobs || [])
+      }
+    } catch {
+      setBankJobs([])
+    }
+    setBankLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchWeekData()
+    fetchBankJobs()
+  }, [fetchWeekData, fetchBankJobs])
+
+  // Navigation
+  const prevWeek = () => setWeekStart(addDays(weekStart, -7))
+  const nextWeek = () => setWeekStart(addDays(weekStart, 7))
+  const goToday = () => {
+    setWeekStart(getMonday(new Date()))
+    setSelectedDay(toDateStr(new Date()))
+  }
+
+  // Toggles
+  const toggleTL = (key: string) =>
+    setExpandedTLs(p => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n })
+
+  // Weekly totals
+  const weeklyTotal = useMemo(
+    () => weekData.reduce((s, d) => s + d.totalRevenue, 0),
+    [weekData]
+  )
+
+  const monthName = weekStart.toLocaleString("en-US", { month: "long" })
+
+  // DnD handlers
+  const handleDragStart = (e: DragStartEvent) => {
+    const data = e.active.data.current as { job: ScheduleJob | UnscheduledJob; fromDate: string | null; fromTLId: number | null; fromBank?: boolean } | undefined
+    if (data) setDragItem(data)
+  }
+
+  const handleDragEnd = async (e: DragEndEvent) => {
+    setDragItem(null)
+    if (!e.over) return
+
+    const data = e.active.data.current as { job: ScheduleJob | UnscheduledJob; fromDate: string | null; fromTLId: number | null; fromBank?: boolean } | undefined
+    if (!data) return
+
+    const { job, fromDate, fromTLId, fromBank } = data
+
+    // Parse droppable ID: "drop-{date}-{teamLeadId}" or "drop-{date}-unassigned"
+    const overId = e.over.id as string
+    const parts = overId.replace("drop-", "").split("-")
+    // date is YYYY-MM-DD (3 parts), optional tlId/unassigned after
+    if (parts.length < 3) return
+    const targetDate = parts.slice(0, 3).join("-")
+    const tlPart = parts.length > 3 ? parts.slice(3).join("-") : null
+    const targetTLId = tlPart === "unassigned" ? null : (tlPart ? Number(tlPart) : null)
+
+    const dateChanged = fromBank || targetDate !== fromDate
+    const tlChanged = fromBank || targetTLId !== fromTLId
+
+    // Nothing changed (non-bank job dragged to same spot)
+    if (!dateChanged && !tlChanged) return
+
+    setUpdating(true)
+    try {
+      // Assign cleaner if dropping on a team lead
+      if (targetTLId != null && (tlChanged || fromBank)) {
+        await fetch("/api/actions/assign-cleaner", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId: job.id, cleanerId: String(targetTLId) }),
+        })
+      }
+      // Update job date
+      if (dateChanged) {
+        await fetch("/api/jobs", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: job.id, date: targetDate }),
+        })
+      }
+      // Refresh both schedule and bank
+      fetchWeekData()
+      if (fromBank) fetchBankJobs()
+    } catch {
+      // ignore
+    }
+    setUpdating(false)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  const daysToShow = viewMode === "week" ? weekDays : [weekDays.find(d => toDateStr(d) === selectedDay) || weekDays[0]]
+
+  return (
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="h-full flex flex-col">
+        {/* ═══ HEADER ═══ */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+          <div>
+            <h1 className="text-lg font-bold text-foreground">Scheduling</h1>
+            <p className="text-xs text-muted-foreground">{monthName} {weekStart.getFullYear()}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {updating && <Loader2 className="size-4 animate-spin text-primary" />}
+            <button onClick={goToday} className="text-xs text-primary font-medium hover:underline">Today</button>
+            <div className="flex items-center gap-1">
+              <button onClick={prevWeek} className="size-7 rounded-md flex items-center justify-center hover:bg-muted">
+                <ChevronLeft className="size-4" />
+              </button>
+              <button onClick={nextWeek} className="size-7 rounded-md flex items-center justify-center hover:bg-muted">
+                <ChevronRight className="size-4" />
+              </button>
+            </div>
+            <div className="flex rounded-md border border-border overflow-hidden">
+              {(["day", "week"] as const).map(v => (
+                <button
+                  key={v}
+                  onClick={() => { setViewMode(v); if (v === "day" && !selectedDay) setSelectedDay(todayStr) }}
+                  className={`px-3 py-1 text-[10px] font-bold uppercase ${viewMode === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                >{v}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ═══ MAIN CONTENT: BANK + CALENDAR ═══ */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* ─── UNSCHEDULED BANK SIDEBAR ─── */}
+          <div className={`shrink-0 border-r border-border bg-zinc-900/50 flex flex-col transition-all ${bankCollapsed ? "w-10" : "w-[250px]"}`}>
+            {/* Bank header */}
+            <div className="flex items-center justify-between px-2 py-2 border-b border-border shrink-0">
+              {!bankCollapsed && (
+                <div className="flex items-center gap-1.5">
+                  <Package className="size-3.5 text-amber-400" />
+                  <span className="text-[11px] font-bold text-foreground">Unscheduled</span>
+                  <span className="text-[9px] text-muted-foreground bg-zinc-800 px-1 rounded">{bankJobs.length}</span>
+                </div>
+              )}
+              <button
+                onClick={() => setBankCollapsed(!bankCollapsed)}
+                className="size-6 rounded flex items-center justify-center hover:bg-muted text-muted-foreground"
+                title={bankCollapsed ? "Expand bank" : "Collapse bank"}
+              >
+                {bankCollapsed ? <ChevronRight className="size-3.5" /> : <ChevronLeft className="size-3.5" />}
+              </button>
+            </div>
+
+            {/* Bank content */}
+            {!bankCollapsed && (
+              <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+                {bankLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  </div>
+                ) : bankJobs.length === 0 ? (
+                  <p className="text-[10px] text-muted-foreground italic text-center py-4">
+                    No unscheduled jobs
+                  </p>
+                ) : (
+                  bankJobs.map(job => (
+                    <DraggableBankCard key={job.id} job={job} />
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* + New button */}
+            {!bankCollapsed && (
+              <div className="px-2 py-2 border-t border-border shrink-0">
+                <button
+                  onClick={() => router.push("/jobs")}
+                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md border border-dashed border-zinc-600 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:border-zinc-500 hover:bg-zinc-800/50 transition-colors"
+                >
+                  <Plus className="size-3" />
+                  New Job / Quote
+                </button>
+              </div>
+            )}
+
+            {/* Collapsed indicator */}
+            {bankCollapsed && bankJobs.length > 0 && (
+              <div className="flex-1 flex items-start justify-center pt-3">
+                <div className="flex flex-col items-center gap-1">
+                  <Package className="size-3.5 text-amber-400" />
+                  <span className="text-[9px] font-bold text-amber-400">{bankJobs.length}</span>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Nav */}
-          <button
-            onClick={navigateBack}
-            className="p-2 rounded-lg border border-border/50 hover:bg-muted/50 transition-colors"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            onClick={goToday}
-            className="px-3 py-1.5 text-sm rounded-lg border border-border/50 hover:bg-muted/50 transition-colors"
-          >
-            Today
-          </button>
-          <button
-            onClick={navigateForward}
-            className="p-2 rounded-lg border border-border/50 hover:bg-muted/50 transition-colors"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          <span className="text-sm text-muted-foreground ml-1 hidden sm:inline">{dateLabel}</span>
-        </div>
-      </div>
+          {/* ─── CALENDAR GRID ─── */}
+          <div className={`flex-1 overflow-auto grid ${viewMode === "week" ? "grid-cols-7" : "grid-cols-1"} gap-px bg-border`}>
+          {daysToShow.map(day => {
+            const dateStr = toDateStr(day)
+            const isToday = dateStr === todayStr
+            const dayData = weekData.find(d => d.date === dateStr)
+            const dayCrews = dayData?.crews || []
+            const dayAppts = dayData?.salesmanAppointments || []
+            const dayTotal = dayData?.totalRevenue || 0
+            const dayJobCount = dayData?.totalJobs || 0
 
-      {/* ── Loading ── */}
-      {loading ? (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      ) : viewMode === "week" ? (
-        /* ── Weekly Grid ── */
-        <div className="overflow-x-auto">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 min-w-[700px]">
-            {weekDays.map(day => {
-              const dateStr = toDateStr(day)
-              const today = isToday(day)
-              const leads = getLeadsForDate(dateStr)
-              const dayTotal = leads.reduce(
-                (sum, l) => sum + l.jobs.reduce((s, j) => s + (Number(j.price) || 0), 0),
-                0,
-              )
-
-              return (
-                <div
-                  key={dateStr}
-                  className={`rounded-xl border p-2 min-h-[200px] transition-colors ${
-                    today
-                      ? "border-primary/30 bg-primary/5"
-                      : "border-border/30 bg-card/30"
-                  }`}
-                >
-                  {/* Day header */}
-                  <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-border/20">
-                    <span className={`text-xs font-semibold ${today ? "text-primary" : "text-muted-foreground"}`}>
-                      {day.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+            return (
+              <div key={dateStr} className={`bg-background flex flex-col ${isToday ? "ring-1 ring-primary/30 ring-inset" : ""}`}>
+                {/* Day header */}
+                <div className={`px-2 py-1.5 border-b border-border flex items-center justify-between shrink-0 ${isToday ? "bg-primary/5" : ""}`}>
+                  <div>
+                    <span className="text-[10px] font-medium text-muted-foreground">
+                      {day.toLocaleDateString("en-US", { weekday: "short" })}
                     </span>
-                    {dayTotal > 0 && (
-                      <span className="text-[10px] font-semibold text-green-400">
-                        ${dayTotal.toLocaleString()}
-                      </span>
-                    )}
+                    <span className={`ml-1 text-sm font-bold ${isToday ? "text-primary" : "text-foreground"}`}>
+                      {day.getDate()}
+                    </span>
                   </div>
-
-                  {/* Team leads */}
-                  {leads.length === 0 ? (
-                    <p className="text-[10px] text-muted-foreground/50 italic py-4 text-center">
-                      No jobs scheduled
-                    </p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {leads.map(({ cleaner, jobs: cJobs }) => {
-                        const key = `${dateStr}-${cleaner.id}`
-                        const isExpanded = expandedLeads.has(key)
-                        const leadTotal = cJobs.reduce((s, j) => s + (Number(j.price) || 0), 0)
-
-                        return (
-                          <div key={key}>
-                            {/* Team lead row — click to expand */}
-                            <button
-                              onClick={() => toggleExpand(dateStr, cleaner.id)}
-                              className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-left transition-colors ${
-                                isExpanded
-                                  ? "bg-blue-500/15 border border-blue-500/20"
-                                  : "hover:bg-muted/30 border border-transparent"
-                              }`}
-                            >
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <User className="h-3 w-3 text-blue-400 shrink-0" />
-                                <span className="text-[11px] font-semibold text-foreground truncate">
-                                  {cleaner.name}
-                                </span>
-                              </div>
-                              <span className={`text-[10px] font-medium shrink-0 ml-1 px-1.5 py-0.5 rounded-full ${
-                                cleaner.id === 0
-                                  ? "bg-zinc-500/20 text-zinc-400"
-                                  : "bg-blue-500/20 text-blue-400"
-                              }`}>
-                                {cJobs.length}
-                              </span>
-                            </button>
-
-                            {/* Expanded: Job blocks */}
-                            {isExpanded && (
-                              <div className="mt-1 space-y-1 pl-1">
-                                {cJobs.map(job => (
-                                  <div
-                                    key={job.id}
-                                    className={`rounded-lg border-l-[3px] bg-card/60 border border-border/20 px-2 py-1.5 ${
-                                      STATUS_BORDER[job.status] || "border-l-zinc-500"
-                                    }`}
-                                  >
-                                    <div className="flex items-center gap-1.5">
-                                      {STATUS_ICON[job.status] || (
-                                        <div className="h-3 w-3 rounded-full border-2 border-blue-400/50" />
-                                      )}
-                                      <span className="text-[11px] font-bold text-foreground">
-                                        {formatTimeShort(job.scheduled_at)}
-                                        {job.scheduled_at && (
-                                          <span className="text-muted-foreground font-normal">
-                                            {" "}-{" "}{getEndTime(job.scheduled_at, job.hours)}
-                                          </span>
-                                        )}
-                                      </span>
-                                    </div>
-                                    <div className="text-[11px] text-foreground mt-0.5">
-                                      {formatServiceType(job.service_type)}
-                                    </div>
-                                    <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                                      <MapPin className="h-2.5 w-2.5 shrink-0" />
-                                      {extractCity(job.address) || "No location"}
-                                    </div>
-                                    {job.customers && (
-                                      <div className="text-[10px] text-muted-foreground/70 mt-0.5">
-                                        {[job.customers.first_name, job.customers.last_name].filter(Boolean).join(" ")}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-
-                                {/* Daily total for this lead */}
-                                {leadTotal > 0 && (
-                                  <div className="text-[11px] font-semibold text-green-400 pt-1 pl-2">
-                                    ${leadTotal.toLocaleString()} scheduled
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
+                  {dayJobCount > 0 && (
+                    <span className="text-[9px] text-muted-foreground">{dayJobCount}j</span>
                   )}
                 </div>
-              )
-            })}
-          </div>
-        </div>
-      ) : (
-        /* ── Day View ── */
-        (() => {
-          const dateStr = toDateStr(currentDate)
-          const leads = getLeadsForDate(dateStr)
-          const dayTotal = leads.reduce(
-            (sum, l) => sum + l.jobs.reduce((s, j) => s + (Number(j.price) || 0), 0),
-            0,
-          )
 
-          return (
-            <div className="space-y-3">
-              {leads.length === 0 ? (
-                <div className="rounded-xl border border-border/30 bg-card/30 p-8 text-center">
-                  <Calendar className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">No jobs scheduled for this day</p>
-                </div>
-              ) : (
-                leads.map(({ cleaner, jobs: cJobs }) => {
-                  const leadTotal = cJobs.reduce((s, j) => s + (Number(j.price) || 0), 0)
+                {/* Day content */}
+                <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
+                  {/* Team Leads */}
+                  {dayCrews.filter(c => c.team_lead_id != null).map(crew => {
+                    const tlKey = `${dateStr}-${crew.team_lead_id}`
+                    const isExpanded = expandedTLs.has(tlKey)
+                    const crewJobs = crew.jobs || []
+                    const crewTotal = crew.daily_revenue || 0
 
-                  return (
-                    <div
-                      key={cleaner.id}
-                      className="rounded-xl border border-border/30 bg-card/30 p-3"
-                    >
-                      {/* Team lead header */}
-                      <div className="flex items-center justify-between mb-3 pb-2 border-b border-border/20">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-blue-500/20 flex items-center justify-center">
-                            <User className="h-3.5 w-3.5 text-blue-400" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-semibold">{cleaner.name}</p>
-                            <p className="text-[10px] text-muted-foreground">{cJobs.length} job{cJobs.length !== 1 ? "s" : ""}</p>
-                          </div>
-                        </div>
-                        {leadTotal > 0 && (
-                          <span className="text-sm font-semibold text-green-400">
-                            ${leadTotal.toLocaleString()}
+                    return (
+                      <DroppableTLCell key={tlKey} id={`drop-${dateStr}-${crew.team_lead_id}`}>
+                        {/* TL Header */}
+                        <button
+                          onClick={() => toggleTL(tlKey)}
+                          className="w-full flex items-center gap-1 px-1.5 py-1 rounded-md hover:bg-muted/50 text-left"
+                        >
+                          <span className="text-[9px] font-bold text-blue-400 bg-blue-500/15 px-1 rounded">TL</span>
+                          <span className="text-[11px] font-semibold text-foreground truncate flex-1">
+                            {crew.team_lead_name.split(" ")[0]}
                           </span>
+                          {crewJobs.length > 0 && <span className="text-[9px] text-muted-foreground">{crewJobs.length}</span>}
+                          {crewTotal > 0 && <span className="text-[9px] text-green-400 font-medium">${Math.round(crewTotal)}</span>}
+                          <ChevronDown className={`size-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                        </button>
+
+                        {/* Expanded: Job cards */}
+                        {isExpanded && (
+                          <div className="ml-1 pl-2 border-l border-border space-y-1 mt-1">
+                            {crewJobs.map(job => (
+                              <DraggableJobCard
+                                key={job.id}
+                                job={job}
+                                fromDate={dateStr}
+                                fromTLId={crew.team_lead_id}
+                              />
+                            ))}
+                            {crewJobs.length === 0 && (
+                              <p className="text-[9px] text-muted-foreground italic px-1">No jobs</p>
+                            )}
+                          </div>
                         )}
+                      </DroppableTLCell>
+                    )
+                  })}
+
+                  {/* Salesman Appointments */}
+                  {dayAppts.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-1 px-1.5 py-1">
+                        <span className="text-[9px] font-bold text-amber-400 bg-amber-500/15 px-1 rounded">S</span>
+                        <span className="text-[10px] text-muted-foreground">Appointments</span>
+                        <span className="text-[9px] text-muted-foreground ml-auto">{dayAppts.length}</span>
                       </div>
-
-                      {/* Job blocks */}
-                      <div className="space-y-2">
-                        {cJobs.map(job => (
-                          <div
-                            key={job.id}
-                            className={`rounded-lg border-l-[3px] bg-card/80 border border-border/20 p-3 ${
-                              STATUS_BORDER[job.status] || "border-l-zinc-500"
-                            }`}
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="flex items-center gap-2">
-                                {STATUS_ICON[job.status] || (
-                                  <div className="h-3.5 w-3.5 rounded-full border-2 border-blue-400/50 mt-0.5" />
-                                )}
-                                <div>
-                                  <p className="text-xs font-bold text-foreground">
-                                    {formatTimeShort(job.scheduled_at)}
-                                    {job.scheduled_at && (
-                                      <span className="text-muted-foreground font-normal">
-                                        {" "}-{" "}{getEndTime(job.scheduled_at, job.hours)}
-                                      </span>
-                                    )}
-                                  </p>
-                                  <p className="text-xs text-foreground mt-0.5">
-                                    {formatServiceType(job.service_type)}
-                                  </p>
-                                </div>
-                              </div>
-                              {job.price && (
-                                <span className="text-xs font-semibold text-green-400">
-                                  ${Number(job.price).toLocaleString()}
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="mt-2 space-y-0.5">
-                              {job.address && (
-                                <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                                  <MapPin className="h-3 w-3 shrink-0" />
-                                  {job.address}
-                                </p>
-                              )}
-                              {job.customers && (
-                                <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                                  <User className="h-3 w-3 shrink-0" />
-                                  {[job.customers.first_name, job.customers.last_name].filter(Boolean).join(" ")}
-                                  {job.phone_number && <span className="text-muted-foreground/60">({job.phone_number})</span>}
-                                </p>
-                              )}
-                              {job.notes && (
-                                <p className="text-[10px] text-muted-foreground/70 italic mt-1">{job.notes}</p>
-                              )}
+                      <div className="ml-1 pl-2 border-l border-amber-500/20 space-y-1">
+                        {dayAppts.map(apt => (
+                          <div key={apt.id} className="rounded px-1.5 py-1 border bg-amber-500/10 border-amber-500/25 text-[10px]">
+                            <div className="font-bold text-foreground truncate">{apt.customer_name}</div>
+                            <div className="text-muted-foreground truncate">{apt.salesman_name}</div>
+                            <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
+                              <Clock className="size-2" />
+                              <span>{apt.time}</span>
+                              <span className="ml-auto text-amber-400 text-[8px] font-semibold uppercase">{apt.type}</span>
                             </div>
                           </div>
                         ))}
                       </div>
                     </div>
-                  )
-                })
-              )}
+                  )}
 
-              {/* Day total */}
-              {dayTotal > 0 && (
-                <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-3 text-center">
-                  <span className="text-sm font-bold text-green-400">
-                    ${dayTotal.toLocaleString()} scheduled
-                  </span>
-                </div>
-              )}
-            </div>
-          )
-        })()
-      )}
+                  {/* Unassigned section */}
+                  {dayCrews.filter(c => c.team_lead_id == null).map(crew => {
+                    const uKey = `${dateStr}-unassigned`
+                    const isExpanded = expandedTLs.has(uKey)
+                    const unJobs = crew.jobs || []
 
-      {/* ── FAB: Add Job ── */}
-      <button
-        onClick={() => setShowCreateModal(true)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/25 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
-      >
-        <Plus className="h-6 w-6" />
-      </button>
+                    if (unJobs.length === 0) return null
 
-      {/* ── Create Modal ── */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-card border border-border/50 rounded-2xl w-full max-w-md shadow-2xl animate-fade-in">
-            {/* Modal header */}
-            <div className="flex items-center justify-between p-4 border-b border-border/30">
-              <h2 className="text-sm font-bold">Add Job / Appointment</h2>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="p-1 rounded-lg hover:bg-muted/50 transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+                    return (
+                      <DroppableTLCell key={uKey} id={`drop-${dateStr}-unassigned`}>
+                        <button
+                          onClick={() => toggleTL(uKey)}
+                          className="w-full flex items-center gap-1 px-1.5 py-1 rounded-md hover:bg-muted/50 text-left"
+                        >
+                          <span className="text-[9px] font-bold text-red-400 bg-red-500/15 px-1 rounded">!</span>
+                          <span className="text-[11px] font-semibold text-red-400 truncate flex-1">Unassigned</span>
+                          <span className="text-[9px] text-muted-foreground">{unJobs.length}</span>
+                          <ChevronDown className={`size-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                        </button>
+                        {isExpanded && (
+                          <div className="ml-1 pl-2 border-l border-red-500/20 space-y-1 mt-1">
+                            {unJobs.map(job => (
+                              <DraggableJobCard
+                                key={job.id}
+                                job={job}
+                                fromDate={dateStr}
+                                fromTLId={null}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </DroppableTLCell>
+                    )
+                  })}
 
-            {/* Modal body */}
-            <div className="p-4 space-y-3">
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                  Customer Name
-                </label>
-                <input
-                  type="text"
-                  value={createForm.customer_name}
-                  onChange={e => setCreateForm(prev => ({ ...prev, customer_name: e.target.value }))}
-                  className="mt-1 w-full bg-muted/30 border border-border/50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  placeholder="John Smith"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                  Phone
-                </label>
-                <input
-                  type="tel"
-                  value={createForm.phone}
-                  onChange={e => setCreateForm(prev => ({ ...prev, phone: e.target.value }))}
-                  className="mt-1 w-full bg-muted/30 border border-border/50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  placeholder="(309) 555-1234"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                  Address
-                </label>
-                <input
-                  type="text"
-                  value={createForm.address}
-                  onChange={e => setCreateForm(prev => ({ ...prev, address: e.target.value }))}
-                  className="mt-1 w-full bg-muted/30 border border-border/50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  placeholder="123 Main St, Morton, IL"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                    Service Type
-                  </label>
-                  <select
-                    value={createForm.service_type}
-                    onChange={e => setCreateForm(prev => ({ ...prev, service_type: e.target.value }))}
-                    className="mt-1 w-full bg-muted/30 border border-border/50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  >
-                    <option value="exterior_windows">Ext. Windows</option>
-                    <option value="interior_windows">Int. Windows</option>
-                    <option value="interior_exterior_windows">Int/Ext Windows</option>
-                    <option value="pressure_washing">Pressure Washing</option>
-                    <option value="gutter_cleaning">Gutter Cleaning</option>
-                    <option value="solar_panel">Solar Panels</option>
-                    <option value="estimate">Estimate</option>
-                    <option value="sales_appointment">Sales Appointment</option>
-                  </select>
+                  {dayCrews.length === 0 && (
+                    <DroppableTLCell id={`drop-${dateStr}-unassigned`}>
+                      <p className="text-[10px] text-muted-foreground italic text-center py-2">No jobs scheduled</p>
+                    </DroppableTLCell>
+                  )}
                 </div>
 
-                <div>
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                    Assign To
-                  </label>
-                  <select
-                    value={createForm.assign_to}
-                    onChange={e => setCreateForm(prev => ({ ...prev, assign_to: e.target.value }))}
-                    className="mt-1 w-full bg-muted/30 border border-border/50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  >
-                    <option value="">Unassigned</option>
-                    {cleaners.map(c => (
-                      <option key={c.id} value={String(c.id)}>
-                        {c.name} {c.is_team_lead ? "(TL)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* Day total */}
+                {dayTotal > 0 && (
+                  <div className="px-2 py-1 border-t border-border text-[10px] font-medium text-muted-foreground shrink-0">
+                    ${Math.round(dayTotal).toLocaleString()} scheduled
+                  </div>
+                )}
               </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                    Date
-                  </label>
-                  <input
-                    type="date"
-                    value={createForm.date}
-                    onChange={e => setCreateForm(prev => ({ ...prev, date: e.target.value }))}
-                    className="mt-1 w-full bg-muted/30 border border-border/50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-                    Time
-                  </label>
-                  <input
-                    type="time"
-                    value={createForm.time}
-                    onChange={e => setCreateForm(prev => ({ ...prev, time: e.target.value }))}
-                    className="mt-1 w-full bg-muted/30 border border-border/50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Modal footer */}
-            <div className="flex items-center justify-end gap-2 p-4 border-t border-border/30">
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="px-4 py-2 text-sm rounded-lg border border-border/50 hover:bg-muted/50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={creating || !createForm.customer_name || !createForm.date}
-                className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-              >
-                {creating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Create
-              </button>
-            </div>
-          </div>
+            )
+          })}
         </div>
-      )}
-    </div>
+        </div>{/* end MAIN CONTENT flex row */}
+
+        {/* ═══ BOTTOM BAR ═══ */}
+        <div className="px-4 py-2.5 border-t border-border flex items-center justify-between shrink-0">
+          <span className="text-sm font-bold text-foreground">
+            ${Math.round(weeklyTotal).toLocaleString()}{" "}
+            <span className="text-xs font-normal text-muted-foreground">this week</span>
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {weekData.reduce((s, d) => s + d.totalJobs, 0)} jobs
+          </span>
+        </div>
+
+        {/* ═══ DRAG OVERLAY ═══ */}
+        <DragOverlay>
+          {dragItem && (() => {
+            const isBank = !!(dragItem as any).fromBank
+            const colors = isBank
+              ? { card: "bg-amber-500/10 border-amber-500/25", accent: "text-amber-400" }
+              : getJobColor(dragItem.job as ScheduleJob)
+            return (
+              <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md border text-[10px] font-medium shadow-lg ${colors.card}`}>
+                <GripVertical className="size-3 opacity-40" />
+                <div>
+                  <div className="font-semibold text-foreground">{dragItem.job.customer_name}</div>
+                  <div className="text-muted-foreground">{extractTown(dragItem.job.address)}</div>
+                </div>
+                <span className="font-bold text-foreground ml-auto">${dragItem.job.price}</span>
+              </div>
+            )
+          })()}
+        </DragOverlay>
+      </div>
+    </DndContext>
   )
 }

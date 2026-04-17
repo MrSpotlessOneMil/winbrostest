@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Users,
   Send,
+  Trash2,
 } from "lucide-react"
 
 interface Quote {
@@ -33,7 +34,7 @@ interface Quote {
   square_footage: number | null
   property_type: string | null
   notes: string | null
-  status: "pending" | "approved" | "expired"
+  status: "pending" | "approved" | "expired" | "draft" | "sent" | "converted" | "declined" | "cancelled"
   selected_tier: string | null
   total_price: number | null
   created_at: string
@@ -58,13 +59,67 @@ interface PreconfirmStatus {
   responded_at: string | null
 }
 
+interface LineItem {
+  id: string
+  service_name: string
+  price: string
+}
+
+const SERVICE_SUGGESTIONS = [
+  "Window Cleaning - Interior/Exterior",
+  "Window Cleaning - Exterior Only",
+  "Screen Cleaning",
+  "Gutter Cleaning",
+  "Pressure Washing",
+  "Hard Water Removal",
+  "Track Cleaning",
+  "Skylight Cleaning",
+]
+
+// Pane count pricing ranges
+const PANE_RANGES: { min: number; max: number | null; price: number; label: string }[] = [
+  { min: 1, max: 20, price: 200, label: "1-20 panes" },
+  { min: 21, max: 40, price: 350, label: "21-40 panes" },
+  { min: 41, max: 60, price: 500, label: "41-60 panes" },
+  { min: 61, max: 80, price: 650, label: "61-80 panes" },
+  { min: 81, max: null, price: 800, label: "81+ panes" },
+]
+
+function getPriceForPanes(count: number): number {
+  for (const range of PANE_RANGES) {
+    if (range.max === null && count >= range.min) return range.price
+    if (count >= range.min && range.max !== null && count <= range.max) return range.price
+  }
+  return 200
+}
+
+// Team lead options for assignment
+const TEAM_LEADS = [
+  { id: "unassigned", name: "Unassigned" },
+  { id: "blake_johnson", name: "Blake Johnson" },
+  { id: "josh_rivera", name: "Josh Rivera" },
+  { id: "trac_nguyen", name: "Trac Nguyen" },
+  { id: "max_shoemaker", name: "Max Shoemaker" },
+]
+
+function generateLineItemId() {
+  return Math.random().toString(36).slice(2, 9)
+}
+
 type FilterTab = "all" | "pending" | "approved" | "expired"
 
-const STATUS_BADGE: Record<Quote["status"], { label: string; className: string }> = {
+const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   pending: { label: "Pending", className: "bg-amber-500/20 text-amber-400 border-amber-500/30" },
   approved: { label: "Approved", className: "bg-green-500/20 text-green-400 border-green-500/30" },
   expired: { label: "Expired", className: "bg-red-500/20 text-red-400 border-red-500/30" },
+  converted: { label: "Converted", className: "bg-green-500/20 text-green-400 border-green-500/30" },
+  declined: { label: "Declined", className: "bg-red-500/20 text-red-300 border-red-500/30" },
+  draft: { label: "Draft", className: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30" },
+  sent: { label: "Sent", className: "bg-violet-500/20 text-violet-400 border-violet-500/30" },
+  cancelled: { label: "Cancelled", className: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30" },
 }
+
+const FALLBACK_BADGE = { label: "Unknown", className: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30" }
 
 const PROPERTY_LABELS: Record<string, string> = {
   single_story: "Single Story",
@@ -96,6 +151,7 @@ export default function QuotesPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [smsStatus, setSmsStatus] = useState<{ id: string; message: string } | null>(null)
+  const [approvingId, setApprovingId] = useState<string | null>(null)
 
   // Create form state
   const [showCreate, setShowCreate] = useState(false)
@@ -107,16 +163,20 @@ export default function QuotesPage() {
     customer_phone: "",
     customer_email: "",
     customer_address: "",
-    square_footage: "",
-    property_type: "",
     notes: "",
-    custom_base_price: "",
+    // Pane count pricing
+    pane_count: "",
+    price_override: "",
+    assign_to: "unassigned",
     // Pre-confirm fields
     preconfirm: false,
     cleaner_pay: "",
     description: "",
     cleaner_ids: [] as number[],
   })
+  const [lineItems, setLineItems] = useState<LineItem[]>([
+    { id: generateLineItemId(), service_name: "", price: "" },
+  ])
 
   // Cleaner options for pre-confirm
   const [cleaners, setCleaners] = useState<CleanerOption[]>([])
@@ -192,6 +252,30 @@ export default function QuotesPage() {
     }
   }
 
+  async function handleApprove(quoteId: string) {
+    setApprovingId(quoteId)
+    setSmsStatus(null)
+    try {
+      const res = await fetch("/api/actions/quotes/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quoteId, approvedBy: "salesman" }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to approve quote")
+      }
+      setSmsStatus({ id: quoteId, message: `Converted! Job #${data.job_id}` })
+      setTimeout(() => setSmsStatus(null), 4000)
+      fetchQuotes()
+    } catch (err: unknown) {
+      setSmsStatus({ id: quoteId, message: err instanceof Error ? err.message : "Approve failed" })
+      setTimeout(() => setSmsStatus(null), 4000)
+    } finally {
+      setApprovingId(null)
+    }
+  }
+
   async function handleCreate() {
     if (!form.customer_name.trim()) {
       setCreateError("Customer name is required")
@@ -200,15 +284,49 @@ export default function QuotesPage() {
     setCreating(true)
     setCreateError(null)
     try {
+      // Build line items array — filter out empty rows
+      let validLineItems = lineItems
+        .filter((item) => item.service_name.trim() && item.price)
+        .map((item) => ({
+          service_name: item.service_name.trim(),
+          price: parseFloat(item.price),
+          quantity: 1,
+        }))
+        .filter((item) => !isNaN(item.price) && item.price > 0)
+
+      // If pane count is set, auto-generate a line item (unless user manually added window cleaning items)
+      const paneCount = parseInt(form.pane_count) || 0
+      if (paneCount > 0 && validLineItems.length === 0) {
+        const autoPrice = form.price_override ? parseFloat(form.price_override) : getPriceForPanes(paneCount)
+        if (!isNaN(autoPrice) && autoPrice > 0) {
+          validLineItems = [{
+            service_name: `Window Cleaning - Exterior (${paneCount} panes)`,
+            price: autoPrice,
+            quantity: 1,
+          }]
+        }
+      }
+
+      if (validLineItems.length === 0) {
+        setCreateError("Add at least one service with a price, or enter a pane count")
+        setCreating(false)
+        return
+      }
+
       const payload: Record<string, unknown> = {
         customer_name: form.customer_name.trim(),
         customer_phone: form.customer_phone.trim() || undefined,
         customer_email: form.customer_email.trim() || undefined,
         customer_address: form.customer_address.trim() || undefined,
-        square_footage: form.square_footage ? parseInt(form.square_footage, 10) : undefined,
-        property_type: form.property_type || undefined,
         notes: form.notes.trim() || undefined,
-        custom_base_price: form.custom_base_price ? parseFloat(form.custom_base_price) : undefined,
+        line_items: validLineItems,
+      }
+
+      // Include assignment info in notes if assigned
+      if (form.assign_to && form.assign_to !== "unassigned") {
+        const lead = TEAM_LEADS.find(t => t.id === form.assign_to)
+        const assignNote = `Assigned to: ${lead?.name || form.assign_to}`
+        payload.notes = payload.notes ? `${payload.notes}\n${assignNote}` : assignNote
       }
 
       if (form.preconfirm && form.cleaner_ids.length > 0) {
@@ -240,15 +358,16 @@ export default function QuotesPage() {
         customer_phone: "",
         customer_email: "",
         customer_address: "",
-        square_footage: "",
-        property_type: "",
         notes: "",
-        custom_base_price: "",
+        pane_count: "",
+        price_override: "",
+        assign_to: "unassigned",
         preconfirm: false,
         cleaner_pay: "",
         description: "",
         cleaner_ids: [],
       })
+      setLineItems([{ id: generateLineItemId(), service_name: "", price: "" }])
       fetchQuotes()
     } catch (err: unknown) {
       setCreateError(err instanceof Error ? err.message : "Failed to create quote")
@@ -297,15 +416,16 @@ export default function QuotesPage() {
       customer_phone: "",
       customer_email: "",
       customer_address: "",
-      square_footage: "",
-      property_type: "",
       notes: "",
-      custom_base_price: "",
+      pane_count: "",
+      price_override: "",
+      assign_to: "unassigned",
       preconfirm: false,
       cleaner_pay: "",
       description: "",
       cleaner_ids: [],
     })
+    setLineItems([{ id: generateLineItemId(), service_name: "", price: "" }])
   }
 
   const tabs: { key: FilterTab; label: string }[] = [
@@ -499,51 +619,182 @@ export default function QuotesPage() {
                       }
                     />
                   </div>
-                  <div>
-                    <Label htmlFor="square_footage">Square Footage</Label>
-                    <Input
-                      id="square_footage"
-                      type="number"
-                      placeholder="2000"
-                      value={form.square_footage}
-                      onChange={(e) =>
-                        setForm({ ...form, square_footage: e.target.value })
-                      }
-                    />
+                </div>
+
+                {/* Pane Count Pricing */}
+                <div className="border-t border-border pt-4">
+                  <Label className="text-sm font-medium flex items-center gap-2 mb-3">
+                    Pane Count Pricing
+                    <span className="text-muted-foreground font-normal text-xs">(auto-calculates price)</span>
+                  </Label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="pane_count" className="text-xs text-muted-foreground">Pane Count</Label>
+                      <Input
+                        id="pane_count"
+                        type="number"
+                        placeholder="e.g. 35"
+                        min="1"
+                        value={form.pane_count}
+                        onChange={(e) => {
+                          const newPaneCount = e.target.value
+                          setForm({ ...form, pane_count: newPaneCount, price_override: "" })
+                          // Auto-populate line items when pane count changes
+                          const count = parseInt(newPaneCount) || 0
+                          if (count > 0) {
+                            const autoPrice = getPriceForPanes(count)
+                            setLineItems([{
+                              id: generateLineItemId(),
+                              service_name: `Window Cleaning - Exterior (${count} panes)`,
+                              price: String(autoPrice),
+                            }])
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Auto Price</Label>
+                      <div className="h-9 flex items-center px-3 rounded-md border border-input bg-muted text-sm font-medium">
+                        {form.pane_count && parseInt(form.pane_count) > 0
+                          ? `$${getPriceForPanes(parseInt(form.pane_count)).toFixed(2)}`
+                          : "--"}
+                      </div>
+                    </div>
+                    <div>
+                      <Label htmlFor="price_override" className="text-xs text-muted-foreground">Override Price ($)</Label>
+                      <Input
+                        id="price_override"
+                        type="number"
+                        placeholder="Override"
+                        min="0"
+                        step="0.01"
+                        value={form.price_override}
+                        onChange={(e) => {
+                          const override = e.target.value
+                          setForm({ ...form, price_override: override })
+                          // Update line items with override price
+                          const count = parseInt(form.pane_count) || 0
+                          if (count > 0 && override) {
+                            setLineItems([{
+                              id: generateLineItemId(),
+                              service_name: `Window Cleaning - Exterior (${count} panes)`,
+                              price: override,
+                            }])
+                          }
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <Label htmlFor="property_type">Property Type</Label>
-                    <select
-                      id="property_type"
-                      value={form.property_type}
-                      onChange={(e) =>
-                        setForm({ ...form, property_type: e.target.value })
-                      }
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <option value="">Select type...</option>
-                      <option value="single_story">Single Story</option>
-                      <option value="two_story">Two Story</option>
-                      <option value="larger_two_story">Larger Two Story</option>
-                    </select>
-                  </div>
-                  <div>
-                    <Label htmlFor="custom_base_price">Custom Price (optional)</Label>
-                    <Input
-                      id="custom_base_price"
-                      type="number"
-                      placeholder="e.g. 350"
-                      min="0"
-                      step="0.01"
-                      value={form.custom_base_price}
-                      onChange={(e) =>
-                        setForm({ ...form, custom_base_price: e.target.value })
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Set a salesman-quoted price. Customer sees this instead of tier selection.
-                    </p>
-                  </div>
+                  {form.pane_count && parseInt(form.pane_count) > 0 && (
+                    <div className="mt-2 text-xs text-muted-foreground space-y-0.5">
+                      <p className="font-medium text-foreground/70">Pane Pricing Ranges:</p>
+                      {PANE_RANGES.map((r) => (
+                        <p key={r.label} className={parseInt(form.pane_count) >= r.min && (r.max === null || parseInt(form.pane_count) <= r.max) ? "text-primary font-semibold" : ""}>
+                          {r.label}: ${r.price}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Assignment Dropdown */}
+                <div className="border-t border-border pt-4">
+                  <Label htmlFor="assign_to">Assign To</Label>
+                  <select
+                    id="assign_to"
+                    value={form.assign_to}
+                    onChange={(e) => setForm({ ...form, assign_to: e.target.value })}
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring mt-1"
+                  >
+                    {TEAM_LEADS.map((lead) => (
+                      <option key={lead.id} value={lead.id}>
+                        {lead.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Unassigned quotes go to the unscheduled bank
+                  </p>
+                </div>
+
+                {/* Line Items Builder */}
+                <div className="space-y-3">
+                  <Label>Services</Label>
+                  {lineItems.map((item, index) => (
+                    <div key={item.id} className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <Input
+                          placeholder="Service name"
+                          value={item.service_name}
+                          onChange={(e) => {
+                            const updated = [...lineItems]
+                            updated[index] = { ...item, service_name: e.target.value }
+                            setLineItems(updated)
+                          }}
+                          list="service-suggestions"
+                        />
+                      </div>
+                      <div className="w-28 shrink-0">
+                        <Input
+                          type="number"
+                          placeholder="Price"
+                          min="0"
+                          step="0.01"
+                          value={item.price}
+                          onChange={(e) => {
+                            const updated = [...lineItems]
+                            updated[index] = { ...item, price: e.target.value }
+                            setLineItems(updated)
+                          }}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="shrink-0 mt-0.5 text-muted-foreground hover:text-red-400"
+                        onClick={() => {
+                          if (lineItems.length <= 1) return
+                          setLineItems(lineItems.filter((_, i) => i !== index))
+                        }}
+                        disabled={lineItems.length <= 1}
+                        title="Remove service"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <datalist id="service-suggestions">
+                    {SERVICE_SUGGESTIONS.map((s) => (
+                      <option key={s} value={s} />
+                    ))}
+                  </datalist>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setLineItems([...lineItems, { id: generateLineItemId(), service_name: "", price: "" }])
+                    }
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add Service
+                  </Button>
+                  {/* Total */}
+                  {(() => {
+                    const total = lineItems.reduce((sum, item) => {
+                      const p = parseFloat(item.price)
+                      return sum + (isNaN(p) ? 0 : p)
+                    }, 0)
+                    return (
+                      <div className="flex items-center justify-between pt-2 border-t border-border">
+                        <span className="text-sm font-medium text-muted-foreground">Total</span>
+                        <span className="text-lg font-semibold text-foreground">
+                          ${total.toFixed(2)}
+                        </span>
+                      </div>
+                    )
+                  })()}
                 </div>
 
                 {/* Pre-Confirm Cleaner Toggle */}
@@ -694,7 +945,7 @@ export default function QuotesPage() {
       ) : (
         <div className="space-y-3">
           {quotes.map((quote) => {
-            const badge = STATUS_BADGE[quote.status]
+            const badge = STATUS_BADGE[quote.status] || FALLBACK_BADGE
             return (
               <Card
                 key={quote.id}
@@ -810,6 +1061,22 @@ export default function QuotesPage() {
                           ) : (
                             <MessageSquare className="h-4 w-4" />
                           )}
+                        </Button>
+                      )}
+                      {["draft", "sent", "pending"].includes(quote.status) && (
+                        <Button
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                          onClick={() => handleApprove(quote.id)}
+                          disabled={approvingId === quote.id}
+                          title="Approve & convert to job"
+                        >
+                          {approvingId === quote.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                          ) : (
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                          )}
+                          Approve & Convert
                         </Button>
                       )}
                       <Button

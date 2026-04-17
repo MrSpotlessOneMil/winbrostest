@@ -13,6 +13,7 @@ import interactionPlugin from "@fullcalendar/interaction"
 import { formatDate } from "@fullcalendar/core"
 import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
 import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pricebook"
+import { TIER_UPGRADES, isIncludedInTier, getPaidAddons, isEffectivelyIncluded } from "@/lib/service-scope"
 import ScheduleGantt, { type GanttJob } from "@/components/dashboard/schedule-gantt"
 import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loader2 } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
@@ -43,6 +44,7 @@ type CalendarJob = {
   parent_job_id?: number | null
   membership_id?: string | null
   leads?: { source: string }[]
+  addons?: { key: string; label?: string; price?: number }[]
 }
 
 type CalendarEventDetails = {
@@ -70,6 +72,8 @@ type CalendarEventDetails = {
   customerPhone: string
   customerEmail: string
   customerId: string
+  addons: { key: string; label?: string; price?: number }[]
+  serviceType: string
 }
 
 type PendingMove = {
@@ -96,6 +100,13 @@ type AddonOption = {
 
 type AssignmentMode = "auto_broadcast" | "ranked" | "unassigned" | "specific"
 
+type CustomAddon = {
+  key: string
+  label: string
+  price: number
+  custom: true
+}
+
 type CreateForm = {
   customer_phone: string
   customer_name: string
@@ -120,6 +131,9 @@ type CreateForm = {
   selected_tier_index: string
   lead_source: string
   credited_salesman_id: string
+  customAddonName: string
+  customAddonPrice: string
+  customAddons: CustomAddon[]
 }
 
 type CustomerMembership = {
@@ -436,6 +450,9 @@ export default function JobsPage() {
     selected_tier_index: "",
     lead_source: "",
     credited_salesman_id: "",
+    customAddonName: "",
+    customAddonPrice: "",
+    customAddons: [],
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
@@ -513,7 +530,7 @@ export default function JobsPage() {
           const addonTotal = createForm.selected_addons.reduce((sum, key) => {
             const addon = addonsList.find((a) => a.addon_key === key)
             const dbInc = isHouseCleaning && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
-            const codeInc = isHouseCleaning && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+            const codeInc = isHouseCleaning && isIncludedInTier(key, tierKey)
             if (dbInc || codeInc) return sum
             return sum + (addon?.flat_price || 0)
           }, 0)
@@ -524,13 +541,14 @@ export default function JobsPage() {
           const addonMins = createForm.selected_addons.reduce((sum, key) => {
             const addon = addonsList.find((a) => a.addon_key === key)
             const dbInc = isHouseCleaning && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
-            const codeInc = isHouseCleaning && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+            const codeInc = isHouseCleaning && isIncludedInTier(key, tierKey)
             if (dbInc || codeInc) return sum // time already in base labor_hours
             return sum + (addon?.minutes || 0)
           }, 0)
           const wallMins = Math.ceil((laborMins + addonMins) / (recCleaners || 1))
           const snapped = [60, 90, 120, 150, 180, 240, 300, 360, 420, 480].find(v => v >= wallMins) || 480
-          setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal), duration_minutes: String(snapped), cleaner_count: String(recCleaners) }))
+          const customTotal = createForm.customAddons.reduce((sum, a) => sum + a.price, 0)
+          setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal + customTotal), duration_minutes: String(snapped), cleaner_count: String(recCleaners) }))
         }
       })
       .catch(() => {})
@@ -591,17 +609,18 @@ export default function JobsPage() {
     const addonTotal = createForm.selected_addons.reduce((sum, key) => {
       const addon = derivedAddonsList.find((a) => a.addon_key === key)
       const dbInc = isHouseCleaning && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
-      const codeInc = isHouseCleaning && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+      const codeInc = isHouseCleaning && isIncludedInTier(key, tierKey)
       if (dbInc || codeInc) return sum
       return sum + (addon?.flat_price || 0)
     }, 0)
-    const updates: Partial<CreateForm> = { price: String(basePrice + addonTotal) }
+    const customAddonTotal = createForm.customAddons.reduce((sum, a) => sum + a.price, 0)
+    const updates: Partial<CreateForm> = { price: String(basePrice + addonTotal + customAddonTotal) }
     // Auto-update duration if we have base labor minutes
     if (baseLaborMinutes > 0) {
       const addonMins = createForm.selected_addons.reduce((sum, key) => {
         const addon = derivedAddonsList.find((a) => a.addon_key === key)
         const dbInc = isHouseCleaning && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
-        const codeInc = isHouseCleaning && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+        const codeInc = isHouseCleaning && isIncludedInTier(key, tierKey)
         if (dbInc || codeInc) return sum
         return sum + (addon?.minutes || 0)
       }, 0)
@@ -610,7 +629,7 @@ export default function JobsPage() {
       updates.duration_minutes = String([60, 90, 120, 150, 180, 240, 300, 360, 420, 480].find(v => v >= wallMins) || 480)
     }
     setCreateForm((prev) => ({ ...prev, ...updates }))
-  }, [createForm.selected_addons, createForm.cleaner_count, basePrice, baseLaborMinutes, derivedAddonsList])
+  }, [createForm.selected_addons, createForm.customAddons, createForm.cleaner_count, basePrice, baseLaborMinutes, derivedAddonsList])
 
   // Auto-populate price when window tier changes (WinBros only)
   useEffect(() => {
@@ -628,7 +647,8 @@ export default function JobsPage() {
       const addon = addonsList.find((a) => a.addon_key === key)
       return sum + (addon?.flat_price || 0)
     }, 0)
-    setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal) }))
+    const customTotal = createForm.customAddons.reduce((sum, a) => sum + a.price, 0)
+    setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal + customTotal) }))
   }, [createForm.selected_tier_index, windowTiers])
 
   // Reset tier and price when WinBros service type changes away from window cleaning
@@ -642,11 +662,7 @@ export default function JobsPage() {
     }
   }, [createForm.service_type])
 
-  // Addons included per tier (code-level source of truth, matches quote-pricing.ts)
-  const TIER_INCLUDED_ADDONS: Record<string, string[]> = {
-    deep: ['inside_fridge', 'inside_oven', 'inside_microwave', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
-    move: ['inside_fridge', 'inside_oven', 'inside_microwave', 'inside_cabinets', 'inside_dishwasher', 'range_hood', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills', 'wall_spot_cleaning', 'grout_scrubbing', 'behind_under_appliances', 'window_tracks', 'baseboards_hand_wipe', 'light_fixtures_detailed'],
-  }
+  // Tier-included addons now imported from @/lib/service-scope (TIER_UPGRADES, isIncludedInTier)
 
   // Auto-select add-ons included in the chosen service type (house cleaning only)
   useEffect(() => {
@@ -658,7 +674,7 @@ export default function JobsPage() {
     const dbIncludedKeys = addonsList
       .filter((a: any) => Array.isArray(a.included_in) && a.included_in.includes(tierKey))
       .map((a: any) => a.addon_key)
-    const codeIncludedKeys = (TIER_INCLUDED_ADDONS[tierKey] || [])
+    const codeIncludedKeys = (TIER_UPGRADES[tierKey] || [])
       .filter((key) => addonsList.some((a: any) => a.addon_key === key))
     const includedKeys = [...new Set([...dbIncludedKeys, ...codeIncludedKeys])]
     // All addon keys that are included in ANY tier (so we can remove stale ones on switch)
@@ -666,7 +682,7 @@ export default function JobsPage() {
       ...addonsList
         .filter((a: any) => Array.isArray(a.included_in) && a.included_in.length > 0)
         .map((a: any) => a.addon_key),
-      ...Object.values(TIER_INCLUDED_ADDONS).flat(),
+      ...Object.values(TIER_UPGRADES).flat(),
     ]
     const allIncludableSet = [...new Set(allIncludableKeys)]
     setCreateForm((prev) => {
@@ -741,7 +757,7 @@ export default function JobsPage() {
     const addonTotal = addons.reduce((sum, key) => {
       const addon = derivedAddonsList.find((a) => a.addon_key === key)
       const dbInc = isHC && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
-      const codeInc = isHC && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+      const codeInc = isHC && isIncludedInTier(key, tierKey)
       if (dbInc || codeInc) return sum
       return sum + (addon?.flat_price || 0)
     }, 0)
@@ -932,7 +948,6 @@ export default function JobsPage() {
   const [autoScheduleResult, setAutoScheduleResult] = useState<string | null>(null)
   const [cleanersList, setCleanersList] = useState<{ id: string; name: string }[]>([])
   const [sendToCleanerId, setSendToCleanerId] = useState("")
-  const [sendToCleanerIds, setSendToCleanerIds] = useState<string[]>([])
   const [sendingToCleaner, setSendingToCleaner] = useState(false)
   const [sendToCleanerResult, setSendToCleanerResult] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -1073,6 +1088,8 @@ export default function JobsPage() {
           customerPhone: customer?.phone_number || job.phone_number || "",
           customerEmail: customer?.email || "",
           customerId: customer?.id ? String(customer.id) : "",
+          addons: Array.isArray(job.addons) ? job.addons : [],
+          serviceType: job.service_type || "",
         },
       }
     })
@@ -1125,6 +1142,8 @@ export default function JobsPage() {
       customerPhone: customer?.phone_number || job.phone_number || "",
       customerEmail: customer?.email || "",
       customerId: customer?.id ? String(customer.id) : "",
+      addons: Array.isArray(job.addons) ? job.addons : [],
+      serviceType: job.service_type || "",
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1180,6 +1199,9 @@ export default function JobsPage() {
       selected_tier_index: "",
       lead_source: "",
       credited_salesman_id: "",
+      customAddonName: "",
+      customAddonPrice: "",
+      customAddons: [],
     })
     setCreateError("")
     setPhoneLookedUp("")
@@ -1249,6 +1271,8 @@ export default function JobsPage() {
       customerPhone: info.event.extendedProps.customerPhone || "",
       customerEmail: info.event.extendedProps.customerEmail || "",
       customerId: info.event.extendedProps.customerId || "",
+      addons: Array.isArray(info.event.extendedProps.addons) ? info.event.extendedProps.addons : [],
+      serviceType: info.event.extendedProps.serviceType || "",
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1257,23 +1281,6 @@ export default function JobsPage() {
     setAddChargeOpen(false)
     setSendToCleanerId("")
     setSendToCleanerResult(null)
-    pmReset()
-
-    // Load cleaners list for send-to-cleaner dropdown (view mode)
-    if (cleanersList.length === 0) {
-      fetch("/api/teams").then(r => r.json()).then(data => {
-        const all: { id: string; name: string }[] = []
-        for (const team of data.data || []) {
-          for (const member of team.members || []) {
-            all.push({ id: String(member.id), name: member.name })
-          }
-        }
-        for (const c of data.unassigned_cleaners || []) {
-          all.push({ id: String(c.id), name: c.name })
-        }
-        setCleanersList(all)
-      }).catch(() => {})
-    }
   }
 
   const refreshJobs = async () => {
@@ -1468,19 +1475,19 @@ export default function JobsPage() {
   }
 
   const handleSendToCleaner = async () => {
-    if (!selectedEvent || sendToCleanerIds.length === 0) return
+    if (!selectedEvent || !sendToCleanerId) return
     setSendingToCleaner(true)
     setSendToCleanerResult(null)
     try {
-      const res = await fetch('/api/actions/notify-cleaners', {
+      const res = await fetch('/api/actions/assign-cleaner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: selectedEvent.jobId, cleanerIds: sendToCleanerIds }),
+        body: JSON.stringify({ jobId: selectedEvent.jobId, cleanerId: sendToCleanerId }),
       })
       const data = await res.json()
       if (res.ok && data.success) {
-        setSendToCleanerResult(`Sent to ${data.notified} cleaner${data.notified === 1 ? '' : 's'} — waiting for response`)
-        setSendToCleanerIds([])
+        const name = data.cleaner?.name || 'Cleaner'
+        setSendToCleanerResult(`Sent to ${name} — waiting for response`)
         await refreshJobs()
       } else {
         setSendToCleanerResult(`Error: ${data.error || 'Failed to send'}`)
@@ -1491,33 +1498,6 @@ export default function JobsPage() {
       setSendingToCleaner(false)
     }
   }
-
-  const [sendingRanked, setSendingRanked] = useState(false)
-  const [sendRankedResult, setSendRankedResult] = useState<string | null>(null)
-  const handleSendRanked = async () => {
-    if (!selectedEvent) return
-    setSendingRanked(true)
-    setSendRankedResult(null)
-    try {
-      const res = await fetch('/api/actions/assign-cleaner', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: selectedEvent.jobId, mode: 'ranked' }),
-      })
-      const data = await res.json()
-      if (res.ok && data.success) {
-        setSendRankedResult('Sent to #1 ranked cleaner — will cascade if no response in 20 min')
-        await refreshJobs()
-      } else {
-        setSendRankedResult(`Error: ${data.error || 'Failed'}`)
-      }
-    } catch {
-      setSendRankedResult('Error: Network request failed')
-    } finally {
-      setSendingRanked(false)
-    }
-  }
-
   const handleAddCharge = async () => {
     if (!selectedEvent || !addChargeType) return
     setAddChargeSaving(true)
@@ -1947,6 +1927,37 @@ export default function JobsPage() {
             })(),
             notes: createForm.notes.trim() || undefined,
             custom_base_price: createForm.price ? Number(createForm.price) : undefined,
+            selected_addons: (() => {
+              const st = (createForm.service_type || "").toLowerCase()
+              const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
+              const hasCustomPrice = !!(createForm.price && Number(createForm.price) > 0)
+              // Send ALL selected addons with included flag set — the invoice/quote
+              // renders included ones with "$X value — Included" so the customer sees
+              // the full scope even when the salesman locked a custom total.
+              const catalogAddons = createForm.selected_addons.map((key) => {
+                const addon = derivedAddonsList.find((a) => a.addon_key === key)
+                return {
+                  key,
+                  label: addon?.label || key,
+                  price: addon?.flat_price || 0,
+                  quantity: 1,
+                  included: isEffectivelyIncluded({ key }, hasCustomPrice ? 'custom' : tierKey, hasCustomPrice),
+                }
+              })
+              const allAddons = [
+                ...catalogAddons,
+                ...createForm.customAddons.map((ca) => ({
+                  key: ca.key,
+                  label: ca.label,
+                  price: ca.price,
+                  quantity: 1,
+                  custom: true,
+                  // Custom addons: respect custom-priced default (included) or billable otherwise.
+                  included: hasCustomPrice,
+                })),
+              ]
+              return allAddons.length > 0 ? allAddons : undefined
+            })(),
             membership_plan: (() => {
               if (!isHouseCleaning || !createForm.frequency || createForm.frequency === "one-time") return undefined
               const map: Record<string, string> = { "weekly": "weekly", "bi-weekly": "biweekly", "monthly": "monthly" }
@@ -2026,7 +2037,8 @@ export default function JobsPage() {
           if (included) return sum
           return sum + (addon?.flat_price || 0)
         }, 0)
-        finalPrice = Math.max(0, basePrice + addonTotal - frequencyDiscount)
+        const customAddonTotal = createForm.customAddons.reduce((sum, a) => sum + a.price, 0)
+        finalPrice = Math.max(0, basePrice + addonTotal + customAddonTotal - frequencyDiscount)
       }
 
       const res = await fetch("/api/jobs", {
@@ -2043,6 +2055,8 @@ export default function JobsPage() {
           duration_minutes: Number(createForm.duration_minutes) || 120,
           estimated_value: finalPrice,
           notes: createForm.notes.trim() || undefined,
+          cleaner_notes: (createForm as any).cleaner_notes?.trim() || undefined,
+          cleaner_pay_override: (createForm as any).cleaner_pay_override ? Number((createForm as any).cleaner_pay_override) : undefined,
           bedrooms: createForm.bedrooms ? Number(createForm.bedrooms) : undefined,
           bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
           sqft: createForm.sqft ? Number(createForm.sqft) : undefined,
@@ -2054,10 +2068,17 @@ export default function JobsPage() {
           status: "scheduled",
           lead_source: createForm.lead_source.trim() && createForm.lead_source !== "__custom__" ? createForm.lead_source.trim() : undefined,
           credited_salesman_id: createForm.credited_salesman_id ? Number(createForm.credited_salesman_id) : undefined,
-          addons: createForm.selected_addons.length > 0 ? createForm.selected_addons.map((key) => {
-            const addon = derivedAddonsList.find((a) => a.addon_key === key)
-            return { key, label: addon?.label || key, price: addon?.flat_price || 0 }
-          }) : undefined,
+          addons: (() => {
+            const catalogAddons = createForm.selected_addons.map((key) => {
+              const addon = derivedAddonsList.find((a) => a.addon_key === key)
+              return { key, label: addon?.label || key, price: addon?.flat_price || 0 }
+            })
+            const allAddons = [
+              ...catalogAddons,
+              ...createForm.customAddons.map((ca) => ({ key: ca.key, label: ca.label, price: ca.price, custom: true })),
+            ]
+            return allAddons.length > 0 ? allAddons : undefined
+          })(),
         }),
       })
 
@@ -2588,6 +2609,9 @@ export default function JobsPage() {
             selected_tier_index: "",
             lead_source: "",
             credited_salesman_id: "",
+            customAddonName: "",
+            customAddonPrice: "",
+            customAddons: [],
           })
           setCreateError("")
           setPhoneLookedUp("")
@@ -2729,6 +2753,53 @@ export default function JobsPage() {
                     <strong>Service:</strong> {selectedEvent.service}
                   </div>
                 )}
+                {/* Add-ons breakdown — separates billable (charged) from included ($0) */}
+                {(() => {
+                  if (!selectedEvent?.addons || selectedEvent.addons.length === 0) return null
+                  const st = (selectedEvent.serviceType || "").toLowerCase()
+                  const tier = st.includes("move") ? "move" : st.includes("deep") ? "deep" : "standard"
+                  // Any addon without an included flag + job created from a custom-priced
+                  // quote defaults to included. For calendar-side jobs without an explicit
+                  // hasCustomPrice signal, trust the stored flag or fall back to tier rules.
+                  const billable = selectedEvent.addons.filter((a: any) =>
+                    !isEffectivelyIncluded({ key: a.key, included: a.included }, tier, false)
+                  )
+                  const included = selectedEvent.addons.filter((a: any) =>
+                    isEffectivelyIncluded({ key: a.key, included: a.included }, tier, false)
+                    && !['kitchen_surfaces','bathroom_sanitize','vacuum_mop','dusting','trash_removal'].includes(a.key)
+                  )
+                  if (billable.length === 0 && included.length === 0) return null
+                  return (
+                    <>
+                      {billable.length > 0 && (
+                        <div style={{ marginBottom: "0.5rem" }}>
+                          <strong style={{ fontSize: "0.85rem" }}>Add-ons (billed):</strong>
+                          {billable.map((addon: any) => (
+                            <div key={addon.key} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", padding: "1px 0" }}>
+                              <span style={{ color: "#e4e4e7" }}>{addon.label || addon.key.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span>
+                              {addon.price != null && addon.price > 0 && (
+                                <span style={{ color: "#a1a1aa" }}>+${addon.price}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {included.length > 0 && (
+                        <div style={{ marginBottom: "0.5rem" }}>
+                          <strong style={{ fontSize: "0.85rem" }}>Included:</strong>
+                          {included.map((addon: any) => (
+                            <div key={addon.key} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", padding: "1px 0" }}>
+                              <span style={{ color: "#e4e4e7" }}>{addon.label || addon.key.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span>
+                              <span style={{ color: "#10b981", fontSize: "0.75rem", fontWeight: 600 }}>
+                                {addon.price != null && addon.price > 0 ? `$${addon.price} value — ` : ''}Included
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
                 {selectedEvent?.frequency && selectedEvent.frequency !== "one-time" && (
                   <div style={{ marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{
@@ -2770,9 +2841,25 @@ export default function JobsPage() {
                     <strong>Price:</strong> ${Number(selectedEvent.price)}
                   </div>
                 ) : null}
+                {(selectedEvent as any)?.cleaner_pay_override ? (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Cleaner Pay Override:</strong> ${Number((selectedEvent as any).cleaner_pay_override)}
+                    {(selectedEvent as any)?.cleaners > 1 && (
+                      <span className="text-muted-foreground"> (${(Number((selectedEvent as any).cleaner_pay_override) / Number((selectedEvent as any).cleaners)).toFixed(2)} per cleaner)</span>
+                    )}
+                  </div>
+                ) : null}
                 {selectedEvent?.notes && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Admin Notes:</strong>{" "}
+                    <span className="text-muted-foreground">
+                      {selectedEvent.notes.split(/\||\n/).map((s: string) => s.trim()).filter((s: string) => s && !/^(PROMO:|NORMAL_PRICE:|__SYS)/i.test(s)).join(' — ') || '(internal system data only)'}
+                    </span>
+                  </div>
+                )}
+                {(selectedEvent as any)?.cleaner_notes && (
                   <div>
-                    <strong>Notes:</strong> {selectedEvent.notes}
+                    <strong>Cleaner Notes:</strong> {(selectedEvent as any).cleaner_notes}
                   </div>
                 )}
                 {/* Auto-schedule button for unscheduled cleaning jobs */}
@@ -2810,6 +2897,47 @@ export default function JobsPage() {
                     )}
                   </div>
                 )}
+                {/* Send to specific cleaner */}
+                <div style={{ marginTop: "1rem", padding: "0.75rem", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
+                  <div style={{ fontSize: "0.8rem", color: "#6ee7b7", marginBottom: "0.5rem", fontWeight: 600 }}>
+                    Send to a specific cleaner
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <select
+                      value={sendToCleanerId}
+                      onChange={(e) => { setSendToCleanerId(e.target.value); setSendToCleanerResult(null) }}
+                      style={{ flex: 1, padding: "0.4rem 0.5rem", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e4e4e7", fontSize: "0.8rem" }}
+                    >
+                      <option value="">Pick a cleaner...</option>
+                      {cleanersList.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleSendToCleaner}
+                      disabled={!sendToCleanerId || sendingToCleaner}
+                      style={{
+                        padding: "0.4rem 0.75rem",
+                        borderRadius: 6,
+                        border: "none",
+                        background: sendToCleanerId ? "linear-gradient(135deg, #10b981, #059669)" : "#333",
+                        color: "#fff",
+                        fontWeight: 600,
+                        fontSize: "0.8rem",
+                        cursor: !sendToCleanerId || sendingToCleaner ? "not-allowed" : "pointer",
+                        opacity: !sendToCleanerId || sendingToCleaner ? 0.5 : 1,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {sendingToCleaner ? "Sending..." : "Send"}
+                    </button>
+                  </div>
+                  {sendToCleanerResult && (
+                    <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: sendToCleanerResult.startsWith('Error') ? "#f87171" : "#34d399" }}>
+                      {sendToCleanerResult}
+                    </div>
+                  )}
+                </div>
               </>
             ) : (
               <>
@@ -2920,19 +3048,49 @@ export default function JobsPage() {
                   <label className="cal-form-label">Address</label>
                   <input type="text" className="cal-form-control" value={editForm.address} onChange={(e) => setEditForm((f) => ({ ...f, address: e.target.value }))} />
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
-                  <div>
-                    <label className="cal-form-label">Service Type</label>
-                    <input type="text" className="cal-form-control" value={editForm.serviceType} onChange={(e) => setEditForm((f) => ({ ...f, serviceType: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="cal-form-label">Duration</label>
-                    <div style={{ fontSize: "0.8rem", color: "#71717a", padding: "0.45rem 0" }}>{selectedEvent?.hours || 2} hours</div>
-                  </div>
+                <div style={{ fontSize: "0.8rem", color: "#71717a", marginBottom: "0.75rem" }}>
+                  Duration: {selectedEvent?.hours || 2} hours
                 </div>
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <label className="cal-form-label">Notes</label>
-                  <textarea className="cal-form-control" rows={2} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} style={{ resize: "vertical" }} />
+                {/* Send to specific cleaner (also in edit mode) */}
+                <div style={{ padding: "0.75rem", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
+                  <div style={{ fontSize: "0.8rem", color: "#6ee7b7", marginBottom: "0.5rem", fontWeight: 600 }}>
+                    Send job offer to a cleaner
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <select
+                      value={sendToCleanerId}
+                      onChange={(e) => { setSendToCleanerId(e.target.value); setSendToCleanerResult(null) }}
+                      style={{ flex: 1, padding: "0.4rem 0.5rem", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e4e4e7", fontSize: "0.8rem" }}
+                    >
+                      <option value="">Pick a cleaner...</option>
+                      {cleanersList.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleSendToCleaner}
+                      disabled={!sendToCleanerId || sendingToCleaner}
+                      style={{
+                        padding: "0.4rem 0.75rem",
+                        borderRadius: 6,
+                        border: "none",
+                        background: sendToCleanerId ? "linear-gradient(135deg, #10b981, #059669)" : "#333",
+                        color: "#fff",
+                        fontWeight: 600,
+                        fontSize: "0.8rem",
+                        cursor: !sendToCleanerId || sendingToCleaner ? "not-allowed" : "pointer",
+                        opacity: !sendToCleanerId || sendingToCleaner ? 0.5 : 1,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {sendingToCleaner ? "Sending..." : "Send"}
+                    </button>
+                  </div>
+                  {sendToCleanerResult && (
+                    <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: sendToCleanerResult.startsWith('Error') ? "#f87171" : "#34d399" }}>
+                      {sendToCleanerResult}
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -4063,10 +4221,10 @@ export default function JobsPage() {
                   </div>
                 </div>
 
-                {/* Row 6: Notes + Send as Quote */}
+                {/* Row 6: Admin Notes + Send as Quote */}
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.25rem" }}>
-                    <label className="cal-form-label" style={{ margin: 0 }}>Notes</label>
+                    <label className="cal-form-label" style={{ margin: 0 }}>Admin Notes</label>
                     <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", cursor: "pointer", fontSize: "0.8rem", color: createForm.is_quote ? "#22d3ee" : "#a1a1aa" }}>
                       <input
                         type="checkbox"
@@ -4080,10 +4238,24 @@ export default function JobsPage() {
                   <textarea
                     className="cal-form-control"
                     rows={2}
-                    placeholder="Special instructions, access codes, etc."
+                    placeholder="Internal notes (not visible to cleaners)"
                     value={createForm.notes}
                     onChange={(e) =>
                       setCreateForm((prev) => ({ ...prev, notes: e.target.value }))
+                    }
+                  />
+                </div>
+
+                {/* Row 6b: Cleaner Notes */}
+                <div>
+                  <label className="cal-form-label">Cleaner Notes</label>
+                  <textarea
+                    className="cal-form-control"
+                    rows={2}
+                    placeholder="Instructions for cleaners (visible in their portal)"
+                    value={(createForm as any).cleaner_notes || ""}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, cleaner_notes: e.target.value }))
                     }
                   />
                 </div>
@@ -4203,6 +4375,84 @@ export default function JobsPage() {
                   </div>
                 )}
 
+                {/* Custom Add-on */}
+                <div style={{ marginTop: "0.75rem", borderTop: "1px solid rgba(63, 63, 70, 0.4)", paddingTop: "0.75rem" }}>
+                  <label className="cal-form-label" style={{ fontSize: "0.7rem", color: "#a1a1aa" }}>Custom Add-on</label>
+                  <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+                    <input
+                      type="text"
+                      placeholder="e.g. Poop cleanup, Fridge organizing..."
+                      className="cal-form-control"
+                      style={{ flex: 1 }}
+                      value={createForm.customAddonName}
+                      onChange={(e) => setCreateForm((prev) => ({ ...prev, customAddonName: e.target.value }))}
+                    />
+                    <input
+                      type="number"
+                      placeholder="$"
+                      className="cal-form-control"
+                      style={{ width: "5rem" }}
+                      min="0"
+                      step="1"
+                      value={createForm.customAddonPrice}
+                      onChange={(e) => setCreateForm((prev) => ({ ...prev, customAddonPrice: e.target.value }))}
+                    />
+                    <button
+                      type="button"
+                      style={{
+                        borderRadius: 6,
+                        background: "rgba(139, 92, 246, 0.8)",
+                        padding: "0.3rem 0.75rem",
+                        fontSize: "0.8rem",
+                        color: "#fff",
+                        border: "none",
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                      onClick={() => {
+                        if (!createForm.customAddonName.trim()) return
+                        const price = parseFloat(createForm.customAddonPrice) || 0
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          customAddonName: "",
+                          customAddonPrice: "",
+                          customAddons: [...prev.customAddons, {
+                            key: `custom_${Date.now()}`,
+                            label: createForm.customAddonName.trim(),
+                            price,
+                            custom: true as const,
+                          }],
+                        }))
+                      }}
+                    >
+                      Add
+                    </button>
+                  </div>
+                  {createForm.customAddons.length > 0 && (
+                    <div style={{ marginTop: "0.5rem" }}>
+                      {createForm.customAddons.map((addon, i) => (
+                        <div key={addon.key} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", padding: "0.2rem 0" }}>
+                          <span style={{ flex: 1, color: "#e4e4e7" }}>{addon.label}</span>
+                          <span style={{ color: "#a1a1aa", fontSize: "0.75rem" }}>
+                            {addon.price > 0 ? `+$${addon.price}` : "FREE"}
+                          </span>
+                          <span style={{ fontSize: "0.6rem", background: "rgba(139, 92, 246, 0.2)", color: "#a78bfa", padding: "0.1rem 0.35rem", borderRadius: 4, fontWeight: 600 }}>CUSTOM</span>
+                          <button
+                            type="button"
+                            style={{ color: "#ef4444", fontSize: "0.7rem", background: "none", border: "none", cursor: "pointer", padding: "0.1rem 0.25rem" }}
+                            onClick={() => setCreateForm((prev) => ({
+                              ...prev,
+                              customAddons: prev.customAddons.filter((_, j) => j !== i),
+                            }))}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* Price Summary */}
                 <div style={{
                   background: "rgba(39, 39, 42, 0.3)",
@@ -4224,8 +4474,11 @@ export default function JobsPage() {
 
                     if (isWindow && tier) {
                       items.push({ label: "Exterior Window Cleaning", price: tier.exterior })
-                    } else if (basePrice > 0) {
-                      items.push({ label: createForm.service_type || "Base Service", price: basePrice })
+                    } else {
+                      const displayBase = createForm.price ? Number(createForm.price) : basePrice
+                      if (displayBase > 0) {
+                        items.push({ label: createForm.service_type || "Base Service", price: displayBase })
+                      }
                     }
 
                     // Selected add-ons (skip price for included addons)
@@ -4244,6 +4497,11 @@ export default function JobsPage() {
                         if (addonIncluded) continue // included in tier price, don't add to summary
                         items.push({ label: addon.label, price: addon.flat_price || 0 })
                       }
+                    }
+
+                    // Custom add-ons
+                    for (const ca of createForm.customAddons) {
+                      items.push({ label: `${ca.label} (Custom)`, price: ca.price })
                     }
 
                     // Membership / frequency discount
@@ -4305,6 +4563,23 @@ export default function JobsPage() {
                   })()}
                 </div>
 
+                {/* Cleaner Pay Override */}
+                <div>
+                  <label className="cal-form-label">Cleaner Pay Override</label>
+                  <input
+                    type="number"
+                    className="cal-form-control"
+                    placeholder="Auto (leave blank)"
+                    min="0"
+                    step="0.01"
+                    value={(createForm as any).cleaner_pay_override || ""}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, cleaner_pay_override: e.target.value }))
+                    }
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Exact amount each cleaner sees. Blank = auto-calculated.</p>
+                </div>
+
                 {/* Override Price */}
                 <div>
                   <label className="cal-form-label">Override Price</label>
@@ -4325,7 +4600,8 @@ export default function JobsPage() {
                           const addon = derivedAddonsList.find((a) => a.addon_key === key)
                           return sum + (addon?.flat_price || 0)
                         }, 0)
-                        setBasePrice(Math.max(0, total - addonTotal))
+                        const customTotal = createForm.customAddons.reduce((sum, a) => sum + a.price, 0)
+                        setBasePrice(Math.max(0, total - addonTotal - customTotal))
                       }
                     }}
                   />

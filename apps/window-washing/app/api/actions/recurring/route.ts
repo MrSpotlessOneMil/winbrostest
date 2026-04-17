@@ -3,7 +3,7 @@ import { requireAuthWithTenant } from "@/lib/auth"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { chargeCardOnFile } from "@/lib/stripe-client"
 import { sendSMS } from "@/lib/openphone"
-import { getTenantById, getTenantBusinessName } from "@/lib/tenant"
+import { getTenantById, getTenantBusinessName, formatTenantCurrency } from "@/lib/tenant"
 import { logSystemEvent } from "@/lib/system-events"
 
 type RecurringAction = "change-frequency" | "skip-next" | "pause" | "resume" | "cancel" | "delete-future"
@@ -50,7 +50,7 @@ async function maybeCancelFee(
     if (phoneNumber) {
       const businessName = getTenantBusinessName(tenant)
       const feeAmount = (feeCents / 100).toFixed(2)
-      await sendSMS(tenant, phoneNumber, `Your service has been cancelled within ${windowHours}hrs. A $${feeAmount} cancellation fee applies per our policy. Please contact ${businessName} to arrange payment.`)
+      await sendSMS(tenant, phoneNumber, `Your service has been cancelled within ${windowHours}hrs. A ${formatTenantCurrency(tenant, feeCents / 100)} cancellation fee applies per our policy. Please contact ${businessName} to arrange payment.`)
     }
     await logSystemEvent({
       tenant_id: tenantId,
@@ -77,7 +77,7 @@ async function maybeCancelFee(
     if (phoneNumber) {
       const businessName = getTenantBusinessName(tenant)
       const jobDateFormatted = new Date(jobDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-      await sendSMS(tenant, phoneNumber, `Your service on ${jobDateFormatted} has been cancelled. A $${feeAmount} cancellation fee has been charged per our policy. - ${businessName}`)
+      await sendSMS(tenant, phoneNumber, `Your service on ${jobDateFormatted} has been cancelled. A ${formatTenantCurrency(tenant, feeCents / 100)} cancellation fee has been charged per our policy. - ${businessName}`)
     }
     await logSystemEvent({
       tenant_id: tenantId,

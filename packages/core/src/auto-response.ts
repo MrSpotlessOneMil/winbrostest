@@ -9,6 +9,46 @@ import type { IntentAnalysis } from './ai-intent'
 import type { Tenant } from './tenant'
 import { getTenantServiceDescription, getTenantBusinessContext, tenantUsesFeature } from './tenant'
 
+// =====================================================================
+// POST-PROCESSING: Sanitize AI output before sending as SMS
+// =====================================================================
+
+function sanitizeAIResponse(text: string): string {
+  let cleaned = text
+  cleaned = cleaned.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{231A}-\u{231B}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}\u{2934}-\u{2935}\u{2B05}-\u{2B07}\u{2B1B}-\u{2B1C}\u{2B50}\u{2B55}\u{3030}\u{303D}\u{3297}\u{3299}]/gu, '')
+  cleaned = cleaned.replace(/\u2014/g, ',').replace(/\u2013/g, '-')
+  cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '').replace(/^[-*+]\s+/gm, '')
+  // Strip any sentence containing "email" (model keeps asking despite instructions)
+  if (cleaned.toLowerCase().includes('email')) {
+    const sentences = cleaned.split(/(?<=[.!?])\s+/)
+    cleaned = sentences.filter(s => !s.toLowerCase().includes('email')).join(' ')
+    console.log('[SMS Sanitizer] Stripped email-asking sentence(s)')
+  }
+  // Clean up whitespace
+  cleaned = cleaned.replace(/  +/g, ' ').replace(/ +\n/g, '\n').trim()
+  if (cleaned !== text) console.log('[SMS Sanitizer] Cleaned AI output — removed emojis/dashes/markdown/email-asks')
+  return cleaned
+}
+
+function autoSplitLongMessage(text: string, maxChars: number = 200): string {
+  if (text.includes('|||') || text.length <= maxChars) return text
+  const sentences = text.match(/[^.!?]+[.!?]+\s*/g)
+  if (!sentences || sentences.length <= 1) return text
+  const chunks: string[] = []
+  let current = ''
+  for (const sentence of sentences) {
+    if (current.length + sentence.length > maxChars && current.length > 0) {
+      chunks.push(current.trim())
+      current = sentence
+    } else {
+      current += sentence
+    }
+  }
+  if (current.trim()) chunks.push(current.trim())
+  return chunks.slice(0, 3).join('|||')
+}
+
 export interface AutoResponseResult {
   response: string
   shouldSend: boolean
@@ -467,7 +507,7 @@ Return ONLY the SMS text, nothing else.`
   }
 
   return {
-    response: smsText,
+    response: sanitizeAIResponse(autoSplitLongMessage(smsText)),
     shouldSend: true,
     reason: 'AI-generated response'
   }
@@ -530,7 +570,7 @@ Write the SMS reply only.`
   }
 
   return {
-    response: smsText,
+    response: sanitizeAIResponse(autoSplitLongMessage(smsText)),
     shouldSend: true,
     reason: 'AI-generated response'
   }
@@ -848,7 +888,7 @@ async function generateWinBrosResponse(
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
     let isScheduleReady = detectScheduleReady(rawText)
-    let cleanResponse = stripEscalationTags(rawText)
+    let cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
 
     // Safety net: if the AI offered specific days/times without [SCHEDULE_READY],
     // strip the fake times and trigger the real scheduler instead.
@@ -940,7 +980,7 @@ async function generateWinBrosResponse(
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
     let isScheduleReady = detectScheduleReady(rawText)
-    let cleanResponse = stripEscalationTags(rawText)
+    let cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
 
     // Safety net: same fake-scheduling detection as Claude path
     if (!isScheduleReady && detectFakeScheduling(rawText, isScheduleReady)) {
@@ -1313,7 +1353,7 @@ export async function generateEmailResponse(
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    const cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
 
     return {
       response: cleanResponse,
@@ -1348,7 +1388,7 @@ export async function generateEmailResponse(
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    const cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
 
     return {
       response: cleanResponse,
@@ -1385,12 +1425,73 @@ async function generateHouseCleaningResponse(
   customerContext?: CustomerContext | null,
   isRetargetingReply?: boolean,
 ): Promise<AutoResponseResult> {
-  const { buildHouseCleaningSmsSystemPrompt } = await import('./house-cleaning-sms-prompt')
   // Reuse escalation/booking detection from WinBros (same tag format)
   const { detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
 
-  const systemPrompt = await buildHouseCleaningSmsSystemPrompt(tenant)
   const sdrName = tenant.sdr_persona || 'Sarah'
+  const businessName = tenant.business_name_short || tenant.business_name || tenant.name
+  const serviceArea = tenant.service_area || 'your area'
+
+  // ── INLINE SYSTEM PROMPT (no dynamic import — Turbopack caches stale files) ──
+  const systemPrompt = `You are ${sdrName}, a real person who works at ${businessName}, a professional house cleaning service in ${serviceArea}. You're texting with a potential customer.
+
+You have a CUSTOMER BRAIN section below with everything you know about this person. Use this naturally. Don't announce "I see from our records..." — just reference things like a person who actually remembers.
+
+HARD RULES (these override EVERYTHING):
+- NO emojis. None. Your message will be blocked if you include any.
+- NO em dashes. Use commas or periods.
+- NO markdown. Plain SMS text only.
+- NEVER ask for email, address, name, or square footage. The quote page handles all of that.
+- NEVER offer discounts, deals, or lower prices. You have ZERO price authority. Build value instead.
+- Keep each text 1-2 sentences max. Use ||| to split into multiple texts.
+- Match the customer's energy. If they text short, you text short.
+
+YOUR GOAL:
+Get them a quote and book a cleaning. You're not following a script. Read the room. Use the INDUSTRY INTELLIGENCE, WINNING PATTERNS, and OWNER MESSAGING PATTERNS below to guide your approach. These are real data from conversations that led to bookings.
+
+HOW TO SELL:
+- You genuinely believe this service will improve their life. You're doing them a favor.
+- When they hesitate on price: satisfaction guarantee, Google reviews, background-checked staff, professional supplies. Stack value.
+- "We have a 100% satisfaction guarantee, if anything isn't perfect we come back and fix it free"
+- "Our cleaners are background-checked, insured, and bring all their own supplies"
+- Social proof: "We're highly rated on Google, feel free to check our reviews"
+- Urgency (only when natural): "Our schedule fills up fast, especially weekends"
+- NEVER compare to other companies. NEVER say "competitive".
+- If they mention another company's lower price, acknowledge and pivot to value. Don't bash the competitor.
+
+HOW CONVERSATIONS WORK:
+- If they ask for a price and you have their bed/bath: give the EXACT price from the VERIFIED PRICING section below, then fire [BOOKING_COMPLETE].
+- If they're exploring: build rapport, get bed/bath, acknowledge their needs, then offer "Want me to send you your pricing options?" and fire [BOOKING_COMPLETE].
+- If they're returning: be warm, reference their past experience, make rebooking easy.
+- If they came from a promotion (ACTIVE PROMOTIONAL OFFER below): honor the offer price exactly.
+- If a FRUSTRATION WARNING appears: drop everything and give a direct answer.
+
+WHEN TO FIRE [BOOKING_COMPLETE]:
+- Customer asks for price and you have bed/bath → quote + [BOOKING_COMPLETE]
+- Customer says they want to book → [BOOKING_COMPLETE]
+- You've built rapport and have bed/bath → "Want me to send you your options?" then [BOOKING_COMPLETE]
+- NEVER fire it without bed/bath.
+- NEVER wait more than 2-3 exchanges after getting bed/bath.
+
+The ONLY required data point is bedrooms and bathrooms. Everything else is handled by the quote page.
+
+ABOUT ${businessName.toUpperCase()}:
+- Licensed, bonded, and insured. Background-checked staff.
+- 100% satisfaction guarantee. Not happy? We come back and fix it free.
+- Highly rated on Google. Professional-grade supplies, safe for kids and pets.
+- We clean homes all across ${serviceArea}.
+
+ESCALATION (include tag at END of your response):
+- Special requests beyond standard → [ESCALATE:special_request]
+- Cancel/reschedule/billing → [ESCALATE:service_issue]
+- Customer upset/complaining → [ESCALATE:unhappy_customer]
+- Commercial/Airbnb/post-construction → [ESCALATE:custom_quote]
+When you escalate, say "Our team will reach out shortly!" and STOP.
+
+CRITICAL:
+- NEVER re-ask a question already answered
+- If a human (owner) is already texting, DO NOT jump in
+- If someone is looking for work as a cleaner, say "Shoot me a text at ${tenant.owner_phone || 'the owner directly'} and we can chat about opportunities"`
 
   const historyContext = conversationHistory?.length
     ? conversationHistory.slice(-50).map(m => `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`).join('\n')
@@ -1590,6 +1691,7 @@ async function generateHouseCleaningResponse(
     if (brainChunks.length > 0) {
       brainBlock = '\n\nINDUSTRY INTELLIGENCE (from top cleaning business coaches — use to inform your approach, do NOT quote directly):\n'
       brainBlock += 'IMPORTANT: This intelligence is for YOUR reference only. NEVER offer discounts, deals, or lower prices regardless of what the coaching suggests. You have ZERO price authority.\n'
+      brainBlock += 'ALSO: NEVER ask for the customer\'s email address, regardless of what the coaching suggests. The quote link handles email collection.\n'
       for (const chunk of brainChunks) {
         brainBlock += `- ${chunk.chunkText}\n`
       }
@@ -1620,6 +1722,7 @@ async function generateHouseCleaningResponse(
         if (extraChunks.length > 0) {
           brainBlock = '\n\nINDUSTRY INTELLIGENCE (from top cleaning business coaches — use to inform your approach, do NOT quote directly):\n'
           brainBlock += 'IMPORTANT: NEVER offer discounts, deals, or lower prices. You have ZERO price authority.\n'
+          brainBlock += 'ALSO: NEVER ask for the customer\'s email address. The quote link handles email collection.\n'
           for (const chunk of extraChunks) {
             brainBlock += `- ${chunk.chunkText}\n`
           }
@@ -1653,7 +1756,7 @@ async function generateHouseCleaningResponse(
   // 9. Industry intelligence (Osiris Brain knowledge chunks)
   // 10. AI learning (conversation stage + frustration + winning patterns)
   // 11. The customer's actual message
-  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${verifiedPricingBlock}${returningCustomerBlock}${contextBlock}${customerBrainBlock}${memoryBlock}${brainBlock}${aiLearningBlock}${patternsBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
+  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${verifiedPricingBlock}${returningCustomerBlock}${contextBlock}${customerBrainBlock}${memoryBlock}${brainBlock}${aiLearningBlock}${patternsBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.\n\nFORMATTING: NO emojis (blocked if included). NO em dashes. NO markdown. Plain short texts. Use ||| to split. Match the customer's texting style.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {
@@ -1677,7 +1780,7 @@ async function generateHouseCleaningResponse(
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    const cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, false)
 
     return {
@@ -1715,7 +1818,7 @@ async function generateHouseCleaningResponse(
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    const cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, false)
 
     return {
@@ -1729,8 +1832,7 @@ async function generateHouseCleaningResponse(
     }
   }
 
-  // Template fallback (no AI keys)
-  const businessName = tenant.business_name_short || tenant.business_name || tenant.name
+  // Template fallback (no AI keys) — businessName already declared above
   const hasHistory = conversationHistory && conversationHistory.length > 0
   return {
     response: hasHistory
@@ -1740,3 +1842,4 @@ async function generateHouseCleaningResponse(
     reason: 'House cleaning template fallback',
   }
 }
+// Cache bust: Thu, Apr 16, 2026  3:51:29 PM

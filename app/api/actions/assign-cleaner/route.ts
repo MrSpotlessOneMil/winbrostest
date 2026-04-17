@@ -17,7 +17,6 @@ import {
 import { notifyCleanerAssignment } from '@/lib/cleaner-sms'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { maybeMarkBooked } from '@/lib/maybe-mark-booked'
-import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
@@ -140,6 +139,9 @@ export async function POST(request: NextRequest) {
 
     // Update job cleaner_id so calendar reflects the change
     await updateJob(jobId, { cleaner_id: selectedCleaner.id })
+
+    // Cleaner assigned — check if payment also confirmed → mark booked
+    await maybeMarkBooked(jobId)
 
     // Cleaner assigned — check if payment also confirmed → mark booked
     await maybeMarkBooked(jobId)

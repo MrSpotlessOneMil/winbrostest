@@ -22,6 +22,13 @@ import {
   Settings,
   Inbox,
   Clock,
+  ClipboardList,
+  DollarSign,
+  BarChart3,
+  Calendar,
+  Repeat,
+  Sliders,
+  FileText,
 } from "lucide-react"
 import { useState, useRef, useEffect, useMemo } from "react"
 
@@ -48,18 +55,35 @@ const DEFAULT_COLORS = {
   btnHover: "hover:bg-purple-600",
 }
 
-const navigation = [
-  { name: "Command Center", href: "/overview", icon: LayoutDashboard, adminOnly: false },
-  { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false },
-  { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
-  { name: "Pipeline", href: "/retargeting/v3", icon: Target, adminOnly: false },
-  { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
-  { name: "Crew Assignment", href: "/my-schedule", icon: Clock, adminOnly: false, tenantOnly: "winbros" },
-  { name: "Insights", href: "/insights", icon: Lightbulb, adminOnly: false },
-  { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },
-  { name: "Debug", href: "/exceptions", icon: Bug, adminOnly: true },
-  { name: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
+type UserRole = "admin" | "salesman" | "technician"
+
+// ADMIN VIEW — 11 tabs (from WinBros full spec)
+const adminNavigation = [
+  { name: "Command Center", href: "/overview", icon: LayoutDashboard },
+  { name: "Customers", href: "/customers", icon: UserCircle },
+  { name: "Pipeline", href: "/quotes", icon: Target },
+  { name: "Crew Assignment", href: "/crews", icon: Users },
+  { name: "Scheduling", href: "/schedule", icon: CalendarDays },
+  { name: "Service Plan Scheduling", href: "/service-plan-schedule", icon: Calendar },
+  { name: "Service Plan Hub", href: "/service-plan-hub", icon: Repeat },
+  { name: "Team Performance", href: "/performance", icon: BarChart3 },
+  { name: "Payroll", href: "/payroll", icon: DollarSign },
+  { name: "Insights", href: "/insights", icon: Lightbulb },
+  { name: "Control Center", href: "/control-center", icon: Sliders },
 ]
+
+// FIELD VIEW — 6 tabs (Team Lead / Salesman / Technician)
+const fieldNavigation = [
+  { name: "Calendar", href: "/jobs", icon: Calendar },
+  { name: "Jobs", href: "/schedule", icon: ClipboardList },
+  { name: "Customers", href: "/customers", icon: UserCircle },
+  { name: "Off Days", href: "/my-schedule", icon: Clock },
+  { name: "Team Performance", href: "/performance", icon: BarChart3 },
+  { name: "Payroll", href: "/payroll", icon: DollarSign },
+]
+
+// Legacy — kept for backward compat
+const navigation = adminNavigation.map(item => ({ ...item, adminOnly: false }))
 
 interface SidebarProps {
   collapsed: boolean
@@ -153,12 +177,8 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
       return accountLabel(a.user).localeCompare(accountLabel(b.user))
     })
 
-  // Filter navigation items based on admin status
-  const filteredNavigation = navigation.filter(item => {
-    if (item.adminOnly && !isAdmin) return false
-    if ((item as any).tenantOnly && (item as any).tenantOnly !== tenantSlug) return false
-    return true
-  })
+  // Role-based navigation: Admin sees 11 tabs, Field sees 6 tabs
+  const filteredNavigation = isAdmin ? adminNavigation : fieldNavigation
 
   // Prevent scroll events on sidebar from scrolling the main content
   const handleWheel = (e: React.WheelEvent) => {
@@ -176,13 +196,15 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
       {/* Logo */}
       <div className="h-14 flex items-center px-4 border-b border-white/[0.06]">
         {!collapsed && (
-          <Link href="/overview" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
+          <Link href="/customers" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
             <img src="/icon-192x192.png" alt="" className="w-7 h-7 rounded-md" />
-            <span className="font-semibold text-sidebar-foreground tracking-tight text-sm">CLEAN MACHINE</span>
+            <span className="font-semibold text-sidebar-foreground tracking-tight text-sm">
+              {tenant?.name?.toUpperCase() || "OSIRIS"}
+            </span>
           </Link>
         )}
         {collapsed && (
-          <Link href="/overview" className="w-full flex justify-center">
+          <Link href="/customers" className="w-full flex justify-center">
             <img src="/icon-192x192.png" alt="" className="w-7 h-7 rounded-md" />
           </Link>
         )}

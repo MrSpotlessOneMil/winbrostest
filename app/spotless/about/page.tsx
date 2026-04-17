@@ -8,33 +8,33 @@ export const metadata: Metadata = {
   description:
     "Learn about Spotless Scrubbers - Los Angeles County's trusted house cleaning service. Insured, professionally trained cleaners since 2023.",
   alternates: {
-    canonical: `${SPOTLESS_BUSINESS.url}/spotless/about`,
+    canonical: `${SPOTLESS_BUSINESS.url}/about`,
   },
 }
 
 const VALUES = [
   {
-    title: "Show Up, Every Time",
+    title: "Instant Booking",
     description:
-      "The bar is low in this industry and we clear it by a mile. When we say we will be there, we are there. No excuses, no last-minute cancellations.",
-    icon: "\u2705", // check
+      "Book online in under a minute. Get instant confirmation. No phone tag, no waiting for callbacks.",
+    icon: "\u26A1", // lightning
   },
   {
-    title: "Honest Pricing",
+    title: "Transparent Pricing",
     description:
-      "I will tell you exactly what it costs before we start. No hidden fees, no surprise charges. What I quote you is what you pay.",
+      "See your price before you book. No hidden fees, no surprise charges.",
     icon: "\uD83D\uDCCB", // clipboard
   },
   {
-    title: "Safe Products",
+    title: "Safe & Professional",
     description:
-      "We only use high-quality, safe products. I have a family too - I would never bring anything into your home that I would not want in mine.",
+      "Every cleaner is background-checked, insured, and professionally trained. We only use high-quality, safe products in your home.",
     icon: "\uD83C\uDF3F", // leaf
   },
   {
-    title: "We Make It Right",
+    title: "Satisfaction Guaranteed",
     description:
-      "If you are not happy with something, call me directly. We will come back and fix it, no charge. That is just how we operate.",
+      "Not happy? Let us know within 24 hours and we come back and fix it at no charge.",
     icon: "\u2B50", // star
   },
 ]
@@ -69,8 +69,8 @@ export default function AboutPage() {
             Meet the Team Behind the Clean
           </h1>
           <p className="text-lg sm:text-xl text-white/85 max-w-2xl mx-auto">
-            We are not a franchise. We are not a tech company. We are a local
-            crew that takes pride in making your space look and feel amazing.
+            Founded in LA. Powered by a professional team and modern systems
+            that make booking fast and service flawless.
           </p>
         </div>
       </section>
@@ -83,22 +83,21 @@ export default function AboutPage() {
         <div className="flex flex-col lg:flex-row gap-8 items-start">
           <div className="space-y-4 text-lg text-slate-700 leading-relaxed lg:flex-1">
             <p>
-              Hey, I am Dominic. I started Spotless Scrubbers in 2023 right here in LA
-              because I was tired of seeing cleaning companies treat people&apos;s homes like
-              an afterthought. Cancelling last minute, cutting corners, using harsh chemicals
-              around kids and pets - I knew I could do better.
+              Spotless Scrubbers was founded in 2023 right here in Los Angeles.
+              After seeing too many cleaning companies cancel last minute, cut corners,
+              and leave clients frustrated — we set out to build something better.
+              A service that actually delivers on its promises.
             </p>
             <p>
-              I started with just a few homes in my neighborhood. Did the work myself,
-              built relationships, and let the results speak for themselves. Word got around.
-              Today we have a team of 9 cleaners covering over 20 cities across LA County -
+              What started with a handful of homes in one neighborhood has grown into
+              a team of 9 professional cleaners serving over 20 cities across LA County —
               from Santa Monica to Pasadena, Long Beach to Burbank, and everywhere in between.
             </p>
             <p>
-              Every person on my team is someone I trust. They are background-checked,
-              insured, and they genuinely care about doing good work. This is not just a
-              job for us - we take pride in what we do, and we treat your home like it is
-              our own.
+              Every cleaner is background-checked, insured, and trained to the same high
+              standard. We run on modern systems that enable instant booking, automated
+              scheduling, and real-time updates — so you get the speed and reliability
+              you deserve.
             </p>
           </div>
           <div className="lg:flex-1 w-full">
@@ -167,10 +166,9 @@ export default function AboutPage() {
         </div>
         <div className="space-y-4 text-lg text-slate-700 leading-relaxed text-center max-w-3xl mx-auto mb-8">
           <p>
-            I do not just hand someone a mop and send them to your house. Everyone on
-            the team goes through training, learns our standards, and understands that
-            your home is not just another job. We are a tight crew and we look out for
-            each other and our clients.
+            Every cleaner goes through a comprehensive training program before their
+            first job. They learn our standards, our techniques, and understand that
+            your home is not just another appointment.
           </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
@@ -214,12 +212,11 @@ export default function AboutPage() {
             Ready to See What We Can Do?
           </h2>
           <p className="text-[#a8e0ef] mb-6">
-            Give us one shot. If you are not happy, we will come back and make it right -
-            no charge. That is the kind of business we run.
+            Book in 60 seconds. If you are not happy, we re-clean for free. That is our guarantee.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link
-              href="/spotless/contact"
+              href="/contact"
               className="inline-block px-8 py-3 rounded-lg bg-white text-[#155f73] font-semibold hover:bg-[#a8e0ef] transition-colors"
             >
               Book a Cleaning

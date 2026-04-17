@@ -28,16 +28,18 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react"
+import { STANDARD_BASE_KEYS, STANDARD_BASE_TASKS, TIER_UPGRADES } from "@/lib/service-scope"
 
 // ── Types ────────────────────────────────────────────────────────────
 
 interface QuoteTier { key: string; name: string; tagline: string; badge?: string; included: string[]; description: string }
 interface QuoteAddon { key: string; name: string; description: string; priceType: "flat" | "per_unit"; price: number; unit?: string }
+interface CustomAddon { key: string; label: string; price: number; custom: true }
 interface TierPrice { price: number; breakdown: { service: string; price: number }[]; tier: string }
 interface ServicePlan { id: string; slug: string; name: string; visits_per_year: number; interval_months: number; discount_per_visit: number; free_addons: string[] | null; agreement_text: string | null }
 interface ServiceAgreement { cancellation_fee: number; cancellation_window_hours: number; satisfaction_guarantee: boolean; deposit_percentage: number; processing_fee_percentage: number; terms: string[] }
 interface Quote { id: string; token: string; status: "pending" | "approved" | "expired" | "cancelled"; customer_name: string | null; customer_phone: string | null; customer_email: string | null; customer_address: string | null; square_footage: number | null; bedrooms: number | null; bathrooms: number | null; selected_tier: string | null; selected_addons: string[]; subtotal: string | null; discount: string | null; total: string | null; membership_discount: string | null; membership_plan: string | null; deposit_amount: string | null; valid_until: string; approved_at: string | null; created_at: string; service_date: string | null; service_time: string | null; notes: string | null }
-interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; serviceAgreement: ServiceAgreement; custom_base_price: number | null; custom_terms: string[] | null; quote_notes: string | null; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null; currency?: string | null } }
+interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; serviceAgreement: ServiceAgreement; custom_base_price: number | null; custom_terms: string[] | null; quote_notes: string | null; checklists?: Record<string, string[]>; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null; currency?: string | null } }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -115,16 +117,66 @@ const MOVE_CHECKLIST = [
   "Empty all trash and replace liners",
 ]
 
-function getDetailedChecklist(tierKey: string): string[] {
+/**
+ * Resolve the detailed checklist for a tier. Prefers the tenant's cleaner-
+ * portal checklist from the DB (cleaning_checklists table) so the customer
+ * sees the exact same list the cleaner works through in the field. Falls
+ * back to hardcoded defaults if the DB is empty for a category.
+ */
+function tierToServiceCategory(tierKey: string): string {
+  if (tierKey === 'deep' || tierKey === 'extra_deep') return 'deep_cleaning'
+  if (tierKey.startsWith('move')) return 'move_in_out'
+  return 'standard_cleaning'
+}
+
+/**
+ * Tenant-specific scope-of-work lines that are always included for that tenant
+ * on given tiers, regardless of what's in the cleaning_checklists DB table.
+ * Keyed by tenant slug → service category → array of checklist strings.
+ */
+const TENANT_SCOPE_EXTRAS: Record<string, Record<string, string[]>> = {
+  'west-niagara': {
+    standard_cleaning: ['Clean interior windows (sills & glass)'],
+    deep_cleaning: ['Clean interior windows (sills & glass)'],
+  },
+}
+
+function getDetailedChecklist(
+  tierKey: string,
+  dbChecklists?: Record<string, string[]>,
+  tenantSlug?: string,
+): string[] {
+  const category = tierToServiceCategory(tierKey)
+  const extras = (tenantSlug && TENANT_SCOPE_EXTRAS[tenantSlug]?.[category]) || []
+  const withExtras = (items: string[]) => {
+    if (extras.length === 0) return items
+    // Avoid duplicates if the DB happens to already list the same item.
+    const seen = new Set(items.map((s) => s.trim().toLowerCase()))
+    const unique = extras.filter((e) => !seen.has(e.trim().toLowerCase()))
+    return [...items, ...unique]
+  }
+
+  const fromDb = dbChecklists?.[category]
+  if (fromDb && fromDb.length > 0) {
+    // Deep tier: show STANDARD + DEEP items so the customer sees the full
+    // base clean plus the deep upgrades (matches cleaner's actual workflow).
+    if (category === 'deep_cleaning') {
+      const std = dbChecklists?.['standard_cleaning'] || []
+      return withExtras([...std, ...fromDb])
+    }
+    return withExtras(fromDb)
+  }
+  // Fallback for tenants whose cleaning_checklists aren't seeded yet.
   switch (tierKey) {
-    case "standard": return STANDARD_CHECKLIST
-    case "deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS]
-    case "extra_deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS] // backward compat for old quotes
-    case "move": return MOVE_CHECKLIST
-    // Backward compat for old quotes
-    case "move_good": return MOVE_CHECKLIST
-    case "move_better": return MOVE_CHECKLIST
-    case "move_best": return MOVE_CHECKLIST
+    case 'standard': return withExtras(STANDARD_CHECKLIST)
+    case 'deep':
+    case 'extra_deep':
+      return withExtras([...STANDARD_CHECKLIST, ...DEEP_EXTRAS])
+    case 'move':
+    case 'move_good':
+    case 'move_better':
+    case 'move_best':
+      return MOVE_CHECKLIST
     default: return []
   }
 }
@@ -154,27 +206,12 @@ export default function QuotePage() {
   const [serviceDate, setServiceDate] = useState("")
   const [serviceTime, setServiceTime] = useState("")
   const [customerNotes, setCustomerNotes] = useState("")
-  const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [showAllTiers, setShowAllTiers] = useState(false)
-  const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; place_id: string }[]>([])
-  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
-
-  // ── Address autocomplete (debounced) ──────────────────────────────
-  useEffect(() => {
-    if (!customerAddress || customerAddress.length < 3) {
-      setAddressSuggestions([])
-      return
-    }
-    const timer = setTimeout(() => {
-      fetch(`/api/places/autocomplete?input=${encodeURIComponent(customerAddress)}`)
-        .then((r) => r.json())
-        .then((res) => {
-          if (res.success && Array.isArray(res.data)) setAddressSuggestions(res.data)
-        })
-        .catch(() => {})
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [customerAddress])
+  const [summaryExpanded, setSummaryExpanded] = useState(false)
+  const [customAddonsFromQuote, setCustomAddonsFromQuote] = useState<CustomAddon[]>([])
+  // Explicit included-flag per addon (from saved_addons on the quote). Undefined means
+  // no explicit flag — fall through to tier/custom defaults in isAddonIncluded.
+  const [addonIncludedMap, setAddonIncludedMap] = useState<Record<string, boolean>>({})
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -190,32 +227,10 @@ export default function QuotePage() {
         if (json.custom_base_price != null) {
           setSelectedTierKey('custom')
         } else if (json.quote.selected_tier && (json.tiers as QuoteTier[]).some((t) => t.key === json.quote.selected_tier)) {
-          // Pre-selected tier: VAPI quotes get pre-select only, salesman quotes get locked
-          const isVapiQuote = (json.quote.notes as string || '').toLowerCase().includes('vapi')
-          if (!isVapiQuote) setTierLocked(true)
+          // Salesman pre-selected a tier — lock it so customer can't change
+          setTierLocked(true)
           const preselectedTier = json.quote.selected_tier as string
           setSelectedTierKey(preselectedTier)
-
-          // Pre-toggle salesman's selected addons if available, otherwise use tier included
-          const savedAddons = json.quote.selected_addons as Array<string | { key: string; quantity?: number }> | null
-          if (savedAddons && savedAddons.length > 0) {
-            const inc: Record<string, boolean> = {}
-            const qty: Record<string, number> = {}
-            for (const addon of savedAddons) {
-              const key = typeof addon === 'string' ? addon : addon.key
-              inc[key] = true
-              if (typeof addon !== 'string' && addon.quantity) qty[key] = addon.quantity
-            }
-            setSelectedAddons(inc)
-            if (Object.keys(qty).length > 0) setAddonQuantities(prev => ({ ...prev, ...qty }))
-          } else {
-            const tierDef = (json.tiers as QuoteTier[]).find((t) => t.key === preselectedTier)
-            if (tierDef) {
-              const inc: Record<string, boolean> = {}
-              tierDef.included.forEach((k) => { inc[k] = true })
-              setSelectedAddons(inc)
-            }
-          }
         } else {
           const tierKeys = (json.tiers as QuoteTier[]).map((t) => t.key)
           // Default to the tier matching the quote's service_category (e.g. customer asked for standard on the call)
@@ -226,12 +241,50 @@ export default function QuotePage() {
             ? categoryTier
             : tierKeys[Math.min(1, tierKeys.length - 1)] || tierKeys[0]
           setSelectedTierKey(defaultTier)
+        }
 
-          // Pre-select included addons for default tier
-          const defaultTierDef = (json.tiers as QuoteTier[]).find((t) => t.key === defaultTier)
-          if (defaultTierDef) {
+        // Initialize default per_unit addon quantities (before saved addons may override)
+        const defaultQty: Record<string, number> = {}
+        json.addons.forEach((a: QuoteAddon) => { if (a.priceType === "per_unit") defaultQty[a.key] = 1 })
+
+        // Pre-select saved addons for ALL quote types (custom-priced, tier-locked, default)
+        const savedAddons = json.quote.selected_addons as Array<string | { key: string; quantity?: number; label?: string; price?: number; custom?: boolean; included?: boolean }> | null
+        if (savedAddons && savedAddons.length > 0) {
+          const inc: Record<string, boolean> = {}
+          const qty: Record<string, number> = {}
+          const includedMap: Record<string, boolean> = {}
+          const customAddonsList: CustomAddon[] = []
+          for (const addon of savedAddons) {
+            const key = typeof addon === 'string' ? addon : addon.key
+            inc[key] = true
+            if (typeof addon !== 'string' && addon.quantity) qty[key] = addon.quantity
+            if (typeof addon !== 'string' && typeof addon.included === 'boolean') {
+              includedMap[key] = addon.included
+            }
+            // Collect custom add-ons (not in catalog) for separate display
+            if (typeof addon !== 'string' && addon.custom && addon.label && addon.price != null) {
+              customAddonsList.push({ key: addon.key, label: addon.label, price: addon.price, custom: true })
+            }
+          }
+          setSelectedAddons(inc)
+          setAddonQuantities({ ...defaultQty, ...qty })
+          setAddonIncludedMap(includedMap)
+          if (customAddonsList.length > 0) setCustomAddonsFromQuote(customAddonsList)
+        } else {
+          // No saved addons — fall back to tier included addons
+          const fallbackTierKey = json.quote.selected_tier as string
+            || (() => {
+              const tierKeys = (json.tiers as QuoteTier[]).map((t: QuoteTier) => t.key)
+              const categoryTierMap: Record<string, string> = { standard: 'standard', deep: 'deep', move_in_out: 'move' }
+              const categoryTier = categoryTierMap[json.quote.service_category as string]
+              return (categoryTier && tierKeys.includes(categoryTier))
+                ? categoryTier
+                : tierKeys[Math.min(1, tierKeys.length - 1)] || tierKeys[0]
+            })()
+          const tierDef = (json.tiers as QuoteTier[]).find((t: QuoteTier) => t.key === fallbackTierKey)
+          if (tierDef) {
             const inc: Record<string, boolean> = {}
-            defaultTierDef.included.forEach((k) => { inc[k] = true })
+            tierDef.included.forEach((k: string) => { inc[k] = true })
             setSelectedAddons(inc)
           }
         }
@@ -243,14 +296,16 @@ export default function QuotePage() {
         if (json.quote.service_time) setServiceTime(json.quote.service_time)
         if (json.quote.status === "approved") setSelectedTierKey(json.quote.selected_tier)
 
-        // Pre-select membership if salesman set a frequency (but let customer change it)
+        // Pre-select and lock membership if salesman already set it
         if (json.quote.membership_plan) {
           setSelectedMembership(json.quote.membership_plan)
+          setMembershipLocked(true)
         }
 
-        const q: Record<string, number> = {}
-        json.addons.forEach((a: QuoteAddon) => { if (a.priceType === "per_unit") q[a.key] = 1 })
-        setAddonQuantities(q)
+        // Set default quantities if not already set by saved addons
+        if (!savedAddons || savedAddons.length === 0) {
+          setAddonQuantities(defaultQty)
+        }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Failed to load quote")
       } finally {
@@ -299,18 +354,18 @@ export default function QuotePage() {
   const selectedTier = tiers.find((t) => t.key === selectedTierKey) ?? null
   const selectedTierPrice = selectedTierKey ? tierPrices[selectedTierKey] : null
 
-  // For custom-priced quotes, pre-selected addons are treated as INCLUDED (free)
-  const originalSelectedAddons = data?.quote?.selected_addons as Array<string | { key: string }> | null
-  const customIncludedKeys = isCustomPriced && originalSelectedAddons
-    ? new Set(originalSelectedAddons.map(a => typeof a === 'string' ? a : a.key))
-    : null
-
+  // Single inclusion rule — mirrors server-side service-scope.isEffectivelyIncluded.
+  // Resolution order: explicit flag on saved addon → custom-priced default (true) →
+  // tier-included fallback. Keeps admin/server/customer views in lockstep.
   const isAddonIncluded = useCallback(
     (addonKey: string): boolean => {
-      if (customIncludedKeys?.has(addonKey)) return true
+      const explicit = addonIncludedMap[addonKey]
+      if (explicit === true) return true
+      if (explicit === false) return false
+      if (isCustomPriced) return true
       return !!selectedTier && selectedTier.included.includes(addonKey)
     },
-    [selectedTier, customIncludedKeys]
+    [selectedTier, isCustomPriced, addonIncludedMap]
   )
 
   const getAddonPrice = useCallback(
@@ -336,17 +391,43 @@ export default function QuotePage() {
     [selectedTierPrice, addonQuantities, tierPrices]
   )
 
-  const addonTotal = addons.reduce((sum, addon) => {
+  const catalogAddonTotal = addons.reduce((sum, addon) => {
     if (!selectedAddons[addon.key]) return sum
     if (isAddonIncluded(addon.key)) return sum
+    if (STANDARD_BASE_KEYS.has(addon.key)) return sum
     return sum + getAddonPrice(addon)
   }, 0)
 
+  // Custom add-ons (not in catalog) contribute to the total — unless flagged included.
+  const customAddonTotal = customAddonsFromQuote.reduce((sum, ca) => {
+    if (!selectedAddons[ca.key]) return sum
+    if (isAddonIncluded(ca.key)) return sum
+    return sum + ca.price
+  }, 0)
+
+  const addonTotal = catalogAddonTotal + customAddonTotal
+
+  // Subtotal: tier/custom base + only the add-ons that are NOT included.
+  // isAddonIncluded already gates catalog/custom addon totals above, so we can just sum.
   const subtotal = isCustomPriced
     ? customBasePrice + addonTotal
     : selectedTierPrice
       ? selectedTierPrice.price + addonTotal
       : 0
+
+  // Value anchor: sum every INCLUDED add-on's reference price — this is what the
+  // customer "would have paid" if nothing was bundled. Used for the struck-through
+  // "Regular Price" line so the deal feels like a steal.
+  const includedValueTotal = addons.reduce((sum, addon) => {
+    if (!selectedAddons[addon.key]) return sum
+    if (!isAddonIncluded(addon.key)) return sum
+    if (STANDARD_BASE_KEYS.has(addon.key)) return sum
+    return sum + getAddonPrice(addon)
+  }, 0) + customAddonsFromQuote.reduce((sum, ca) => {
+    if (!selectedAddons[ca.key]) return sum
+    if (!isAddonIncluded(ca.key)) return sum
+    return sum + ca.price
+  }, 0)
 
   const selectedPlan = servicePlans.find((p) => p.slug === selectedMembership) ?? null
   const membershipDiscount = selectedPlan ? Number(selectedPlan.discount_per_visit) || 0 : 0
@@ -359,7 +440,18 @@ export default function QuotePage() {
     if (!selectedTierKey || !quote) return
     setApproving(true)
     try {
-      const activeAddons = Object.entries(selectedAddons).filter(([, v]) => v).map(([key]) => key)
+      const customKeys = new Set(customAddonsFromQuote.map(ca => ca.key))
+      // Catalog addons carry an explicit included flag so the server persists it verbatim
+      const activeCatalogAddons = Object.entries(selectedAddons)
+        .filter(([, v]) => v)
+        .map(([key]) => key)
+        .filter(key => !customKeys.has(key))
+        .map(key => ({ key, quantity: addonQuantities[key] || 1, included: isAddonIncluded(key) }))
+      // Custom add-ons: preserve label/price AND carry included flag
+      const activeCustomAddons = customAddonsFromQuote
+        .filter(ca => selectedAddons[ca.key])
+        .map(ca => ({ ...ca, included: isAddonIncluded(ca.key) }))
+      const activeAddons = [...activeCatalogAddons, ...activeCustomAddons]
       const res = await fetch(`/api/quotes/${token}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -371,7 +463,6 @@ export default function QuotePage() {
           customer_email: customerEmail || undefined,
           customer_address: customerAddress || undefined,
           service_date: serviceDate || undefined,
-          service_time: serviceTime || undefined,
           customer_notes: customerNotes || undefined,
           service_agreement_accepted: true,
         }),
@@ -423,24 +514,210 @@ export default function QuotePage() {
   const singleTierMode = isVapiQuote && !tierLocked && selectedTierKey && !showAllTiers
   const quoteNumber = token.slice(0, 8).toUpperCase()
   const canApprove = selectedTierKey && !approving && agreementAccepted && !isExpired
-  const activeExtraAddons = addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key)).length
+  const activeExtraAddons = addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).length
+    + customAddonsFromQuote.filter(ca => selectedAddons[ca.key]).length
 
   // ── Approved ─────────────────────────────────────────────────────
 
   if (isApproved) {
+    // Determine the tier name for the approved quote
+    const approvedTier = tiers.find((t) => t.key === quote.selected_tier)
+    const approvedTierPrice = quote.selected_tier ? tierPrices[quote.selected_tier] : null
+    const approvedBasePrice = isCustomPriced ? customBasePrice : (approvedTierPrice?.price ?? 0)
+
+    // Separate base tasks / included / billable add-ons from the saved selections
+    const savedAddons = (quote.selected_addons || []) as Array<string | { key: string; quantity?: number; included?: boolean; custom?: boolean; label?: string; price?: number }>
+    const includedAddonObjs = savedAddons
+      .map((a) => (typeof a === 'string' ? { key: a } : a))
+      .filter((a) => !STANDARD_BASE_KEYS.has(a.key) && a.included === true)
+    const paidAddonKeys = savedAddons
+      .map((a) => (typeof a === 'string' ? { key: a, included: undefined as boolean | undefined } : a))
+      .filter((a) => !STANDARD_BASE_KEYS.has(a.key) && a.included !== true)
+      .map((a) => a.key)
+
+    // Get tier upgrade keys for the selected tier
+    const tierUpgradeKeys = TIER_UPGRADES[quote.selected_tier || ''] || []
+
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center px-4">
-        <div className="bg-white border border-blue-100 rounded-2xl shadow-sm max-w-lg w-full p-8 text-center">
-          <div className="size-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-6 ring-4 ring-emerald-100">
-            <CheckCircle className="size-10 text-emerald-500" />
+      <div className="min-h-screen bg-white px-4 py-8" style={{ colorScheme: 'light' }}>
+        <div className="h-1.5 bg-gradient-to-r from-emerald-400 via-emerald-500 to-emerald-600 fixed top-0 left-0 right-0 z-50" />
+        <div className="max-w-lg mx-auto space-y-6 pt-4">
+          {/* Success header */}
+          <div className="text-center">
+            <div className="size-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-4 ring-4 ring-emerald-100">
+              <CheckCircle className="size-10 text-emerald-500" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-800 mb-2">You&apos;re All Set!</h2>
+            <p className="text-slate-500 text-sm">Your card is on file and your cleaning is booked. Here&apos;s a summary of what you booked.</p>
           </div>
-          <h2 className="text-2xl font-bold text-slate-800 mb-2">You&apos;re All Set!</h2>
-          <p className="text-slate-500 mb-6">Your card is on file and your cleaning is booked. We&apos;ll be in touch!</p>
+
+          {/* Booking details card */}
+          <div className="bg-white border border-blue-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-blue-50 bg-blue-50/50">
+              <h3 className="font-bold text-slate-800">Booking Summary</h3>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Service type & tier */}
+              <div className="flex items-center gap-3">
+                <div className="size-10 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center shrink-0 text-white shadow-sm">
+                  <Sparkles className="size-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-800">{approvedTier?.name || (isCustomPriced ? 'Custom Service Package' : 'Cleaning Service')}</p>
+                  {approvedTier?.tagline && <p className="text-xs text-slate-400">{approvedTier.tagline}</p>}
+                </div>
+              </div>
+
+              {/* Property details */}
+              {(quote.bedrooms || quote.bathrooms || quote.customer_address) && (
+                <div className="space-y-1.5">
+                  {quote.customer_address && (
+                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                      <MapPin className="size-4 text-blue-400 shrink-0" />
+                      <span>{quote.customer_address}</span>
+                    </div>
+                  )}
+                  {(quote.bedrooms || quote.bathrooms) && (
+                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                      <Home className="size-4 text-blue-400 shrink-0" />
+                      <span>{quote.bedrooms || 0} bed / {quote.bathrooms || 0} bath</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Scheduled date/time */}
+              {(quote.service_date || quote.service_time) && (
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <Calendar className="size-4 text-blue-400 shrink-0" />
+                  <span>
+                    {quote.service_date && fmtDate(quote.service_date)}
+                    {quote.service_time && ` at ${new Date(`2000-01-01T${quote.service_time}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}`}
+                  </span>
+                </div>
+              )}
+
+              {/* Included in Your Clean — mirrors the cleaner's actual field checklist */}
+              <div className="border-t border-blue-50 pt-4">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Included in Your Clean</p>
+                <div className="space-y-1.5">
+                  {getDetailedChecklist(quote.selected_tier || '', data?.checklists, tenant?.slug).map((task, i) => (
+                    <div key={`task-${i}`} className="flex items-center gap-2 text-sm text-slate-600">
+                      <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {task}
+                    </div>
+                  ))}
+                  {/* Legacy tier upgrade labels — only render as fallback when DB checklist is empty */}
+                  {(!data?.checklists || Object.keys(data.checklists).length === 0) && tierUpgradeKeys.map(key => {
+                    const label = key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                    return (
+                      <div key={key} className="flex items-center gap-2 text-sm text-slate-600">
+                        <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {label}
+                      </div>
+                    )
+                  })}
+                  {includedAddonObjs.filter((a) => !tierUpgradeKeys.includes(a.key)).map((a) => {
+                    const catalog = addons.find((ad) => ad.key === a.key)
+                    const displayLabel = catalog?.name || a.label || a.key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                    const refPrice = catalog ? getAddonPrice(catalog) : (a.price ?? 0)
+                    return (
+                      <div key={a.key} className="flex items-center justify-between gap-2 text-sm">
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          {displayLabel}
+                        </div>
+                        {refPrice > 0 && (
+                          <span className="text-xs text-slate-400 line-through decoration-red-400/70 decoration-[1.5px]">{fmt(refPrice)}</span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Paid add-ons */}
+              {paidAddonKeys.length > 0 && (
+                <div className="border-t border-blue-50 pt-4">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Add-Ons</p>
+                  <div className="space-y-1.5">
+                    {paidAddonKeys.map(key => {
+                      // Also filter out tier upgrades from paid add-ons display
+                      if (tierUpgradeKeys.includes(key)) return null
+                      const addonDef = addons.find(a => a.key === key)
+                      const addonPrice = addonDef ? getAddonPrice(addonDef) : 0
+                      return (
+                        <div key={key} className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2 text-slate-600">
+                            <Plus className="size-3.5 text-blue-500 shrink-0" />
+                            {addonDef?.name || key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                          </div>
+                          {addonPrice > 0 && <span className="text-slate-700 font-medium">{fmt(addonPrice)}</span>}
+                        </div>
+                      )
+                    }).filter(Boolean)}
+                  </div>
+                </div>
+              )}
+
+              {/* Price breakdown */}
+              <div className="border-t-2 border-blue-100 pt-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Base service</span>
+                  <span className="text-slate-700">{fmt(approvedBasePrice)}</span>
+                </div>
+                {paidAddonKeys.filter(k => !tierUpgradeKeys.includes(k)).length > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Add-ons</span>
+                    <span className="text-slate-700">
+                      {fmt(paidAddonKeys.filter(k => !tierUpgradeKeys.includes(k)).reduce((sum, key) => {
+                        const addonDef = addons.find(a => a.key === key)
+                        return sum + (addonDef ? getAddonPrice(addonDef) : 0)
+                      }, 0))}
+                    </span>
+                  </div>
+                )}
+                {Number(quote.discount) > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-emerald-600">Discount</span>
+                    <span className="text-emerald-600">-{fmt(Number(quote.discount))}</span>
+                  </div>
+                )}
+                {Number(quote.membership_discount) > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-emerald-600">Membership discount</span>
+                    <span className="text-emerald-600">-{fmt(Number(quote.membership_discount))}</span>
+                  </div>
+                )}
+                <div className="border-t border-blue-50 pt-2">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-slate-800 font-bold text-lg">Total</span>
+                    <span className="text-slate-800 font-bold text-2xl">{quote.total ? fmt(Number(quote.total)) : fmt(approvedBasePrice)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Contact info */}
           {tenant?.phone && (
-            <a href={`tel:${tenant.phone}`} className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium">
-              <Phone className="size-4" /> {tenant.phone}
-            </a>
+            <div className="text-center">
+              <p className="text-slate-400 text-sm mb-2">Questions? Give us a call.</p>
+              <a href={`tel:${tenant.phone}`} className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium">
+                <Phone className="size-4" /> {tenant.phone}
+              </a>
+            </div>
           )}
+
+          <div className="text-center pb-4">
+            <p className="text-slate-300 text-xs">Powered by {businessName}</p>
+          </div>
         </div>
       </div>
     )
@@ -531,7 +808,7 @@ export default function QuotePage() {
           const tierKeyMap: Record<string, string> = { standard: 'standard', deep: 'deep', extra_deep: 'extra_deep', move: 'move', move_good: 'move', move_better: 'move', move_best: 'move' }
           const catKeyMap: Record<string, string> = { standard: 'standard', move_in_out: 'move' }
           const customTierKey = tierKeyMap[tier] || catKeyMap[cat] || 'standard'
-          const customChecklist = getDetailedChecklist(customTierKey)
+          const customChecklist = getDetailedChecklist(customTierKey, data?.checklists, tenant?.slug)
           // Show service type name
           const nameMap: Record<string, string> = { standard: 'Standard Clean', deep: 'Deep Clean', move: 'Move-Out Clean' }
           const serviceName = nameMap[customTierKey] || 'Custom Service Package'
@@ -547,45 +824,34 @@ export default function QuotePage() {
                 </div>
                 <span className="text-2xl font-bold text-slate-800">{fmt(customBasePrice)}</span>
               </div>
-              {data?.quote_notes && (
-                <div className="border-t border-blue-200 pt-4 space-y-3">
-                  {data.quote_notes.split('\n\n').map((section, si) => {
-                    const lines = section.split('\n')
-                    const heading = lines[0]
-                    const items = lines.slice(1).filter(l => l.startsWith('•') || l.startsWith('-'))
-                    const isHeading = !heading.startsWith('•') && !heading.startsWith('-') && items.length > 0
-                    return (
-                      <div key={si}>
-                        {isHeading && (
-                          <h4 className="text-sm font-bold text-slate-700 mb-1.5">{heading}</h4>
-                        )}
-                        {!isHeading && !items.length && heading && (
-                          <p className="text-sm text-slate-600">{heading}</p>
-                        )}
-                        {items.length > 0 && (
-                          <ul className="space-y-1">
-                            {items.map((item, ii) => (
-                              <li key={ii} className="flex items-start gap-2 text-sm text-slate-600">
-                                <Check className="size-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                                <span>{item.replace(/^[•\-]\s*/, '')}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-              {/* What's included checklist (from service_category) */}
-              {customChecklist.length > 0 && (
-                <div className="border-t border-blue-200 pt-4 space-y-2">
+              {/* What's included — inside the blue box */}
+              {serviceType === "house_cleaning" && (
+                <div className="border-t border-blue-200 pt-4">
                   <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">What&apos;s Included</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                     {customChecklist.map((task, i) => (
-                      <div key={i} className="flex items-start gap-2">
-                        <Check className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
-                        <span className="text-sm text-slate-600">{task}</span>
+                      <div key={`task-${i}`} className="flex items-center gap-2 text-sm text-slate-600">
+                        <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {task}
+                      </div>
+                    ))}
+                    {/* Included add-ons — shown in the customer scope AND the cleaner's portal */}
+                    {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
+                      <div key={`addon-${addon.key}`} className="flex items-center gap-2 text-sm text-slate-600">
+                        <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {addon.name}
+                      </div>
+                    ))}
+                    {customAddonsFromQuote.filter(ca => selectedAddons[ca.key] && isAddonIncluded(ca.key)).map((ca) => (
+                      <div key={`custom-${ca.key}`} className="flex items-center gap-2 text-sm text-slate-600">
+                        <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {ca.label}
                       </div>
                     ))}
                   </div>
@@ -614,14 +880,27 @@ export default function QuotePage() {
                   <span className="text-3xl font-bold text-slate-800">{fmt(selectedTierPrice.price)}</span>
                 </div>
 
-                {/* What's included checklist */}
+                {/* What's included checklist — mirrors the cleaner's field checklist 1:1 */}
                 <div className="border-t border-blue-200 pt-4 space-y-2">
                   <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">What&apos;s Included</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    {getDetailedChecklist(selectedTierKey || '').map((task, i) => (
-                      <div key={i} className="flex items-start gap-2">
+                    {getDetailedChecklist(selectedTierKey || '', data?.checklists, tenant?.slug).map((task, i) => (
+                      <div key={`task-${i}`} className="flex items-start gap-2">
                         <Check className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
                         <span className="text-sm text-slate-600">{task}</span>
+                      </div>
+                    ))}
+                    {/* Included add-ons become checklist items too — cleaner sees these in their portal */}
+                    {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
+                      <div key={`addon-${addon.key}`} className="flex items-start gap-2">
+                        <Check className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
+                        <span className="text-sm text-slate-600">{addon.name}</span>
+                      </div>
+                    ))}
+                    {customAddonsFromQuote.filter(ca => selectedAddons[ca.key] && isAddonIncluded(ca.key)).map((ca) => (
+                      <div key={`custom-${ca.key}`} className="flex items-start gap-2">
+                        <Check className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
+                        <span className="text-sm text-slate-600">{ca.label}</span>
                       </div>
                     ))}
                   </div>
@@ -690,12 +969,26 @@ export default function QuotePage() {
                     )}
 
                     <div className="flex-1 space-y-1.5 mb-4">
-                      {breakdown.map((item) => (
-                        <div key={item.service} className="flex items-start gap-2">
-                          <Check className={`size-4 shrink-0 mt-0.5 ${isSelected ? colors.check : "text-slate-300"}`} />
-                          <span className="text-sm text-slate-600">{item.service}</span>
-                        </div>
-                      ))}
+                      {serviceType === 'house_cleaning' ? (
+                        // Unified scope-of-work display: the detailed cleaning_checklists
+                        // list (plus tenant overlay like WN interior windows) lives here
+                        // so the customer sees one source of truth inside the tier card.
+                        getDetailedChecklist(tier.key, data?.checklists, tenant?.slug).map((task, i) => (
+                          <div key={`${tier.key}-task-${i}`} className="flex items-start gap-2">
+                            <Check className={`size-4 shrink-0 mt-0.5 ${isSelected ? colors.check : "text-slate-300"}`} />
+                            <span className="text-sm text-slate-600">{task}</span>
+                          </div>
+                        ))
+                      ) : (
+                        // Window-washing tiers: keep the breakdown data (it carries
+                        // sqft-based pricing detail the customer expects to see).
+                        breakdown.map((item) => (
+                          <div key={item.service} className="flex items-start gap-2">
+                            <Check className={`size-4 shrink-0 mt-0.5 ${isSelected ? colors.check : "text-slate-300"}`} />
+                            <span className="text-sm text-slate-600">{item.service}</span>
+                          </div>
+                        ))
+                      )}
                     </div>
 
                     <div className="border-t border-blue-50 pt-3 mt-auto">
@@ -729,14 +1022,17 @@ export default function QuotePage() {
         </div>
         )}
 
-        {/* ── Add-ons */}
-        {addons.length > 0 && (
+        {/* The "what's included" list now lives inside the tier card (above)
+            for house cleaning. No duplicate block here. */}
+
+        {/* ── Add-ons (filter out standard base tasks — they're included in every cleaning) */}
+        {(addons.filter(a => !STANDARD_BASE_KEYS.has(a.key)).length > 0 || customAddonsFromQuote.length > 0) && (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Customize Your Clean</h2>
             <p className="text-slate-400 text-sm mb-5">Tap to add or remove. Build your perfect package.</p>
 
             <div className="space-y-2">
-              {addons.map((addon) => {
+              {addons.filter(a => !STANDARD_BASE_KEYS.has(a.key)).map((addon) => {
                 const checked = !!selectedAddons[addon.key]
                 const included = isAddonIncluded(addon.key)
                 const addonPrice = getAddonPrice(addon)
@@ -800,112 +1096,95 @@ export default function QuotePage() {
                   </div>
                 )
               })}
+
+              {/* Custom add-ons from quote (not in catalog) — displayed as read-only checked items */}
+              {customAddonsFromQuote.map((ca) => {
+                const checked = !!selectedAddons[ca.key]
+                return (
+                  <div key={ca.key}
+                    className={`rounded-xl border-2 transition-all duration-150 overflow-hidden ${
+                      checked ? "border-blue-300 bg-blue-50/50" : "border-blue-100 bg-white"
+                    } ${isExpired ? "opacity-50" : ""}`}
+                  >
+                    <div className="w-full text-left p-4 flex items-center gap-3">
+                      <div className={`size-7 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all ${
+                        checked ? "bg-blue-600 border-blue-600 text-white" : "border-slate-300 bg-white"
+                      }`}>
+                        {checked && <Check className="size-4" />}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-slate-800">{ca.label}</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">CUSTOM</span>
+                        </div>
+                      </div>
+
+                      <span className="text-sm font-bold shrink-0 text-slate-700">
+                        {fmt(ca.price)}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
 
-        {/* ── Recurring Savings Banner — standard tier or custom quotes with membership */}
-        {!isExpired && servicePlans.length > 0 && (selectedTierKey === 'standard' || (isCustomPriced && !['deep', 'extra_deep', 'move'].includes((quote as any).selected_tier || '') && (quote as any).service_category !== 'move_in_out')) && (
+        {/* ── Membership Plans (hidden for custom-priced — discount already applied) */}
+        {!isExpired && !isCustomPriced && servicePlans.length > 0 && (
           <div>
-              <div className={`rounded-2xl border-2 overflow-hidden transition-all ${
-                selectedMembership ? "border-emerald-300 bg-emerald-50" : "border-blue-100 bg-gradient-to-r from-emerald-50 to-blue-50"
-              }`}>
-                <div className="p-5">
-                  <div className="flex items-start gap-3 mb-4">
-                    <div className="size-10 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0">
-                      <Sparkles className="size-5 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="text-slate-800 font-bold text-base">Save on Every Clean</h3>
-                      <p className="text-slate-500 text-sm mt-0.5">Book recurring and pay less every visit. Cancel anytime.</p>
-                    </div>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">{membershipLocked ? "Your Recurring Plan" : "Save with a Membership"}</h2>
+            <p className="text-slate-400 text-sm mb-5">{membershipLocked ? "Included with your service." : "Regular service = bigger savings every visit."}</p>
+
+            <div className="space-y-2 sm:space-y-0 sm:grid sm:grid-cols-2 sm:gap-3">
+              {!membershipLocked && (
+              <button type="button" onClick={() => setSelectedMembership(null)}
+                className={`relative w-full text-left rounded-xl border-2 p-4 transition-all cursor-pointer active:scale-[0.98] ${
+                  selectedMembership === null ? "border-slate-400 bg-slate-50 shadow-sm" : "border-blue-100 bg-white hover:border-blue-200"
+                }`}
+              >
+                <h3 className="text-slate-800 font-semibold text-sm">No Membership</h3>
+                <p className="text-slate-400 text-xs mt-1">One-time service, no commitment</p>
+                {selectedMembership === null && (
+                  <div className="absolute top-3 right-3 size-6 rounded-full bg-slate-500 flex items-center justify-center">
+                    <Check className="size-3 text-white" />
                   </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {/* One-time option */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMembership(null)}
-                      className={`flex-1 min-w-[120px] rounded-xl border-2 p-3 text-center transition-all active:scale-[0.98] ${
-                        selectedMembership === null
-                          ? "border-slate-400 bg-white shadow-sm"
-                          : "border-slate-200 bg-white/50 hover:border-slate-300"
-                      }`}
-                    >
-                      <p className="text-slate-800 font-bold text-sm">One-Time</p>
-                      <p className="text-slate-800 font-bold text-lg mt-1">{selectedTierPrice ? fmt(selectedTierPrice.price) : isCustomPriced ? fmt(customBasePrice) : '--'}</p>
-                    </button>
-
-                    {/* Recurring plan options */}
-                    {servicePlans.map((plan) => {
-                      const isSelected = selectedMembership === plan.slug
-                      const baseForDiscount = selectedTierPrice ? selectedTierPrice.price : isCustomPriced ? customBasePrice : 0
-                      const discountedPrice = baseForDiscount
-                        ? Math.max(0, baseForDiscount - Number(plan.discount_per_visit))
-                        : 0
-                      return (
-                        <button
-                          key={plan.slug}
-                          type="button"
-                          onClick={() => setSelectedMembership(plan.slug)}
-                          className={`flex-1 min-w-[120px] rounded-xl border-2 p-3 text-center transition-all active:scale-[0.98] ${
-                            isSelected
-                              ? "border-emerald-400 bg-emerald-50 shadow-sm"
-                              : "border-emerald-200 bg-white/50 hover:border-emerald-300"
-                          }`}
-                        >
-                          <p className="text-slate-800 font-bold text-sm">{plan.name}</p>
-                          <p className="text-emerald-600 font-bold text-lg mt-1">{fmt(discountedPrice)}</p>
-                          <p className="text-emerald-500 text-xs font-medium">Save {fmt(Number(plan.discount_per_visit))}</p>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-          </div>
-        )}
-
-        {/* ── Service Address ─────────────────────────────────────── */}
-        {!isExpired && (
-          <div>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1 flex items-center gap-2">
-              <MapPin className="size-5 text-blue-500" />
-              Service Address
-            </h2>
-            <p className="text-slate-400 text-sm mb-4">Where should we send the cleaning crew?</p>
-            <div className="relative">
-              <input
-                type="text"
-                value={customerAddress}
-                onChange={(e) => {
-                  setCustomerAddress(e.target.value)
-                  setShowAddressSuggestions(true)
-                }}
-                onFocus={() => setShowAddressSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowAddressSuggestions(false), 200)}
-                placeholder="e.g. 1531 Stanford Ave, Los Angeles, CA 90021"
-                className="w-full h-12 px-4 rounded-xl border-2 border-blue-100 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 placeholder:text-slate-300"
-              />
-              {showAddressSuggestions && addressSuggestions.length > 0 && (
-                <div className="absolute top-full left-0 right-0 z-50 bg-white border-2 border-blue-100 rounded-xl mt-1 max-h-48 overflow-y-auto shadow-lg">
-                  {addressSuggestions.map((s) => (
-                    <button
-                      key={s.place_id}
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        setCustomerAddress(s.description)
-                        setShowAddressSuggestions(false)
-                      }}
-                      className="block w-full text-left px-4 py-3 text-sm text-slate-700 border-b border-blue-50 last:border-0 hover:bg-blue-50 transition-colors"
-                    >
-                      <MapPin className="size-3.5 text-blue-400 inline mr-2 -mt-0.5" />
-                      {s.description}
-                    </button>
-                  ))}
-                </div>
+                )}
+              </button>
               )}
+
+              {servicePlans.map((plan) => {
+                const isSelected = selectedMembership === plan.slug
+                const freeAddons = plan.free_addons || []
+                if (membershipLocked && !isSelected) return null
+                return (
+                  <button key={plan.slug} type="button" onClick={() => !membershipLocked && setSelectedMembership(plan.slug)}
+                    className={`relative w-full text-left rounded-xl border-2 p-4 transition-all ${membershipLocked ? "cursor-default" : "cursor-pointer active:scale-[0.98]"} ${
+                      isSelected ? "border-emerald-400 bg-emerald-50 shadow-sm" : "border-blue-100 bg-white hover:border-blue-200"
+                    }`}
+                  >
+                    <h3 className="text-slate-800 font-semibold text-sm">{plan.name}</h3>
+                    <p className="text-slate-400 text-xs mt-1">{plan.visits_per_year} visits/yr &middot; Every {plan.interval_months}mo</p>
+                    <p className="text-emerald-600 font-bold text-sm mt-2">Save {fmt(Number(plan.discount_per_visit))}/visit</p>
+                    {freeAddons.length > 0 && (
+                      <div className="mt-2 space-y-0.5">
+                        {freeAddons.map((perk) => (
+                          <div key={perk} className="flex items-center gap-1.5">
+                            <Check className="size-3 text-emerald-500 shrink-0" />
+                            <span className="text-slate-500 text-xs">{perk}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {isSelected && (
+                      <div className="absolute top-3 right-3 size-6 rounded-full bg-emerald-500 flex items-center justify-center">
+                        <Check className="size-3 text-white" />
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </div>
         )}
@@ -1052,9 +1331,45 @@ export default function QuotePage() {
           </div>
           <div className="p-5 space-y-2.5">
             {isCustomPriced ? (
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600">Base Service</span>
-                <span className="text-slate-800 font-semibold">{fmt(customBasePrice)}</span>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setSummaryExpanded(!summaryExpanded)}
+                  className="w-full flex justify-between items-center text-sm group"
+                >
+                  <span className="text-slate-600 flex items-center gap-1.5">
+                    Custom Service Package
+                    {summaryExpanded ? <ChevronUp className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
+                  </span>
+                  <span className="text-slate-800 font-semibold">{fmt(customBasePrice)}</span>
+                </button>
+                {summaryExpanded && (() => {
+                  // Mirror the cleaner-portal checklist for the quote's tier.
+                  const q = quote as Quote & { selected_tier?: string | null; service_category?: string | null }
+                  const tierKey = (q.selected_tier as string) || (q.service_category === 'move_in_out' ? 'move' : 'standard')
+                  return (
+                  <div className="mt-2.5 ml-1 pl-3 border-l-2 border-emerald-200 space-y-1.5 pb-1">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">What&apos;s included</p>
+                    {getDetailedChecklist(tierKey, data?.checklists, tenant?.slug).map((task, i) => (
+                      <div key={`task-${i}`} className="flex items-start gap-2">
+                        <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                        <span className="text-xs text-slate-600">{task}</span>
+                      </div>
+                    ))}
+                    {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
+                      <div key={`addon-${addon.key}`} className="flex items-start gap-2">
+                        <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                        <span className="text-xs text-slate-600">{addon.name}</span>
+                      </div>
+                    ))}
+                    {customAddonsFromQuote.filter(ca => selectedAddons[ca.key] && isAddonIncluded(ca.key)).map((ca) => (
+                      <div key={`custom-${ca.key}`} className="flex items-start gap-2">
+                        <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                        <span className="text-xs text-slate-600">{ca.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )})()}
               </div>
             ) : selectedTier && selectedTierPrice ? (
               <div>
@@ -1071,10 +1386,18 @@ export default function QuotePage() {
                 </button>
                 {summaryExpanded && (
                   <div className="mt-2.5 ml-1 pl-3 border-l-2 border-emerald-200 space-y-1.5 pb-1">
-                    {getDetailedChecklist(selectedTierKey || '').map((task, i) => (
-                      <div key={i} className="flex items-start gap-2">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">What&apos;s included</p>
+                    {getDetailedChecklist(selectedTierKey || '', data?.checklists, tenant?.slug).map((task, i) => (
+                      <div key={`base-${i}`} className="flex items-start gap-2">
                         <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
                         <span className="text-xs text-slate-600">{task}</span>
+                      </div>
+                    ))}
+                    {/* Extra add-ons the admin marked as included */}
+                    {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key) && !(selectedTier?.included || []).includes(a.key)).map((addon) => (
+                      <div key={`extra-${addon.key}`} className="flex items-start gap-2">
+                        <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                        <span className="text-xs text-slate-600">{addon.name}</span>
                       </div>
                     ))}
                   </div>
@@ -1082,17 +1405,41 @@ export default function QuotePage() {
               </div>
             ) : null}
 
-            {addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key)).map((addon) => (
+            {/* Add-on line items — shown for ALL quote types */}
+            {addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
               <div key={addon.key} className="flex justify-between text-sm">
                 <span className="text-slate-500">+ {addon.name}{addon.priceType === "per_unit" && (addonQuantities[addon.key] || 1) > 1 ? ` x${addonQuantities[addon.key]}` : ""}</span>
                 <span className="text-slate-700">{fmt(getAddonPrice(addon))}</span>
               </div>
             ))}
 
-            {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key)).map((addon) => (
-              <div key={addon.key} className="flex justify-between text-sm">
-                <span className="text-slate-400">{addon.name}</span>
-                <span className="text-emerald-500 text-xs font-medium">Included</span>
+            {/* Custom add-ons line items */}
+            {customAddonsFromQuote.filter(ca => selectedAddons[ca.key]).map((ca) => (
+              <div key={ca.key} className="flex justify-between text-sm">
+                <span className="text-slate-500">+ {ca.label} <span className="text-[10px] text-blue-500">(Custom)</span></span>
+                <span className="text-slate-700">{fmt(ca.price)}</span>
+              </div>
+            ))}
+
+            {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => {
+              const refPrice = getAddonPrice(addon)
+              return (
+                <div key={addon.key} className="flex justify-between text-sm">
+                  <span className="text-slate-500">{addon.name}</span>
+                  <span className="text-xs font-medium flex items-center gap-2">
+                    {refPrice > 0 && <span className="text-slate-400 line-through decoration-red-400/70 decoration-[1.5px]">{fmt(refPrice)}</span>}
+                    <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">Included</span>
+                  </span>
+                </div>
+              )
+            })}
+            {customAddonsFromQuote.filter(ca => selectedAddons[ca.key] && isAddonIncluded(ca.key)).map((ca) => (
+              <div key={ca.key} className="flex justify-between text-sm">
+                <span className="text-slate-500">{ca.label} <span className="text-[10px] text-blue-500">(Custom)</span></span>
+                <span className="text-xs font-medium flex items-center gap-2">
+                  {ca.price > 0 && <span className="text-slate-400 line-through decoration-red-400/70 decoration-[1.5px]">{fmt(ca.price)}</span>}
+                  <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">Included</span>
+                </span>
               </div>
             ))}
 
@@ -1120,10 +1467,22 @@ export default function QuotePage() {
             )}
 
             <div className="border-t-2 border-blue-100 pt-3">
+              {includedValueTotal > 0 && (
+                <div className="flex justify-between items-baseline mb-1">
+                  <span className="text-slate-400 text-xs">Regular Price</span>
+                  <span className="text-slate-400 text-sm line-through decoration-red-400/70 decoration-[1.5px]">{fmt(total + includedValueTotal)}</span>
+                </div>
+              )}
               <div className="flex justify-between items-baseline">
                 <span className="text-slate-800 font-bold text-lg">Total</span>
                 <span className="text-slate-800 font-bold text-3xl">{fmt(total)}</span>
               </div>
+              {includedValueTotal > 0 && (
+                <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1">
+                  <Sparkles className="size-3.5 text-emerald-500" />
+                  <span className="text-emerald-700 text-xs font-bold">You save {fmt(includedValueTotal)}</span>
+                </div>
+              )}
               <p className="text-slate-400 text-xs mt-2">
                 {selectedPlan
                   ? `Charged after each visit · Every ${selectedPlan.interval_months} month${selectedPlan.interval_months !== 1 ? 's' : ''} · ${selectedPlan.visits_per_year} visit${selectedPlan.visits_per_year !== 1 ? 's' : ''}/year`
@@ -1161,14 +1520,42 @@ export default function QuotePage() {
 
       {/* ── Mobile Sticky Bottom Bar ──────────────────────────── */}
       <div className="sm:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t-2 border-blue-100 px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] z-50">
+        {/* Line-item breakdown on mobile */}
+        {addonTotal > 0 && (
+          <div className="mb-2 pb-2 border-b border-blue-50 space-y-0.5">
+            <div className="flex justify-between text-xs text-slate-500">
+              <span>Base Service</span>
+              <span>{fmt(isCustomPriced ? customBasePrice : (selectedTierPrice?.price || 0))}</span>
+            </div>
+            {addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
+              <div key={addon.key} className="flex justify-between text-xs text-slate-500">
+                <span>+ {addon.name}</span>
+                <span>{fmt(getAddonPrice(addon))}</span>
+              </div>
+            ))}
+            {customAddonsFromQuote.filter(ca => selectedAddons[ca.key]).map((ca) => (
+              <div key={ca.key} className="flex justify-between text-xs text-slate-500">
+                <span>+ {ca.label}</span>
+                <span>{fmt(ca.price)}</span>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex items-center justify-between mb-2.5">
           <div>
             <span className="text-xs text-slate-400">Total</span>
-            <p className="text-xl font-bold text-slate-800">{fmt(total)}</p>
+            <div className="flex items-baseline gap-2">
+              <p className="text-xl font-bold text-slate-800">{fmt(total)}</p>
+              {includedValueTotal > 0 && (
+                <span className="text-[11px] text-slate-400 line-through decoration-red-400/70 decoration-[1.5px]">{fmt(total + includedValueTotal)}</span>
+              )}
+            </div>
           </div>
-          {activeExtraAddons > 0 && (
+          {includedValueTotal > 0 ? (
+            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full">Save {fmt(includedValueTotal)}</span>
+          ) : activeExtraAddons > 0 ? (
             <span className="text-xs text-slate-400 bg-blue-50 px-2 py-1 rounded-full">{activeExtraAddons} add-on{activeExtraAddons !== 1 ? "s" : ""}</span>
-          )}
+          ) : null}
         </div>
         <button
           disabled={!canApprove}

@@ -52,6 +52,27 @@ export function getStripeClientForTenant(stripeSecretKey: string): Stripe {
   return new Stripe(secretKey, { apiVersion: '2025-02-24.acacia' })
 }
 
+/** Map currency code to Stripe country code */
+const CURRENCY_TO_COUNTRY: Record<string, string> = {
+  cad: 'CA',
+  usd: 'US',
+}
+
+/** Best-effort country inference from address string (Ontario, ON, Canada → CA) */
+function inferCountryFromAddress(address?: string | null): string | null {
+  if (!address) return null
+  const lower = address.toLowerCase()
+  if (/\b(ontario|on|canada|alberta|ab|british columbia|bc|quebec|qc|manitoba|mb|saskatchewan|sk|nova scotia|ns|new brunswick|nb|pei|pe|newfoundland|nl|yukon|yt|nwt|nt|nunavut|nu)\b/.test(lower)) {
+    return 'CA'
+  }
+  return null
+}
+
+/** Resolve Stripe country from tenant currency */
+export function currencyToCountry(currency?: string | null): string {
+  return CURRENCY_TO_COUNTRY[(currency || 'usd').toLowerCase()] || 'US'
+}
+
 function getClientDomain(): string {
   const domain = getClientConfig().domain
   return domain.endsWith('/') ? domain.slice(0, -1) : domain
@@ -108,12 +129,14 @@ export function resolveStripeChargeCents(
  */
 export async function createStripeCustomer(
   customer: Partial<Customer>,
-  stripeSecretKey: string
+  stripeSecretKey: string,
+  country?: string
 ): Promise<Stripe.Customer> {
   try {
     const stripe = getStripeClientForTenant(stripeSecretKey)
 
     const normalizedPhone = toE164(customer.phone_number)
+    const resolvedCountry = country || inferCountryFromAddress(customer.address) || 'US'
     const stripeCustomer = await stripe.customers.create({
       email: customer.email,
       phone: normalizedPhone || undefined,
@@ -121,7 +144,7 @@ export async function createStripeCustomer(
       address: customer.address
         ? {
             line1: customer.address,
-            country: 'US',
+            country: resolvedCountry,
           }
         : undefined,
       metadata: {
@@ -183,7 +206,7 @@ export async function createAndSendInvoice(
   customer: Customer,
   stripeSecretKey: string,
   membershipInfo?: { discount: number; planName: string },
-  currency = 'usd'
+  currency: string
 ): Promise<{ success: boolean; invoiceId?: string; invoiceUrl?: string; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required for invoice' }
@@ -243,7 +266,7 @@ export async function createAndSendInvoice(
       customer: stripeCustomer.id,
       invoice: invoice.id,
       amount: Math.round(job.price * 100), // Convert to cents
-      currency: currency || 'usd',
+      currency,
       description,
     })
 
@@ -253,7 +276,7 @@ export async function createAndSendInvoice(
         customer: stripeCustomer.id,
         invoice: invoice.id,
         amount: -Math.round(membershipInfo.discount * 100),
-        currency: currency || 'usd',
+        currency,
         description: `${membershipInfo.planName} member discount`,
       })
     }
@@ -455,7 +478,7 @@ export async function createDepositPaymentLink(
   extraMetadata: Record<string, string> | undefined,
   tenantId: string,
   stripeSecretKey: string,
-  currency = 'usd'
+  currency: string
 ): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
@@ -497,7 +520,7 @@ export async function createDepositPaymentLink(
       line_items: [
         {
           price_data: {
-            currency: currency || 'usd',
+            currency,
             product_data: {
               name: `${job.service_type || 'Cleaning'} - DEPOSIT`,
               description: `50% deposit for ${job.service_type || 'cleaning'} service`,
@@ -540,7 +563,7 @@ export async function createCustomPaymentLink(
   tenantId: string,
   stripeSecretKey: string,
   jobId?: string,
-  currency = 'usd'
+  currency: string
 ): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
@@ -573,7 +596,7 @@ export async function createCustomPaymentLink(
       line_items: [
         {
           price_data: {
-            currency: currency || 'usd',
+            currency,
             product_data: {
               name: description || 'Payment',
             },
@@ -613,7 +636,7 @@ export async function createAddOnPaymentLink(
   addOnAmount: number,
   addOns: AddOnKey[],
   stripeSecretKey: string,
-  currency = 'usd'
+  currency: string
 ): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
@@ -655,7 +678,7 @@ export async function createAddOnPaymentLink(
       line_items: [
         {
           price_data: {
-            currency: currency || 'usd',
+            currency,
             product_data: {
               name: `${job.service_type || 'Cleaning'} - Add-ons`,
               description: label,
@@ -695,7 +718,7 @@ export async function chargeCardOnFile(
   stripeCustomerId: string,
   amountCents: number,
   metadata: Record<string, string>,
-  currency = 'usd'
+  currency: string
 ): Promise<{ success: boolean; paymentIntentId?: string; error?: string }> {
   try {
     const stripe = getStripeClientForTenant(stripeSecretKey)
@@ -717,7 +740,7 @@ export async function chargeCardOnFile(
 
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountCents,
-      currency: currency || 'usd',
+      currency,
       customer: stripeCustomerId,
       payment_method: paymentMethodId,
       off_session: true,
