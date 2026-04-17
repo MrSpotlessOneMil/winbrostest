@@ -1756,11 +1756,33 @@ async function generateHouseCleaningResponse(
     if (pricingStd || pricingDeep || pricingMove) {
       const currency = tenant.workflow_config && (tenant.workflow_config as Record<string, unknown>).currency === 'CAD' ? 'CAD' : 'USD'
       const sym = currency === 'CAD' ? 'CA$' : '$'
-      verifiedPricingBlock = `\n\nVERIFIED PRICING FOR THIS CUSTOMER (${knownCustomerInfo?.bedrooms} bed / ${knownCustomerInfo?.bathrooms} bath) — all prices in ${currency}:\n`
-      if (pricingStd) verifiedPricingBlock += `- Standard clean: ${sym}${pricingStd.price}\n`
-      if (pricingDeep) verifiedPricingBlock += `- Deep clean: ${sym}${pricingDeep.price}\n`
-      if (pricingMove) verifiedPricingBlock += `- Move in/out: ${sym}${pricingMove.price}\n`
-      verifiedPricingBlock += 'Use ONLY these prices. Do NOT guess or interpolate.\n'
+
+      // PROMO OVERRIDE: if customer arrived via an active promo (e.g. $149 Meta ad),
+      // the promo price IS the first-clean price. Without this override the AI sees
+      // two contradictory blocks (verified deep $625 vs promo $149) and quotes the
+      // wrong one — then hallucinates "offer expired" when challenged.
+      // Incident: Mary Osias, 2026-04-17.
+      const promoForPricing = customerContext?.lead?.form_data
+        ? getPromoConfig(customerContext.lead.form_data as Record<string, unknown>)
+        : null
+
+      if (promoForPricing) {
+        verifiedPricingBlock = `\n\nVERIFIED PRICING FOR THIS CUSTOMER (${knownCustomerInfo?.bedrooms} bed / ${knownCustomerInfo?.bathrooms} bath) — all prices in ${currency}:\n`
+        verifiedPricingBlock += `- FIRST CLEAN (active ${sym}${promoForPricing.price} promo): ${sym}${promoForPricing.price} — ${promoForPricing.hours}h with ${promoForPricing.cleaners} cleaner(s). THIS IS THE PRICE TO QUOTE.\n`
+        if (pricingStd) verifiedPricingBlock += `- Recurring standard clean (visit 2+): ${sym}${pricingStd.price}\n`
+        if (pricingDeep) verifiedPricingBlock += `- Recurring deep clean (visit 2+): ${sym}${pricingDeep.price}\n`
+        if (pricingMove) verifiedPricingBlock += `- Move in/out: ${sym}${pricingMove.price}\n`
+        verifiedPricingBlock += `RULES:\n`
+        verifiedPricingBlock += `- For the FIRST clean, quote ${sym}${promoForPricing.price} ONLY. Do NOT quote the recurring rate as if it were the first-clean price.\n`
+        verifiedPricingBlock += `- The ${sym}${promoForPricing.price} promo is ACTIVE. NEVER tell the customer it is "expired" or "no longer available" — they just clicked the live ad.\n`
+        verifiedPricingBlock += `- Recurring rates are only relevant if the customer explicitly asks about visits 2+. Don't lead with them.\n`
+      } else {
+        verifiedPricingBlock = `\n\nVERIFIED PRICING FOR THIS CUSTOMER (${knownCustomerInfo?.bedrooms} bed / ${knownCustomerInfo?.bathrooms} bath) — all prices in ${currency}:\n`
+        if (pricingStd) verifiedPricingBlock += `- Standard clean: ${sym}${pricingStd.price}\n`
+        if (pricingDeep) verifiedPricingBlock += `- Deep clean: ${sym}${pricingDeep.price}\n`
+        if (pricingMove) verifiedPricingBlock += `- Move in/out: ${sym}${pricingMove.price}\n`
+        verifiedPricingBlock += 'Use ONLY these prices. Do NOT guess or interpolate.\n'
+      }
     }
   } catch (megaBrainErr) {
     console.error('[HC AI] Mega brain context failed (non-blocking):', megaBrainErr)
