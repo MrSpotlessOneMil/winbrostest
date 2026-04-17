@@ -351,6 +351,25 @@ export default function QuotePage() {
   const isCustomPriced = customBasePrice != null
   const businessName = tenant?.name || "Our Team"
 
+  // Promo offers ($149 diluted deep, etc.) have "promotional"/"promo" in their custom_terms.
+  // For these, the checklist must reflect service_category (standard base + listed addons)
+  // rather than selected_tier (which may say "deep" even though the real scope is standard).
+  const isPromoOffer = !!data?.custom_terms?.some((t) => /promotional|promo/i.test(t))
+
+  // Tier used for gating recurring membership offers. Memberships are only offered on
+  // standard cleanings (not deep, not move-out, not promos).
+  const effectiveTierKey: string = (() => {
+    if (isCustomPriced) {
+      const tier = (data?.quote as unknown as { selected_tier?: string; service_category?: string })?.selected_tier || ''
+      const cat = (data?.quote as unknown as { selected_tier?: string; service_category?: string })?.service_category || 'standard'
+      const tierKeyMap: Record<string, string> = { standard: 'standard', deep: 'deep', extra_deep: 'extra_deep', move: 'move', move_good: 'move', move_better: 'move', move_best: 'move' }
+      const catKeyMap: Record<string, string> = { standard: 'standard', move_in_out: 'move' }
+      if (isPromoOffer) return catKeyMap[cat] || 'standard'
+      return tierKeyMap[tier] || catKeyMap[cat] || 'standard'
+    }
+    return selectedTierKey || ''
+  })()
+
   const selectedTier = tiers.find((t) => t.key === selectedTierKey) ?? null
   const selectedTierPrice = selectedTierKey ? tierPrices[selectedTierKey] : null
 
@@ -802,16 +821,19 @@ export default function QuotePage() {
 
         {/* ── Tier Selection (hidden for custom-priced quotes) ─ */}
         {isCustomPriced ? (() => {
-          // Determine checklist from selected_tier (most specific) or service_category
+          // Display name: what the customer was promised (e.g. "Deep Clean" for the $149 Meta promo)
           const tier = (quote as any).selected_tier as string || ''
           const cat = (quote as any).service_category as string || 'standard'
           const tierKeyMap: Record<string, string> = { standard: 'standard', deep: 'deep', extra_deep: 'extra_deep', move: 'move', move_good: 'move', move_better: 'move', move_best: 'move' }
           const catKeyMap: Record<string, string> = { standard: 'standard', move_in_out: 'move' }
-          const customTierKey = tierKeyMap[tier] || catKeyMap[cat] || 'standard'
-          const customChecklist = getDetailedChecklist(customTierKey, data?.checklists, tenant?.slug)
+          const displayTierKey = tierKeyMap[tier] || catKeyMap[cat] || 'standard'
+          // Checklist: for promo offers (diluted deep) use service_category so the scope is
+          // standard base + only the listed addons. For non-promo custom quotes use the full
+          // selected_tier scope as before.
+          const customChecklist = getDetailedChecklist(effectiveTierKey, data?.checklists, tenant?.slug)
           // Show service type name
           const nameMap: Record<string, string> = { standard: 'Standard Clean', deep: 'Deep Clean', move: 'Move-Out Clean' }
-          const serviceName = nameMap[customTierKey] || 'Custom Service Package'
+          const serviceName = nameMap[displayTierKey] || 'Custom Service Package'
           return (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Your Custom Quote</h2>
@@ -1132,7 +1154,7 @@ export default function QuotePage() {
         )}
 
         {/* ── Membership Plans — standard tier only (deep/move/promos are one-time) */}
-        {!isExpired && selectedTierKey === 'standard' && servicePlans.length > 0 && (
+        {!isExpired && effectiveTierKey === 'standard' && !isPromoOffer && servicePlans.length > 0 && (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">{membershipLocked ? "Your Recurring Plan" : "Save with a Membership"}</h2>
             <p className="text-slate-400 text-sm mb-5">{membershipLocked ? "Included with your service." : "Regular service = bigger savings every visit."}</p>
