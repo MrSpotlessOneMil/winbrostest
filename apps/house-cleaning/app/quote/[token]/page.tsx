@@ -1131,8 +1131,8 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* ── Membership Plans (hidden for custom-priced — discount already applied) */}
-        {!isExpired && !isCustomPriced && servicePlans.length > 0 && (
+        {/* ── Membership Plans — standard tier only (deep/move/promos are one-time) */}
+        {!isExpired && selectedTierKey === 'standard' && servicePlans.length > 0 && (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">{membershipLocked ? "Your Recurring Plan" : "Save with a Membership"}</h2>
             <p className="text-slate-400 text-sm mb-5">{membershipLocked ? "Included with your service." : "Regular service = bigger savings every visit."}</p>
