@@ -4,6 +4,7 @@ import { normalizePhone, maskPhone, maskEmail } from "@/lib/phone-utils"
 import { getSupabaseClient } from "@/lib/supabase"
 import { analyzeBookingIntent, isObviouslyNotBooking } from "@/lib/ai-intent"
 import { generateAutoResponse, loadCustomerContext, type KnownCustomerInfo } from "@/lib/auto-response"
+import { generateHCResponse } from "./hc-sms-responder"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp, scheduleTask, cancelTask, scheduleRetargetingSequence } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
@@ -21,6 +22,49 @@ export const maxDuration = 60 // Pro plan: prevent cold-start + debounce + AI fr
  * The AI uses ||| to separate messages that should be sent as individual texts.
  * Returns the full concatenated content for DB storage.
  */
+/**
+ * Route to HC responder for house cleaning tenants, fallback to generic for WinBros.
+ * The HC responder is co-located (./hc-sms-responder.ts) so Turbopack always bundles it.
+ */
+async function smartAutoResponse(
+  message: string,
+  intent: any,
+  tenant: any,
+  conversationHistory: Array<{ role: 'client' | 'assistant'; content: string }>,
+  knownInfo: KnownCustomerInfo | undefined,
+  options: { isReturningCustomer?: boolean; isRetargetingReply?: boolean; customerContext?: any },
+  supabaseClient: any,
+  customer?: any,
+) {
+  // House cleaning tenants -> new HC responder with full brain + sales playbook
+  if (tenant && !tenantUsesFeature(tenant, 'use_hcp_mirror')) {
+    try {
+      const result = await generateHCResponse({
+        message,
+        tenant,
+        conversationHistory,
+        customer: customer || null,
+        knownInfo: knownInfo || null,
+        customerContext: options.customerContext || null,
+        isRetargetingReply: options.isRetargetingReply,
+        isReturningCustomer: options.isReturningCustomer,
+        supabaseClient,
+      })
+      if (result.shouldSend && result.response) {
+        console.log(`[OpenPhone] HC responder handled: "${result.response.slice(0, 60)}..."`)
+        return result
+      }
+      // If HC responder returns empty/shouldn't send, fall through to generic
+      if (!result.shouldSend) return result
+    } catch (err) {
+      console.error('[OpenPhone] HC responder failed, falling back to generic:', err)
+    }
+  }
+
+  // WinBros or fallback -> existing generic auto-response
+  return generateAutoResponse(message, intent, tenant, conversationHistory, knownInfo, options)
+}
+
 async function sendMultiPartSMS(
   tenant: any,
   phone: string,
@@ -2819,13 +2863,10 @@ export async function POST(request: NextRequest) {
 
       // Generate AI response with full booking context
       const quickIntent = await analyzeBookingIntent(combinedMessage, conversationHistory)
-      const autoResponse = await generateAutoResponse(
-        combinedMessage,
-        quickIntent,
-        tenant,
-        conversationHistory,
-        knownInfo,
-        { isReturningCustomer: false, isRetargetingReply, customerContext: postBookingCtx }
+      const autoResponse = await smartAutoResponse(
+        combinedMessage, quickIntent, tenant, conversationHistory, knownInfo,
+        { isReturningCustomer: false, isRetargetingReply, customerContext: postBookingCtx },
+        client, customer
       )
 
       // Send AI response (strip [BOOKING_COMPLETE] — never re-trigger for assigned leads)
@@ -3165,13 +3206,10 @@ export async function POST(request: NextRequest) {
           estimatedPrice: typeof leadFormData.estimated_price === 'number' ? leadFormData.estimated_price : null,
         }
 
-        const autoResponse = await generateAutoResponse(
-          combinedMessage,
-          quickIntent,
-          tenant,
-          conversationHistory,
-          knownInfo,
-          { isReturningCustomer: isSeasonalReply, isRetargetingReply, customerContext: customerCtx }
+        const autoResponse = await smartAutoResponse(
+          combinedMessage, quickIntent, tenant, conversationHistory, knownInfo,
+          { isReturningCustomer: isSeasonalReply, isRetargetingReply, customerContext: customerCtx },
+          client, customer
         )
 
         if (autoResponse.shouldSend && (autoResponse.response || autoResponse.bookingComplete)) {
@@ -3866,13 +3904,10 @@ export async function POST(request: NextRequest) {
         phone: phone,
       }
 
-      const autoResponse = await generateAutoResponse(
-        combinedMessage,
-        intentResult,
-        tenant,
-        conversationHistory,
-        knownInfoNew,
-        { isReturningCustomer: isSeasonalReply, isRetargetingReply, customerContext: customerCtx }
+      const autoResponse = await smartAutoResponse(
+        combinedMessage, intentResult, tenant, conversationHistory, knownInfoNew,
+        { isReturningCustomer: isSeasonalReply, isRetargetingReply, customerContext: customerCtx },
+        client, customer
       )
 
       // Capture booking completion for use after lead creation
