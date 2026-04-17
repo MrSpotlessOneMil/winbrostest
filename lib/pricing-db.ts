@@ -238,12 +238,10 @@ export async function savePricingTiers(
       return { success: false, error: 'Failed to update pricing' }
     }
 
-    // Insert new pricing
-    const tiersWithTenant = tiers.map((tier) => ({
-      ...tier,
+    // Insert new pricing (strip DB-generated fields so Postgres auto-creates them)
+    const tiersWithTenant = tiers.map(({ id, created_at, updated_at, ...rest }: any) => ({
+      ...rest,
       tenant_id: tenantId,
-      // Remove id to let database generate it
-      id: undefined,
     }))
 
     const { error: insertError } = await client
@@ -283,8 +281,8 @@ export async function savePricingAddons(
       return { success: false, error: 'Failed to update addons' }
     }
 
-    // Insert new addons (strip id so Postgres auto-generates it)
-    const addonsWithTenant = addons.map(({ id, ...rest }) => ({
+    // Insert new addons (strip DB-generated fields so Postgres auto-creates them)
+    const addonsWithTenant = addons.map(({ id, created_at, updated_at, ...rest }: any) => ({
       ...rest,
       tenant_id: tenantId,
     }))

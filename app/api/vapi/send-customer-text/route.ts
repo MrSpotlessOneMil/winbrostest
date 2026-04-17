@@ -35,12 +35,16 @@ async function resolveTenantSlugFromAssistant(assistantId: string): Promise<stri
 }
 
 /** Look up price from DB pricing tiers. Falls back to formula if no DB rows. */
-async function lookupPriceFromDB(tenantId: string, bedrooms: number, bathrooms: number, serviceType?: string): Promise<number | null> {
+async function lookupPriceFromDB(tenantId: string, bedrooms: number, bathrooms: number, serviceType?: string, squareFootage?: number | null, halfBathrooms?: number | null): Promise<number | null> {
   try {
     const { getPricingRow } = await import('@/lib/pricing-db')
     const tier = (serviceType === 'deep' || serviceType === 'move' || serviceType === 'move_in_out') ? (serviceType === 'move_in_out' ? 'move' : serviceType) : 'standard'
-    const row = await getPricingRow(tier as any, bedrooms, bathrooms, null, tenantId)
-    if (row?.price) return row.price
+    const row = await getPricingRow(tier as any, bedrooms, bathrooms, squareFootage ?? null, tenantId)
+    if (row?.price) {
+      // Half bathrooms are an additive surcharge ($10 each) not covered by pricing_tiers
+      const halfBathSurcharge = (halfBathrooms && halfBathrooms > 0) ? halfBathrooms * 10 : 0
+      return row.price + halfBathSurcharge
+    }
   } catch (e) {
     console.error('[send-customer-text] DB price lookup failed:', e)
   }
@@ -229,6 +233,8 @@ export async function POST(request: NextRequest) {
 
   const bedrooms = toNumber(params.bedrooms)
   const bathrooms = toNumber(params.bathrooms)
+  const squareFootage = toNumber(params.sq_ft)
+  const halfBathrooms = toNumber(params.half_bathrooms)
 
   const modelPrice = typeof params.price === 'string'
     ? params.price.replace('$', '').trim()
@@ -239,7 +245,7 @@ export async function POST(request: NextRequest) {
   // Price resolution: DB lookup is source of truth. Model price is fallback only.
   let finalPrice = ''
   if (bedrooms !== null && bathrooms !== null) {
-    const dbPrice = await lookupPriceFromDB(tenant.id, bedrooms, bathrooms, serviceType)
+    const dbPrice = await lookupPriceFromDB(tenant.id, bedrooms, bathrooms, serviceType, squareFootage, halfBathrooms)
     if (dbPrice !== null) {
       finalPrice = String(dbPrice)
     } else if (modelPrice) {
