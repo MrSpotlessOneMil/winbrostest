@@ -142,7 +142,9 @@ export async function notifyCleanerAssignment(
   } else {
     const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
     if (payPercentage && job.price) {
-      const cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
+      const totalCleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
+      const crewSize = Number(job.cleaners) || 1
+      const cleanerPay = crewSize > 1 ? totalCleanerPay / crewSize : totalCleanerPay
       details.push(`Your pay: ${formatTenantCurrency(tenant, cleanerPay)}`)
     } else if (job.hours) {
       const rate = cleaner.hourly_rate || 25
@@ -235,7 +237,9 @@ export async function notifyCleanerAwarded(
   } else {
     const payPercentage2 = tenant.workflow_config?.cleaner_pay_percentage
     if (payPercentage2 && job.price) {
-      const cleanerPay = parseFloat(String(job.price)) * (payPercentage2 / 100)
+      const totalPay2 = parseFloat(String(job.price)) * (payPercentage2 / 100)
+      const crewSize2 = Number(job.cleaners) || 1
+      const cleanerPay = crewSize2 > 1 ? totalPay2 / crewSize2 : totalPay2
       payStr = `\nYour pay: ${formatTenantCurrency(tenant, cleanerPay)}`
     } else if (job.hours) {
       const rate = cleaner.hourly_rate || 25
