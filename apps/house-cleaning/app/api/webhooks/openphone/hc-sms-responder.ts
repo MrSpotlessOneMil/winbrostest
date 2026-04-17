@@ -347,7 +347,7 @@ Customer just texted: "${message}"
 
 Respond as ${sdrName}. Write ONLY the SMS text (and [BOOKING_COMPLETE] or [ESCALATE:reason] tag if needed). Nothing else.
 
-FORMATTING: NO emojis. NO em dashes. NO markdown. Plain short texts. Use ||| to split into 2-3 texts. Match the customer's texting style.`
+REMEMBER: ONE message only. No emojis. No em dashes. No markdown. Do NOT include [BOOKING_COMPLETE] if you are giving a price in this same message. Give the price, wait for their reply, THEN close on the next turn.`
 
   // Call Claude
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -372,8 +372,17 @@ FORMATTING: NO emojis. NO em dashes. NO markdown. Plain short texts. Use ||| to 
     }
 
     // Detect tags
-    const hasBookingComplete = rawText.includes('[BOOKING_COMPLETE]')
+    let hasBookingComplete = rawText.includes('[BOOKING_COMPLETE]')
     const escalationMatch = rawText.match(/\[ESCALATE:(\w+)\]/)
+
+    // CRITICAL: If the response contains a price ($XXX) AND [BOOKING_COMPLETE],
+    // suppress the booking tag. The customer hasn't reacted to the price yet.
+    // Let them respond first, then close on the next turn.
+    const hasPrice = /\$\d/.test(rawText)
+    if (hasBookingComplete && hasPrice) {
+      console.log(`[HC Responder] Suppressed [BOOKING_COMPLETE] — price in same message, waiting for customer reaction`)
+      hasBookingComplete = false
+    }
 
     // Clean response
     let cleaned = rawText
