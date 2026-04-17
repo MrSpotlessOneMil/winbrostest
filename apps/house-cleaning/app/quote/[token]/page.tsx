@@ -620,7 +620,7 @@ export default function QuotePage() {
               <div className="border-t border-blue-50 pt-4">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Included in Your Clean</p>
                 <div className="space-y-1.5">
-                  {getDetailedChecklist(quote.selected_tier || '', data?.checklists, tenant?.slug).map((task, i) => (
+                  {getDetailedChecklist(effectiveTierKey || quote.selected_tier || '', data?.checklists, tenant?.slug).map((task, i) => (
                     <div key={`task-${i}`} className="flex items-center gap-2 text-sm text-slate-600">
                       <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -1367,8 +1367,9 @@ export default function QuotePage() {
                 </button>
                 {summaryExpanded && (() => {
                   // Mirror the cleaner-portal checklist for the quote's tier.
-                  const q = quote as Quote & { selected_tier?: string | null; service_category?: string | null }
-                  const tierKey = (q.selected_tier as string) || (q.service_category === 'move_in_out' ? 'move' : 'standard')
+                  // Use effectiveTierKey so promo offers (diluted deep) show the standard
+                  // base scope instead of the full deep checklist.
+                  const tierKey = effectiveTierKey || 'standard'
                   return (
                   <div className="mt-2.5 ml-1 pl-3 border-l-2 border-emerald-200 space-y-1.5 pb-1">
                     <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">What&apos;s included</p>
