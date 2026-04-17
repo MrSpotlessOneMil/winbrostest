@@ -65,7 +65,7 @@ export default function SpotlessLayout({ children }: { children: React.ReactNode
       <LocalBusinessJsonLd />
       <FounderJsonLd />
       <TrackingScripts
-        metaPixelId={process.env.NEXT_PUBLIC_SPOTLESS_META_PIXEL}
+        metaPixelId={process.env.NEXT_PUBLIC_SPOTLESS_META_PIXEL || "5023947941164989"}
         ga4MeasurementId={process.env.NEXT_PUBLIC_SPOTLESS_GA4}
       />
       {/* Microsoft Clarity — heatmaps + session recordings */}
