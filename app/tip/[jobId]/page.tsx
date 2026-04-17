@@ -8,6 +8,7 @@ interface JobInfo {
   serviceType: string
   date: string
   businessName: string
+  tenantSlug?: string
 }
 
 const TIP_AMOUNTS = [5, 10, 15, 20, 25]
@@ -106,12 +107,14 @@ export default function TipPage() {
   }
 
   return (
-    <div className="min-h-screen relative flex items-center justify-center px-4 py-12">
-      {/* Background image with overlay */}
-      <div className="absolute inset-0 z-0">
-        <img src="/winbros-team.jpg" alt="" className="w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px]" />
-      </div>
+    <div className="min-h-screen relative flex items-center justify-center px-4 py-12 bg-gradient-to-b from-neutral-950 to-neutral-900">
+      {/* Background image with overlay (WinBros only) */}
+      {jobInfo.tenantSlug === 'winbros' && (
+        <div className="absolute inset-0 z-0">
+          <img src="/winbros-team.jpg" alt="" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px]" />
+        </div>
+      )}
       <div className="max-w-md w-full relative z-10">
         {/* Header */}
         <div className="text-center mb-8">

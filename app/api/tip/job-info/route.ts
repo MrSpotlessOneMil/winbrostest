@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
     // Get tenant/business name from the job's tenant_id
     const tenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
     const businessName = tenant?.business_name || 'Cleaning Service'
+    const tenantSlug = tenant?.slug || ''
 
     return NextResponse.json({
       success: true,
@@ -66,6 +67,7 @@ export async function GET(request: NextRequest) {
         serviceType: job.service_type || 'Cleaning Service',
         date: job.date,
         businessName,
+        tenantSlug,
       },
     })
   } catch (error) {
