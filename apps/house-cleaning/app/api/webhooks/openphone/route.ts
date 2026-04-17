@@ -37,8 +37,11 @@ async function smartAutoResponse(
   customer?: any,
 ) {
   // House cleaning tenants -> new HC responder with full brain + sales playbook
-  if (tenant && !tenantUsesFeature(tenant, 'use_hcp_mirror')) {
+  const isHC = tenant && !tenantUsesFeature(tenant, 'use_hcp_mirror')
+  console.log(`[smartAutoResponse] tenant=${tenant?.slug} isHC=${isHC} use_hcp_mirror=${tenant?.workflow_config?.use_hcp_mirror}`)
+  if (isHC) {
     try {
+      console.log(`[smartAutoResponse] Calling HC responder for ${tenant?.slug}`)
       const result = await generateHCResponse({
         message,
         tenant,
@@ -57,9 +60,11 @@ async function smartAutoResponse(
       // If HC responder returns empty/shouldn't send, fall through to generic
       if (!result.shouldSend) return result
     } catch (err) {
-      console.error('[OpenPhone] HC responder failed, falling back to generic:', err)
+      console.error(`[smartAutoResponse] HC responder CRASHED for ${tenant?.slug}:`, err)
     }
   }
+
+  console.log(`[smartAutoResponse] Using generic fallback for ${tenant?.slug}`)
 
   // WinBros or fallback -> existing generic auto-response
   return generateAutoResponse(message, intent, tenant, conversationHistory, knownInfo, options)
