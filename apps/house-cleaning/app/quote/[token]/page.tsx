@@ -356,6 +356,13 @@ export default function QuotePage() {
   // rather than selected_tier (which may say "deep" even though the real scope is standard).
   const isPromoOffer = !!data?.custom_terms?.some((t) => /promotional|promo/i.test(t))
 
+  // Promo offers exclude baseboards (the $149 diluted deep promo explicitly says so in
+  // custom_terms) — strip any baseboard-related line from the displayed checklist so it
+  // doesn't contradict the terms. Customers can still add "Baseboards (detailed wipe)"
+  // as a paid addon.
+  const filterPromoChecklist = (items: string[]): string[] =>
+    isPromoOffer ? items.filter((t) => !/baseboard/i.test(t)) : items
+
   // Tier used for gating recurring membership offers. Memberships are only offered on
   // standard cleanings (not deep, not move-out, not promos).
   const effectiveTierKey: string = (() => {
@@ -620,7 +627,7 @@ export default function QuotePage() {
               <div className="border-t border-blue-50 pt-4">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Included in Your Clean</p>
                 <div className="space-y-1.5">
-                  {getDetailedChecklist(effectiveTierKey || quote.selected_tier || '', data?.checklists, tenant?.slug).map((task, i) => (
+                  {filterPromoChecklist(getDetailedChecklist(effectiveTierKey || quote.selected_tier || '', data?.checklists, tenant?.slug)).map((task, i) => (
                     <div key={`task-${i}`} className="flex items-center gap-2 text-sm text-slate-600">
                       <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -830,7 +837,7 @@ export default function QuotePage() {
           // Checklist: for promo offers (diluted deep) use service_category so the scope is
           // standard base + only the listed addons. For non-promo custom quotes use the full
           // selected_tier scope as before.
-          const customChecklist = getDetailedChecklist(effectiveTierKey, data?.checklists, tenant?.slug)
+          const customChecklist = filterPromoChecklist(getDetailedChecklist(effectiveTierKey, data?.checklists, tenant?.slug))
           // Show service type name
           const nameMap: Record<string, string> = { standard: 'Standard Clean', deep: 'Deep Clean', move: 'Move-Out Clean' }
           const serviceName = nameMap[displayTierKey] || 'Custom Service Package'
@@ -1373,7 +1380,7 @@ export default function QuotePage() {
                   return (
                   <div className="mt-2.5 ml-1 pl-3 border-l-2 border-emerald-200 space-y-1.5 pb-1">
                     <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">What&apos;s included</p>
-                    {getDetailedChecklist(tierKey, data?.checklists, tenant?.slug).map((task, i) => (
+                    {filterPromoChecklist(getDetailedChecklist(tierKey, data?.checklists, tenant?.slug)).map((task, i) => (
                       <div key={`task-${i}`} className="flex items-start gap-2">
                         <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
                         <span className="text-xs text-slate-600">{task}</span>
