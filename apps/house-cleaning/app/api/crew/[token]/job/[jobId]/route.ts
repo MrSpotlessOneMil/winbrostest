@@ -348,6 +348,28 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Must mark HERE first' }, { status: 400 })
     }
 
+    // GUARD: Prevent completing a job that's already completed (double-charge protection)
+    if (body.status === 'done' && job.status === 'completed') {
+      console.warn(`[crew/job] BLOCKED: Job ${jobId} already completed. Preventing double-charge.`)
+      return NextResponse.json({ error: 'Job already completed' }, { status: 400 })
+    }
+
+    // GUARD: Prevent completing a future job (must be today or past)
+    if (body.status === 'done' && job.date) {
+      const tz = tenant.timezone || 'America/Los_Angeles'
+      const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date()) // YYYY-MM-DD
+      if (job.date > todayStr) {
+        console.warn(`[crew/job] BLOCKED: Job ${jobId} scheduled for ${job.date} but today is ${todayStr}. Cannot complete future jobs.`)
+        return NextResponse.json({ error: `This job is scheduled for ${job.date}. It can only be completed on or after the job date.` }, { status: 400 })
+      }
+    }
+
+    // GUARD: Prevent charging if already paid
+    if (body.status === 'done' && job.paid) {
+      console.warn(`[crew/job] BLOCKED: Job ${jobId} already paid. Preventing double-charge.`)
+      return NextResponse.json({ error: 'Job already paid. Contact the office if you need help.' }, { status: 400 })
+    }
+
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
     if (body.status === 'omw') {
       updates.cleaner_omw_at = new Date().toISOString()
