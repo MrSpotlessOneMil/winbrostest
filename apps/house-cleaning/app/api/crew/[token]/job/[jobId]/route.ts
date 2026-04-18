@@ -105,10 +105,17 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   const { cleaner, assignment, job, tenant, client } = ctx
 
-  // Determine service category for checklist
+  // Determine service category for checklist.
+  // Diluted-deep promo ($149 Meta) carries a PROMO:$149 tag in notes — it
+  // shares the "Deep Clean" customer-facing label but only includes a single
+  // extra task vs standard ("Inside microwave"). Cleaner must NOT see the
+  // full deep_cleaning checklist for these jobs.
   const serviceType = (job.service_type || 'standard_cleaning').toLowerCase()
+  const notesStr = typeof job.notes === 'string' ? job.notes : ''
+  const isDilutedPromo = serviceType.includes('deep') && /PROMO:\$1?49\b/.test(notesStr)
   let serviceCategory = 'standard_cleaning'
-  if (serviceType.includes('deep')) serviceCategory = 'deep_cleaning'
+  if (isDilutedPromo) serviceCategory = 'diluted_deep'
+  else if (serviceType.includes('deep')) serviceCategory = 'deep_cleaning'
   else if (serviceType.includes('move')) serviceCategory = 'move_in_out'
 
   // Get checklist items for this service category
@@ -175,7 +182,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     addonLabelMap[a.addon_key] = a.label
   }
   try {
-    const jobAddons: { key: string; label?: string; price?: number }[] = job.addons ? (typeof job.addons === 'string' ? JSON.parse(job.addons) : job.addons) : []
+    // Diluted-deep checklist already covers the 4 promo-included addons —
+    // skip the addon-injection loop so cleaners don't see duplicate items.
+    const jobAddons: { key: string; label?: string; price?: number }[] = (!isDilutedPromo && job.addons)
+      ? (typeof job.addons === 'string' ? JSON.parse(job.addons) : job.addons)
+      : []
     const existingTexts = new Set(checklist.map((c) => c.text.toLowerCase()))
     let nextOrder = checklist.length > 0 ? Math.max(...checklist.map((c) => c.order)) + 1 : 1
     for (const addon of jobAddons) {
@@ -245,22 +256,31 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
   }
 
-  // Strip structured tags from notes so frontend only shows human-readable instructions
+  // Strip structured tags from notes so frontend only shows human-readable
+  // instructions. Defense in depth: when there is no curated cleaner_notes,
+  // also drop any line that looks like it carries a dollar amount — admins
+  // sometimes type the real price as free text and it must NEVER reach a
+  // cleaner (per feedback_cleaner_price_hidden.md).
+  const hasCleanerNotes = !!job.cleaner_notes
   const cleanedNotes = job.notes
     ? job.notes
         .split(/[\n|]/)
         .map((s: string) => s.trim())
         .filter((line: string) => {
+          if (!line) return false
           const trimmed = line.toUpperCase()
-          return line && (
-            !trimmed.startsWith('OVERRIDE:') &&
-            !trimmed.startsWith('PAYMENT:') &&
-            !trimmed.startsWith('HOURS:') &&
-            !trimmed.startsWith('PAY:') &&
-            !trimmed.startsWith('PROMO:') &&
-            !trimmed.startsWith('NORMAL_PRICE:') &&
-            !trimmed.startsWith('__SYS')
-          )
+          if (
+            trimmed.startsWith('OVERRIDE:') ||
+            trimmed.startsWith('PAYMENT:') ||
+            trimmed.startsWith('HOURS:') ||
+            trimmed.startsWith('PAY:') ||
+            trimmed.startsWith('PROMO:') ||
+            trimmed.startsWith('NORMAL_PRICE:') ||
+            trimmed.startsWith('ADMIN:') ||
+            trimmed.startsWith('__SYS')
+          ) return false
+          if (!hasCleanerNotes && /\$\s?\d/.test(line)) return false
+          return true
         })
         .join(' — ')
         .trim() || null

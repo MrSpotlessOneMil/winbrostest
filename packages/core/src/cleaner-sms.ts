@@ -128,28 +128,36 @@ export async function notifyCleanerAssignment(
   if (job.hours) details.push(`${job.hours} hrs`)
   if (job.frequency && job.frequency !== 'one-time') details.push(`Recurring: ${humanize(job.frequency)}`)
 
-  // Cleaner pay — hourly model vs percentage model (NEVER cross between them)
-  if (tenant.workflow_config?.cleaner_pay_model === 'hourly') {
+  // Cleaner pay: unified priority chain (mirrors notifyCleanerAwarded so the
+  // FIRST broadcast SMS shows the same pay the cleaner sees on confirmation).
+  // Order: cleaner_pay_override > tenant hourly model > NORMAL_PRICE-aware
+  // percentage of price > cleaner.hourly_rate × hours fallback.
+  const numCleaners = Number((job as any).cleaners) || 1
+  let payAmount: number | null = null
+  const override = (job as any).cleaner_pay_override
+  if (override != null) {
+    payAmount = Number(override) / numCleaners
+  } else if (tenant.workflow_config?.cleaner_pay_model === 'hourly' && job.hours) {
     const isDeep = job.service_type?.toLowerCase().includes('deep')
     const rate = isDeep
       ? (tenant.workflow_config.cleaner_pay_hourly_deep || 30)
       : (tenant.workflow_config.cleaner_pay_hourly_standard || 25)
-    if (job.hours) {
-      details.push(`Your pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`)
-    } else {
-      details.push(`Pay rate: ${formatTenantCurrency(tenant, rate)}/hr`)
-    }
+    payAmount = (rate * Number(job.hours)) / numCleaners
   } else {
     const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
-    if (payPercentage && job.price) {
-      const totalCleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
-      const crewSize = Number(job.cleaners) || 1
-      const cleanerPay = crewSize > 1 ? totalCleanerPay / crewSize : totalCleanerPay
-      details.push(`Your pay: ${formatTenantCurrency(tenant, cleanerPay)}`)
-    } else if (job.hours) {
-      const rate = cleaner.hourly_rate || 25
-      details.push(`Your pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`)
+    let payBase = job.price ? parseFloat(String(job.price)) : 0
+    if (job.notes && typeof job.notes === 'string' && job.notes.includes('NORMAL_PRICE:')) {
+      const match = job.notes.match(/NORMAL_PRICE:(\d+(?:\.\d+)?)/)
+      if (match) payBase = parseFloat(match[1])
     }
+    if (payPercentage && payBase) {
+      payAmount = (payBase * (payPercentage / 100)) / numCleaners
+    } else if (cleaner.hourly_rate && job.hours) {
+      payAmount = (cleaner.hourly_rate * Number(job.hours)) / numCleaners
+    }
+  }
+  if (payAmount != null) {
+    details.push(`Your pay: ${formatTenantCurrency(tenant, payAmount)}`)
   }
 
   // Add paid add-ons to message (labels only — NEVER show prices to cleaners)
@@ -165,16 +173,17 @@ export async function notifyCleanerAssignment(
   const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
   const custStr = custName ? `\nCustomer: ${custName}` : ''
 
-  // Notes preview (first 100 chars — strip internal quote metadata, keep special instructions)
-  const rawNotes = (job.notes || '').replace(/^Quote #[A-F0-9]+ approved[^\n]*\n?/i, '').trim()
-  const notesPreview = rawNotes ? `\n${rawNotes.slice(0, 100)}${rawNotes.length > 100 ? '...' : ''}` : ''
+  // Notes are NEVER included in the SMS — they can carry admin price info,
+  // tagged metadata (PROMO:, NORMAL_PRICE:), or other internal text that
+  // must never reach a cleaner. Cleaners see notes only via the portal,
+  // which strips structured tags and dollar amounts.
 
   let link = ''
   if (cleaner.portal_token && job.id) {
     link = `\n\nView full details, checklist & confirm:\n${jobUrl(cleaner.portal_token, job.id)}`
   }
 
-  const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${notesPreview}${link}`
+  const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${link}`
 
   const result = await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 
@@ -238,7 +247,7 @@ export async function notifyCleanerAwarded(
     const payPercentage2 = tenant.workflow_config?.cleaner_pay_percentage
     if (payPercentage2 && job.price) {
       const totalPay2 = parseFloat(String(job.price)) * (payPercentage2 / 100)
-      const crewSize2 = Number(job.cleaners) || 1
+      const crewSize2 = Number((job as any).cleaners) || 1
       const cleanerPay = crewSize2 > 1 ? totalPay2 / crewSize2 : totalPay2
       payStr = `\nYour pay: ${formatTenantCurrency(tenant, cleanerPay)}`
     } else if (job.hours) {

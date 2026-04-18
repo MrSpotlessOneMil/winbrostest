@@ -134,12 +134,32 @@ export async function notifyCleanerAssignment(
     details.push(`${numCleaners}-person team required`)
   }
 
-  // Cleaner pay: unified priority chain (matches notifyCleanerAwarded)
+  // Cleaner pay: unified priority chain (mirrors notifyCleanerAwarded so the
+  // FIRST broadcast SMS shows the same pay the cleaner sees on confirmation).
+  // Order: cleaner_pay_override > tenant hourly model > NORMAL_PRICE-aware
+  // percentage of price > cleaner.hourly_rate × hours fallback.
   let payAmount: number | null = null
-  if ((job as any).cleaner_pay_override) {
-    payAmount = (job as any).cleaner_pay_override / (numCleaners || 1)
-  } else if (cleaner.hourly_rate && job.hours) {
-    payAmount = cleaner.hourly_rate * Number(job.hours) / (numCleaners || 1)
+  const override = (job as any).cleaner_pay_override
+  if (override != null) {
+    payAmount = Number(override) / (numCleaners || 1)
+  } else if (tenant.workflow_config?.cleaner_pay_model === 'hourly' && job.hours) {
+    const isDeep = job.service_type?.toLowerCase().includes('deep')
+    const rate = isDeep
+      ? (tenant.workflow_config.cleaner_pay_hourly_deep || 30)
+      : (tenant.workflow_config.cleaner_pay_hourly_standard || 25)
+    payAmount = (rate * Number(job.hours)) / (numCleaners || 1)
+  } else {
+    const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
+    let payBase = job.price ? parseFloat(String(job.price)) : 0
+    if (job.notes && typeof job.notes === 'string' && job.notes.includes('NORMAL_PRICE:')) {
+      const match = job.notes.match(/NORMAL_PRICE:(\d+(?:\.\d+)?)/)
+      if (match) payBase = parseFloat(match[1])
+    }
+    if (payPercentage && payBase) {
+      payAmount = (payBase * (payPercentage / 100)) / (numCleaners || 1)
+    } else if (cleaner.hourly_rate && job.hours) {
+      payAmount = (cleaner.hourly_rate * Number(job.hours)) / (numCleaners || 1)
+    }
   }
   if (payAmount != null) {
     details.push(`Your pay: $${payAmount.toFixed(0)}`)
