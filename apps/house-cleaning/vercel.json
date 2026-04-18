@@ -101,6 +101,10 @@
       "schedule": "0 16 * * *"
     },
     {
+      "path": "/api/cron/meta-ads-optimize",
+      "schedule": "0 17 * * *"
+    },
+    {
       "path": "/api/cron/ghost-watchdog",
       "schedule": "*/5 * * * *"
     }
