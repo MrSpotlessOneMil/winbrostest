@@ -5,6 +5,7 @@ import { sendSMS } from "@/lib/openphone"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getTenantBySlug, getTenantServiceDescription } from "@/lib/tenant"
+import { upsertLeadCustomer } from "@/lib/customer-dedup"
 
 // CORS headers for embed-friendly response (any domain can POST)
 const corsHeaders = {
@@ -112,24 +113,51 @@ export async function POST(
 
   const client = getSupabaseServiceClient()
 
-  // ── Upsert customer (composite unique: tenant_id, phone_number) ─
+  // ── Dedup-aware customer upsert ──────────────────────────────────
+  // Looks up existing customer by email first, then phone. Prevents the
+  // AJ-style bug where the same person submits with a different phone
+  // number and gets a duplicate customer record.
 
-  const { data: customer } = await client
-    .from("customers")
-    .upsert(
-      {
-        phone_number: phone,
-        tenant_id: tenant.id,
-        first_name: firstName || null,
-        last_name: lastName || null,
-        email: email || null,
-        address: address || null,
-        lead_source: source,
+  const dedupResult = await upsertLeadCustomer(client, {
+    tenant_id: tenant.id,
+    phone_number: phone,
+    first_name: firstName || null,
+    last_name: lastName || null,
+    email: email || null,
+    address: address || null,
+    lead_source: source,
+  })
+  const customer = dedupResult ? { id: dedupResult.customer_id } : null
+
+  if (dedupResult?.was_merged && dedupResult.match) {
+    await logSystemEvent({
+      tenant_id: tenant.id,
+      source: "website",
+      event_type: "CUSTOMER_MERGED_ON_LEAD",
+      message: `Website lead merged into existing customer #${dedupResult.match.existing_id} by ${dedupResult.match.reason}`,
+      phone_number: phone,
+      metadata: {
+        reason: dedupResult.match.reason,
+        existing_phone: dedupResult.match.existing_phone,
+        existing_email: dedupResult.match.existing_email,
+        incoming_phone: phone,
+        incoming_email: email || null,
       },
-      { onConflict: "tenant_id,phone_number" }
-    )
-    .select("id")
-    .single()
+    })
+  }
+  if (dedupResult?.duplicate_first_name_count && dedupResult.duplicate_first_name_count > 0) {
+    await logSystemEvent({
+      tenant_id: tenant.id,
+      source: "website",
+      event_type: "DUPLICATE_FIRST_NAME_WARNING",
+      message: `New customer #${dedupResult.customer_id} shares first name "${firstName}" with ${dedupResult.duplicate_first_name_count} existing customer(s)`,
+      phone_number: phone,
+      metadata: {
+        first_name: firstName,
+        duplicate_count: dedupResult.duplicate_first_name_count,
+      },
+    })
+  }
 
   // ── Cancel stale retargeting for this customer ──────────────────
   // If this phone already has an active retargeting sequence from a previous

@@ -1722,6 +1722,18 @@ export default function CustomersPage() {
     setReadVersion((v) => v + 1) // trigger useMemo recompute
   }
 
+  // Map of first_name (lowercased) → count of customers sharing that name.
+  // Used to flag duplicates in the list so users can tell two "AJ"s apart.
+  const firstNameCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const c of filteredCustomers) {
+      const key = (c.first_name || "").trim().toLowerCase()
+      if (!key) continue
+      counts.set(key, (counts.get(key) || 0) + 1)
+    }
+    return counts
+  }, [filteredCustomers])
+
   // Derived data for iMessage-style rows
   const customerRowData = useMemo(() => {
     const readTimestamps = getReadTimestamps()
@@ -1945,6 +1957,8 @@ export default function CustomersPage() {
                   customerRowData.map(({ customer, lastMessage, previewMessage, unreadCount }) => {
                     const isSelected = selectedCustomer?.id === customer.id
                     const name = getCustomerName(customer)
+                    const firstKey = (customer.first_name || "").trim().toLowerCase()
+                    const isDuplicateFirstName = firstKey !== "" && (firstNameCounts.get(firstKey) || 0) > 1
 
                     return (
                       <button
@@ -1990,6 +2004,14 @@ export default function CustomersPage() {
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>{name}</span>
+                                {isDuplicateFirstName && (
+                                  <span
+                                    className="flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/30 text-amber-200 leading-none"
+                                    title="Multiple customers share this first name — check phone before selecting"
+                                  >
+                                    ⚠ DUP NAME
+                                  </span>
+                                )}
                                 {cleanerPhones.includes(normalizePhone(customer.phone_number)) ? (
                                   <span className="flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 leading-none">Crew</span>
                                 ) : (<>
@@ -2026,6 +2048,12 @@ export default function CustomersPage() {
                                 </span>
                               )}
                             </div>
+                            {/* Phone row — always visible so duplicate names can be distinguished */}
+                            {customer.phone_number && (
+                              <div className={`text-[11px] truncate ${isDuplicateFirstName ? "text-amber-300 font-semibold" : "text-zinc-500"}`}>
+                                {formatPhone(customer.phone_number)}
+                              </div>
+                            )}
                             {/* Bottom row: message preview + unread badge */}
                             <div className="flex items-center justify-between gap-2 mt-0.5">
                               <span className="text-xs text-zinc-500 truncate">
@@ -2368,6 +2396,22 @@ export default function CustomersPage() {
                             {paymentType === "create_quote" && !createQuoteResult && (
                               <div className="p-4 space-y-3">
                                 <p className="text-sm font-medium text-zinc-200">Create Quote</p>
+                                {selectedCustomer && (() => {
+                                  const k = (selectedCustomer.first_name || "").trim().toLowerCase()
+                                  const dupCount = k ? (firstNameCounts.get(k) || 0) - 1 : 0
+                                  if (dupCount <= 0) return null
+                                  return (
+                                    <div className="p-3 rounded-lg border border-amber-500/50 bg-amber-500/10 text-amber-200 text-xs space-y-1">
+                                      <p className="font-bold">⚠ Duplicate first name — verify before sending</p>
+                                      <p>
+                                        {dupCount} other customer{dupCount > 1 ? "s" : ""} named "{selectedCustomer.first_name}" in this tenant. Quote will go to:
+                                      </p>
+                                      <p className="font-mono text-amber-100">
+                                        {[selectedCustomer.first_name, selectedCustomer.last_name].filter(Boolean).join(" ") || "(no name)"} · {formatPhone(selectedCustomer.phone_number) || "no phone"}
+                                      </p>
+                                    </div>
+                                  )
+                                })()}
                                 <div>
                                   <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Custom Price $</label>
                                   <input type="number" className="w-full px-3 py-2 text-sm bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500" value={newQuoteForm.custom_base_price} onChange={e => setNewQuoteForm(f => ({ ...f, custom_base_price: e.target.value }))} placeholder="Leave blank for tier-based pricing" />

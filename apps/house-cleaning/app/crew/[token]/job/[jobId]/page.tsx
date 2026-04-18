@@ -162,6 +162,21 @@ export default function JobDetailPage() {
   const isCancelled = assignment.status === "cancelled" || assignment.status === "declined"
   const isActive = ["scheduled", "in_progress"].includes(job.status)
   const isCompleted = job.status === "completed"
+
+  if (isCancelled) return (
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "#f7f5f0", fontFamily: "Inter, system-ui, sans-serif" }}>
+      <div className="text-center max-w-sm">
+        <div className="mx-auto mb-4 size-16 rounded-full flex items-center justify-center" style={{ background: "#fee2e2" }}>
+          <AlertCircle className="size-8 text-red-500" />
+        </div>
+        <h1 className="text-xl font-black text-slate-800">Assignment cancelled</h1>
+        <p className="text-slate-500 mt-1 text-sm">This job is no longer assigned to you.</p>
+        <button onClick={() => router.push(`/crew/${token}`)} className="mt-5 px-5 py-3 rounded-2xl font-black text-sm text-white active:scale-95 transition-all" style={{ background: "#58cc02", boxShadow: "0 4px 0 #46a302" }}>
+          Back to Portal
+        </button>
+      </div>
+    </div>
+  )
   const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ")
   const completedCount = checklist.filter(i => i.completed).length
   const allChecked = checklist.length > 0 && completedCount === checklist.length

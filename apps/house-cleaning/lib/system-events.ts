@@ -27,6 +27,7 @@ export type SystemEventSource =
   | 'lifecycle'
   | 'offers'
   | 'ghost_watchdog'
+  | 'meta'
 
 export type SystemEventType =
   | 'CALL_COMPLETED'
@@ -190,6 +191,9 @@ export type SystemEventType =
   | 'GHOST_WATCHDOG_CATCH'
   | 'GHOST_WATCHDOG_RESPONSE'
   | 'SMS_DELIVERY_FAILED'
+  // Customer dedup (AJ incident 2026-04-17)
+  | 'CUSTOMER_MERGED_ON_LEAD'
+  | 'DUPLICATE_FIRST_NAME_WARNING'
 
 export interface SystemEventInput {
   tenant_id?: string

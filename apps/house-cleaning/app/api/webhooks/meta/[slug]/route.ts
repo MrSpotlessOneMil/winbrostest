@@ -4,6 +4,7 @@ import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getTenantBySlug } from "@/lib/tenant"
+import { upsertLeadCustomer } from "@/lib/customer-dedup"
 
 /**
  * Meta Lead Ads Webhook
@@ -174,23 +175,51 @@ async function processMetaLead(
     return
   }
 
-  // Upsert customer
-  const { data: customer } = await client
-    .from("customers")
-    .upsert(
-      {
-        phone_number: phone,
-        tenant_id: tenant.id,
-        first_name: firstName || null,
-        last_name: lastName || null,
-        email: email || null,
-        address: address || null,
-        lead_source: "meta",
+  // Dedup-aware upsert: match existing customer by email first, then phone.
+  // Prevents duplicate customer records when the same person submits with a
+  // different phone number (AJ incident 2026-04-17).
+  const dedupResult = await upsertLeadCustomer(client, {
+    tenant_id: tenant.id,
+    phone_number: phone,
+    first_name: firstName || null,
+    last_name: lastName || null,
+    email: email || null,
+    address: address || null,
+    lead_source: "meta",
+  })
+  const customer = dedupResult ? { id: dedupResult.customer_id } : null
+
+  if (dedupResult?.was_merged && dedupResult.match) {
+    await logSystemEvent({
+      tenant_id: tenant.id,
+      source: "meta",
+      event_type: "CUSTOMER_MERGED_ON_LEAD",
+      message: `Meta lead merged into existing customer #${dedupResult.match.existing_id} by ${dedupResult.match.reason}`,
+      phone_number: phone,
+      metadata: {
+        reason: dedupResult.match.reason,
+        existing_phone: dedupResult.match.existing_phone,
+        existing_email: dedupResult.match.existing_email,
+        incoming_phone: phone,
+        incoming_email: email || null,
+        leadgen_id: leadgenId,
       },
-      { onConflict: "tenant_id,phone_number" }
-    )
-    .select("id")
-    .single()
+    })
+  }
+  if (dedupResult?.duplicate_first_name_count && dedupResult.duplicate_first_name_count > 0) {
+    await logSystemEvent({
+      tenant_id: tenant.id,
+      source: "meta",
+      event_type: "DUPLICATE_FIRST_NAME_WARNING",
+      message: `New Meta customer #${dedupResult.customer_id} shares first name "${firstName}" with ${dedupResult.duplicate_first_name_count} existing customer(s)`,
+      phone_number: phone,
+      metadata: {
+        first_name: firstName,
+        duplicate_count: dedupResult.duplicate_first_name_count,
+        leadgen_id: leadgenId,
+      },
+    })
+  }
 
   // Create lead
   const { data: lead, error: leadError } = await client
