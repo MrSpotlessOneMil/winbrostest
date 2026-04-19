@@ -91,37 +91,68 @@ export async function GET(request: NextRequest) {
 // ── Discover all tabs in a Google Sheet ──
 
 async function getSheetTabs(sheetId: string): Promise<Array<{ title: string; gid: number }>> {
+  // Try Google Sheets API first (needs GOOGLE_SHEETS_API_KEY env var)
   const apiKey = process.env.GOOGLE_SHEETS_API_KEY
-  if (!apiKey) {
-    // No API key — fall back to first tab only (existing behavior, no disruption)
-    return [{ title: 'default', gid: 0 }]
+  if (apiKey) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10000)
+
+    try {
+      const res = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?key=${apiKey}&fields=sheets.properties`,
+        { signal: controller.signal }
+      )
+      clearTimeout(timeout)
+
+      if (res.ok) {
+        const data = await res.json() as { sheets: Array<{ properties: { title: string; sheetId: number } }> }
+        const tabs = data.sheets.map(s => ({
+          title: s.properties.title,
+          gid: s.properties.sheetId,
+        }))
+        console.log(`[Meta Sheet] Sheets API: found ${tabs.length} tabs`)
+        return tabs
+      }
+      console.error(`[Meta Sheet] Sheets API error: ${res.status} — falling back to HTML scrape`)
+    } catch (err) {
+      clearTimeout(timeout)
+      console.error('[Meta Sheet] Sheets API failed, falling back to HTML scrape:', err)
+    }
+  } else {
+    console.log('[Meta Sheet] No GOOGLE_SHEETS_API_KEY — trying HTML scrape for tabs')
   }
 
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 10000)
-
+  // Fallback: scrape tab GIDs from the public spreadsheet HTML
   try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10000)
+
     const res = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?key=${apiKey}&fields=sheets.properties`,
+      `https://docs.google.com/spreadsheets/d/${sheetId}/htmlview`,
       { signal: controller.signal }
     )
     clearTimeout(timeout)
 
-    if (!res.ok) {
-      console.error(`[Meta Sheet] Sheets API error: ${res.status}`)
-      return [{ title: 'default', gid: 0 }]
+    if (res.ok) {
+      const html = await res.text()
+      // Google Sheets HTML embeds tab info as: id="sheet-button-GIDNUMBER"
+      const gidMatches = [...html.matchAll(/id="sheet-button-(\d+)"/g)]
+      if (gidMatches.length > 0) {
+        const tabs = gidMatches.map((m, i) => ({
+          title: `tab-${i}`,
+          gid: parseInt(m[1], 10),
+        }))
+        console.log(`[Meta Sheet] HTML scrape: found ${tabs.length} tabs`)
+        return tabs
+      }
     }
-
-    const data = await res.json() as { sheets: Array<{ properties: { title: string; sheetId: number } }> }
-    return data.sheets.map(s => ({
-      title: s.properties.title,
-      gid: s.properties.sheetId,
-    }))
   } catch (err) {
-    clearTimeout(timeout)
-    console.error('[Meta Sheet] Failed to get sheet tabs:', err)
-    return [{ title: 'default', gid: 0 }]
+    console.error('[Meta Sheet] HTML scrape failed:', err)
   }
+
+  // Final fallback: first tab only
+  console.log('[Meta Sheet] All tab discovery failed — polling first tab only')
+  return [{ title: 'default', gid: 0 }]
 }
 
 // ── Process a single tab of the spreadsheet ──
