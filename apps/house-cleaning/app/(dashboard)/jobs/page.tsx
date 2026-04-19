@@ -32,12 +32,17 @@ type CalendarJob = {
   estimated_value?: number
   status?: string
   notes?: string
+  cleaner_notes?: string | null
   address?: string
   phone_number?: string
   customer_name?: string
   customers?: any
   cleaners?: any
+  cleaner_count?: number
   cleaner_id?: number
+  cleaner_pay_override?: number | null
+  computed_cleaner_pay?: number | null
+  computed_cleaner_pay_source?: 'override' | 'calculated' | null
   cleaner_assignments?: any[]
   teams?: any
   frequency?: string
@@ -74,6 +79,11 @@ type CalendarEventDetails = {
   customerId: string
   addons: { key: string; label?: string; price?: number }[]
   serviceType: string
+  cleanerCount: number
+  cleanerPay: number | null
+  cleanerPaySource: 'override' | 'calculated' | null
+  cleanerNotes: string
+  addonsLabel: string
 }
 
 type PendingMove = {
@@ -1090,6 +1100,14 @@ export default function JobsPage() {
           customerId: customer?.id ? String(customer.id) : "",
           addons: Array.isArray(job.addons) ? job.addons : [],
           serviceType: job.service_type || "",
+          cleaner_pay_override: (job as any).cleaner_pay_override ?? null,
+          cleanerCount: Number((job as any).cleaner_count || (job as any).cleaners || 1),
+          cleanerPay: (job as any).computed_cleaner_pay ?? null,
+          cleanerPaySource: (job as any).computed_cleaner_pay_source ?? null,
+          cleanerNotes: (job as any).cleaner_notes || "",
+          addonsLabel: Array.isArray(job.addons)
+            ? job.addons.map(a => a.label || a.key).filter(Boolean).join(', ')
+            : "",
         },
       }
     })
@@ -1144,6 +1162,13 @@ export default function JobsPage() {
       customerId: customer?.id ? String(customer.id) : "",
       addons: Array.isArray(job.addons) ? job.addons : [],
       serviceType: job.service_type || "",
+      cleanerCount: Number((job as any).cleaner_count || (job as any).cleaners || 1),
+      cleanerPay: (job as any).computed_cleaner_pay ?? null,
+      cleanerPaySource: (job as any).computed_cleaner_pay_source ?? null,
+      cleanerNotes: (job as any).cleaner_notes || "",
+      addonsLabel: Array.isArray(job.addons)
+        ? job.addons.map((a: any) => a.label || a.key).filter(Boolean).join(', ')
+        : "",
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1273,6 +1298,11 @@ export default function JobsPage() {
       customerId: info.event.extendedProps.customerId || "",
       addons: Array.isArray(info.event.extendedProps.addons) ? info.event.extendedProps.addons : [],
       serviceType: info.event.extendedProps.serviceType || "",
+      cleanerCount: Number(info.event.extendedProps.cleanerCount || 1),
+      cleanerPay: info.event.extendedProps.cleanerPay ?? null,
+      cleanerPaySource: info.event.extendedProps.cleanerPaySource ?? null,
+      cleanerNotes: info.event.extendedProps.cleanerNotes || "",
+      addonsLabel: info.event.extendedProps.addonsLabel || "",
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -2841,14 +2871,23 @@ export default function JobsPage() {
                     <strong>Price:</strong> ${Number(selectedEvent.price)}
                   </div>
                 ) : null}
-                {(selectedEvent as any)?.cleaner_pay_override ? (
+                {selectedEvent?.cleanerPay != null && Number(selectedEvent.cleanerPay) > 0 ? (
                   <div style={{ marginBottom: "0.5rem" }}>
-                    <strong>Cleaner Pay Override:</strong> ${Number((selectedEvent as any).cleaner_pay_override)}
-                    {(selectedEvent as any)?.cleaners > 1 && (
-                      <span className="text-muted-foreground"> (${(Number((selectedEvent as any).cleaner_pay_override) / Number((selectedEvent as any).cleaners)).toFixed(2)} per cleaner)</span>
+                    <strong>Cleaner Pay:</strong> ${Number(selectedEvent.cleanerPay).toFixed(2)}
+                    {selectedEvent.cleanerPaySource === 'override' && (
+                      <span className="text-muted-foreground"> (override)</span>
+                    )}
+                    {selectedEvent.cleanerCount > 1 && (
+                      <span className="text-muted-foreground"> — ${(Number(selectedEvent.cleanerPay) / selectedEvent.cleanerCount).toFixed(2)}/cleaner × {selectedEvent.cleanerCount}</span>
                     )}
                   </div>
                 ) : null}
+                {selectedEvent?.addonsLabel && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Description:</strong>{" "}
+                    <span className="text-muted-foreground">{selectedEvent.addonsLabel}</span>
+                  </div>
+                )}
                 {selectedEvent?.notes && (
                   <div style={{ marginBottom: "0.5rem" }}>
                     <strong>Admin Notes:</strong>{" "}
@@ -2857,9 +2896,9 @@ export default function JobsPage() {
                     </span>
                   </div>
                 )}
-                {(selectedEvent as any)?.cleaner_notes && (
+                {selectedEvent?.cleanerNotes && (
                   <div>
-                    <strong>Cleaner Notes:</strong> {(selectedEvent as any).cleaner_notes}
+                    <strong>Cleaner Notes:</strong> {selectedEvent.cleanerNotes}
                   </div>
                 )}
                 {/* Auto-schedule button for unscheduled cleaning jobs */}

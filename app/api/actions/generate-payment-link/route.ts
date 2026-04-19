@@ -94,7 +94,8 @@ export async function POST(request: NextRequest) {
           description || 'Payment',
           authTenant.id,
           stripeKey,
-          jobId
+          jobId,
+          tenant?.currency || authTenant.currency || 'usd'
         )
         break
       }
@@ -106,7 +107,7 @@ export async function POST(request: NextRequest) {
         if (!customer.email) {
           return NextResponse.json({ error: 'Customer email required for deposit link' }, { status: 400 })
         }
-        result = await createDepositPaymentLink(customer as Customer, job, undefined, authTenant.id, stripeKey)
+        result = await createDepositPaymentLink(customer as Customer, job, undefined, authTenant.id, stripeKey, tenant?.currency || authTenant.currency || 'usd')
         break
       }
 

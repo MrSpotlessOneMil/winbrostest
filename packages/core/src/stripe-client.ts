@@ -206,8 +206,9 @@ export async function createAndSendInvoice(
   customer: Customer,
   stripeSecretKey: string,
   membershipInfo?: { discount: number; planName: string },
-  currency: string
+  currency: string = 'usd'
 ): Promise<{ success: boolean; invoiceId?: string; invoiceUrl?: string; error?: string }> {
+  currency = currency || 'usd'
   if (!customer.email) {
     return { success: false, error: 'Customer email required for invoice' }
   }
@@ -478,8 +479,9 @@ export async function createDepositPaymentLink(
   extraMetadata: Record<string, string> | undefined,
   tenantId: string,
   stripeSecretKey: string,
-  currency: string
+  currency: string = 'usd'
 ): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
+  currency = currency || 'usd'
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
   }
@@ -563,8 +565,9 @@ export async function createCustomPaymentLink(
   tenantId: string,
   stripeSecretKey: string,
   jobId?: string,
-  currency: string
+  currency: string = 'usd'
 ): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
+  currency = currency || 'usd'
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
   }
