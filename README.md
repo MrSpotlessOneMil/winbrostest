@@ -2,8 +2,6 @@
 
 CRM and operations platform for service businesses (house cleaning, window washing). Manages the full lifecycle: lead intake → AI qualification → job scheduling → crew dispatch → payment → lifecycle automation (reviews, re-engagement, campaigns).
 
-**Live accounts:** WinBros (window washing), Spotless Scrubbers, Cedar Rapids, West Niagara Cleaning (house cleaning).
-
 ## Architecture
 
 Turborepo monorepo with two Next.js 16 apps and shared packages:
