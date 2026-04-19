@@ -23,6 +23,7 @@ yarn-error.log*
 
 # env files
 .env*
+!.env.example
 
 # claude code local settings & worktrees
 .claude/settings.local.json
