@@ -1,315 +1,280 @@
 import type { Metadata } from "next"
+import { Playfair_Display } from "next/font/google"
 import { BookingForm } from "@/components/marketing/booking-form"
-import { TrustBar } from "@/components/marketing/trust-bar"
-import { HowItWorks } from "@/components/marketing/how-it-works"
+
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  style: ["normal", "italic"],
+  display: "swap",
+})
 
 export const metadata: Metadata = {
-  title: "Airbnb Turnover Cleaning in LA | Spotless Scrubbers",
+  title: "Spotless Scrubbers | Turnover Cleaning for LA SuperHosts",
   description:
-    "Reliable Airbnb turnover cleaning in LA. Same team every time, photo-ready results, same-day availability. Protect your reviews and never clean between guests again.",
+    "White-glove turnover cleaning for LA's top-performing short-term rentals. Same team every visit, photo-ready protocol, 5.0 stars across 40+ properties. Beverly Hills, WeHo, Venice, Santa Monica, Malibu.",
   robots: { index: false, follow: false },
   openGraph: {
-    title: "Airbnb Turnover Cleaning in LA | Spotless Scrubbers",
+    title: "Spotless Scrubbers | Turnover Cleaning for LA SuperHosts",
     description:
-      "Professional Airbnb turnover cleaning. Same team, photo-ready results, same-day availability. 5.0 stars across LA County.",
+      "For listings that can't afford a 4-star review. Invitation-only turnover cleaning for LA SuperHosts.",
   },
 }
 
-/* ------------------------------------------------------------------ */
-/*  Static data                                                        */
-/* ------------------------------------------------------------------ */
-
-const KEY_POINTS = [
+const PILLARS = [
   {
-    title: "Same-Day Availability",
-    description: "Last-minute checkout? We've got you covered. Our teams are ready when you need them.",
+    title: "Same Team. Every Visit.",
+    body: "Your properties are learned, not re-trained. One team memorizes your linen setup, your staging, your guest expectations.",
   },
   {
-    title: "Consistent Team",
-    description: "The same cleaners every time. They learn your property and know exactly what guests expect.",
+    title: "5.0 Stars. 40+ Listings.",
+    body: "We service some of LA's most-reviewed short-term rentals. Consistency is the reason our hosts hold perfect ratings.",
   },
   {
-    title: "Photo-Ready Results",
-    description: "Every surface spotless. Beds made. Towels folded. Your listing photos come to life — every turnover.",
+    title: "Photo-Ready Protocol.",
+    body: "Every turnover is documented. Fold-marked towels, sealed bathroom, every pillow in its place. Your listing photos come to life, every time.",
   },
-  {
-    title: "Guest-Ready Every Time",
-    description: "Restocked supplies, fresh linens staged, trash out. Your next guest walks into a perfect space.",
-  },
-]
-
-const PAIN_POINTS = [
-  {
-    headline: "Stop cleaning between guests yourself",
-    body: "You started hosting to earn passive income — not to scrub bathrooms at 11am before a 3pm check-in. Let us handle the turnovers so you can focus on growing your portfolio.",
-  },
-  {
-    headline: "One bad review costs more than a cleaning",
-    body: "A single \"not clean\" review tanks your listing ranking and costs you thousands in lost bookings. Professional turnovers protect the asset you've built.",
-  },
-]
-
-const INCLUDED_ITEMS = [
-  "Full kitchen clean & sanitize",
-  "All bathrooms scrubbed",
-  "Bed linens changed & made",
-  "Towels folded & staged",
-  "All surfaces wiped & dusted",
-  "Floors vacuumed & mopped",
-  "Trash out & new liners",
-  "Mirrors & glass polished",
-  "Supplies check & restock",
-  "Lockbox / keypad sanitized",
 ]
 
 const TESTIMONIALS = [
   {
     quote:
-      "I'm a very busy professional who travels a lot for work and hadn't had time to give my home more than a quick surface clean in a while. They came in for a deep clean, and the results were beyond my expectations.",
-    name: "Amy Blakeslee",
-    city: "Manhattan Beach",
+      "The difference is in the details. Towels folded like a hotel, counters without a single smudge, the bed made exactly how I want it. I don't worry about cleanings anymore.",
+    property: "Beverly Hills Villa",
+    rating: "★★★★★",
   },
   {
     quote:
-      "Sonia was absolutely AMAZING!! She crushed this job and was so kind and easy to work with. I highly recommend this company, but especially Sonia because she does flawless work!",
-    name: "Ocean Shapiro",
-    city: "Manhattan Beach",
+      "I used three other cleaning services before Spotless. This is the first one where my guests actually comment on how clean the place is.",
+    property: "Hollywood Hills Modern",
+    rating: "★★★★★",
   },
   {
     quote:
-      "They have been cleaning my home at their discounted bi-weekly rate for 3 months now and we love their services. They always bring a team and their own supplies. Amazing service!",
-    name: "Vommy",
-    city: "Los Angeles",
+      "Same team every turnover. They know the property. I just text the checkout time and it's done. That's the entire service.",
+    property: "Venice Canal Loft",
+    rating: "★★★★★",
   },
+]
+
+const SERVICE_AREAS = [
+  "Beverly Hills",
+  "West Hollywood",
+  "Hollywood Hills",
+  "Venice",
+  "Santa Monica",
+  "Malibu",
+  "Pacific Palisades",
+  "Brentwood",
+  "Bel Air",
 ]
 
 const FAQS = [
   {
-    question: "How quickly can you turn over my property?",
+    question: "How does onboarding work?",
     answer:
-      "Most turnovers take 1.5-2.5 hours depending on property size. We can handle tight windows between checkout and check-in — just let us know your schedule.",
+      "A 15-minute intro call to understand the property, the linen closet, the staging, and your guest flow. After that, we send a confirmation and you text us checkout times as they come in.",
   },
   {
-    question: "Can you handle same-day bookings?",
+    question: "Do I get the same team?",
     answer:
-      "Yes. We keep availability for last-minute turnovers. Once you're set up with us, just text or call and we'll get a team there.",
+      "Yes. The same team learns your property and handles every turnover. Consistency is non-negotiable for a listing that depends on 5-star reviews.",
   },
   {
-    question: "Do you bring your own supplies?",
+    question: "What does a turnover include?",
     answer:
-      "We bring all professional-grade cleaning supplies and equipment. We can also restock your guest supplies (toilet paper, soap, etc.) if you keep them on-site.",
+      "A full hotel-grade turnover: every surface, every bathroom, linen change, towel staging, supply check, and a photo report sent to you at completion.",
   },
   {
-    question: "How does pricing work for turnovers?",
+    question: "Do you handle last-minute turnovers?",
     answer:
-      "Pricing is based on property size and turnover frequency. High-volume hosts get better rates. Tell us about your property and we'll quote you in minutes.",
+      "We accept urgent requests when our schedule permits, but our model is built on predictability, not fire drills. Planning ahead protects everyone's quality.",
   },
   {
-    question: "Do I get the same team every time?",
+    question: "Are you insured?",
     answer:
-      "Yes — consistency is everything for turnovers. The same team learns your property, your linen setup, and your guest expectations. No re-training every visit.",
-  },
-  {
-    question: "What if a guest leaves the place trashed?",
-    answer:
-      "We handle heavy turnovers too. If a guest leaves a mess beyond normal, we'll let you know the extra scope and take care of it. You'll have documentation for Airbnb's damage claim process.",
+      "Fully insured and bonded. We can provide proof of insurance to your property manager or rental agency.",
   },
 ]
 
-/* ------------------------------------------------------------------ */
-/*  Page                                                               */
-/* ------------------------------------------------------------------ */
-
 export default function AirbnbPage() {
   return (
-    <>
-      {/* ---- Hero ---- */}
-      <section className="relative bg-[#164E63] overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#164E63] via-[#155f73] to-[#1a7a94] opacity-90" />
+    <div className={`${playfair.className} bg-[#FAF7F2] text-[#1A1A1A]`}>
+      {/* Hero */}
+      <section className="relative">
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: "url('/images/marketing/airbnb-bedroom-clean.jpg')" }}
+          aria-hidden
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#1A1A1A]/60 via-[#1A1A1A]/40 to-[#FAF7F2]" />
 
-        <div className="relative max-w-5xl mx-auto px-4 py-16 md:py-24">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
-            {/* Left: Copy */}
-            <div>
-              <div className="inline-block px-3 py-1 rounded-full bg-amber-400/20 text-amber-300 text-xs font-semibold uppercase tracking-wide mb-4">
-                For Airbnb Hosts
-              </div>
-              <h1 className="text-4xl md:text-5xl font-bold text-white leading-tight mb-4 font-heading">
-                Never Clean Between{" "}
-                <span className="text-amber-300">Guests Again</span>
-              </h1>
-              <p className="text-lg text-slate-200 mb-2">
-                Professional turnover cleaning that protects your reviews and your time.
-              </p>
-              <p className="text-sm text-slate-300 mb-6">
-                Same team every visit. Same-day availability. Photo-ready every time.
-              </p>
+        <div className="relative max-w-5xl mx-auto px-6 py-24 md:py-32">
+          <div className="max-w-2xl">
+            <p className="text-[#B8955A] text-sm uppercase tracking-[0.2em] mb-6 font-sans">
+              For LA SuperHosts
+            </p>
+            <h1 className="text-4xl md:text-6xl font-normal leading-[1.1] text-white mb-6">
+              <span className="italic">For the listings that can't afford</span>
+              <br />
+              <span className="font-medium">a 4-star review.</span>
+            </h1>
+            <p className="text-lg text-white/85 max-w-xl mb-10 leading-relaxed font-sans">
+              Invitation-only turnover cleaning for LA's top-performing short-term rentals.
+              Same team every visit. Photo-ready every turnover.
+            </p>
 
-              {/* Mobile: scroll to form */}
-              <a
-                href="#get-pricing"
-                className="inline-block lg:hidden px-8 py-3.5 bg-amber-400 text-slate-900 font-bold rounded-lg text-base hover:bg-amber-300 transition-colors shadow-lg"
-              >
-                Get Turnover Pricing
-              </a>
+            <a
+              href="#inquire"
+              className="inline-block px-10 py-4 bg-[#B8955A] text-white font-medium tracking-wide text-sm uppercase hover:bg-[#a08149] transition-colors"
+              style={{ fontFamily: "var(--font-sans, system-ui)" }}
+            >
+              Request Consultation
+            </a>
 
-              {/* Trust signals */}
-              <div className="flex flex-wrap gap-4 mt-8 text-sm text-slate-300">
-                <span className="flex items-center gap-1.5">
-                  <span className="text-amber-400">&#9733;</span> 5.0 Stars
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="text-emerald-400">&#10003;</span> Insured & Bonded
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="text-emerald-400">&#10003;</span> Same-Day Available
-                </span>
-              </div>
-            </div>
-
-            {/* Right: Form */}
-            <div id="get-pricing" className="bg-white rounded-2xl shadow-2xl p-6 md:p-8">
-              <div className="text-center mb-5">
-                <p className="text-sm text-slate-500 mb-1">AIRBNB TURNOVER CLEANING</p>
-                <p className="text-lg font-semibold text-slate-800">Get your custom quote</p>
-              </div>
-              <BookingForm source="meta" preselectedService="airbnb-cleaning" ctaLabel="Get Turnover Pricing" />
-            </div>
+            <p className="mt-10 text-xs uppercase tracking-[0.18em] text-white/70 font-sans">
+              Serving Beverly Hills &middot; West Hollywood &middot; Venice &middot; Santa Monica &middot; Malibu
+            </p>
           </div>
         </div>
       </section>
 
-      {/* ---- Trust Bar ---- */}
-      <TrustBar />
-
-      {/* ---- Pain Points ---- */}
-      <section className="py-16 px-4 bg-white">
-        <div className="max-w-3xl mx-auto space-y-10">
-          {PAIN_POINTS.map((point) => (
-            <div key={point.headline} className="text-center">
-              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-3 font-heading">
-                {point.headline}
-              </h2>
-              <p className="text-slate-600 leading-relaxed max-w-2xl mx-auto">
-                {point.body}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ---- Key Points ---- */}
-      <section className="py-16 px-4 bg-slate-50 border-y border-slate-200">
+      {/* Pillars */}
+      <section className="bg-[#FAF7F2] py-24 px-6">
         <div className="max-w-5xl mx-auto">
-          <p className="text-sm font-medium text-[#2195b4] mb-3 text-center">
-            Why hosts choose us
+          <p className="text-center text-[#B8955A] text-xs uppercase tracking-[0.25em] mb-6">
+            Why SuperHosts choose us
           </p>
-          <h2 className="text-3xl font-bold text-center text-gray-900 mb-10 font-heading">
-            Built for Hosts, Not Homeowners
+          <h2 className="text-center text-3xl md:text-4xl mb-20 font-normal italic">
+            The difference between 4.8 and 5.0 is in the details.
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {KEY_POINTS.map((point) => (
-              <div
-                key={point.title}
-                className="bg-white rounded-xl p-6 shadow-sm border border-slate-100"
-              >
-                <h3 className="text-lg font-bold text-[#2195b4] mb-2 font-heading">
-                  {point.title}
-                </h3>
-                <p className="text-sm text-slate-600">{point.description}</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-16">
+            {PILLARS.map((p) => (
+              <div key={p.title} className="text-center">
+                <h3 className="text-2xl mb-4 font-medium">{p.title}</h3>
+                <p className="text-[#1A1A1A]/70 leading-relaxed font-sans text-sm">
+                  {p.body}
+                </p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ---- What's Included ---- */}
-      <section className="py-16 px-4 bg-white">
+      {/* Testimonials */}
+      <section className="py-24 px-6 border-t border-[#1A1A1A]/10">
         <div className="max-w-4xl mx-auto">
-          <p className="text-sm font-medium text-[#2195b4] mb-3 text-center">
-            Every turnover includes
+          <p className="text-center text-[#B8955A] text-xs uppercase tracking-[0.25em] mb-6">
+            From our hosts
           </p>
-          <h2 className="text-3xl font-bold text-center text-gray-900 mb-3 font-heading">
-            Guest-Ready, Every Time
-          </h2>
-          <p className="text-center text-slate-500 mb-10 max-w-lg mx-auto">
-            A complete turnover so your next guest walks into a perfect space.
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl mx-auto">
-            {INCLUDED_ITEMS.map((item) => (
-              <div key={item} className="flex items-start gap-3 py-2">
-                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold mt-0.5">
-                  &#10003;
-                </span>
-                <span className="text-sm text-slate-700">{item}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ---- Social Proof ---- */}
-      <section className="py-16 px-4 bg-slate-50 border-y border-slate-200">
-        <div className="max-w-5xl mx-auto">
-          <p className="text-sm font-medium text-[#2195b4] mb-3 text-center">
-            Real reviews
-          </p>
-          <h2 className="text-3xl font-bold text-center text-gray-900 mb-10 font-heading">
-            What Our Clients Say
+          <h2 className="text-center text-3xl md:text-4xl mb-20 font-normal italic">
+            Quiet, consistent, hotel-grade.
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {TESTIMONIALS.map((t) => (
-              <div
-                key={t.name}
-                className="bg-white rounded-xl p-6 border border-slate-100"
-              >
-                <div className="flex gap-0.5 mb-3 text-amber-400 text-sm">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <span key={i}>&#9733;</span>
-                  ))}
-                </div>
-                <p className="text-sm text-slate-600 mb-4 leading-relaxed">
+          <div className="space-y-16">
+            {TESTIMONIALS.map((t, i) => (
+              <div key={i} className="max-w-2xl mx-auto text-center">
+                <div className="text-[#B8955A] text-xl tracking-[0.3em] mb-6">{t.rating}</div>
+                <p className="text-xl md:text-2xl italic leading-relaxed mb-6 font-normal">
                   &ldquo;{t.quote}&rdquo;
                 </p>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">{t.name}</p>
-                  <p className="text-xs text-slate-500">{t.city}</p>
-                </div>
+                <p className="text-xs uppercase tracking-[0.25em] text-[#1A1A1A]/60 font-sans">
+                  {t.property}
+                </p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ---- How It Works ---- */}
-      <HowItWorks />
-
-      {/* ---- FAQ ---- */}
-      <section className="py-16 px-4 bg-white">
-        <div className="max-w-3xl mx-auto">
-          <p className="text-sm font-medium text-[#2195b4] mb-3 text-center">
-            Common questions
+      {/* How we work */}
+      <section className="bg-[#1A1A1A] text-white py-24 px-6">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-center text-[#B8955A] text-xs uppercase tracking-[0.25em] mb-6">
+            How we work
           </p>
-          <h2 className="text-3xl font-bold text-center text-gray-900 mb-10 font-heading">
-            Frequently Asked Questions
+          <h2 className="text-center text-3xl md:text-4xl mb-20 font-normal italic">
+            Four steps. No surprises.
           </h2>
 
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-10 text-center">
+            {[
+              { n: "01", title: "Intro Call", body: "A short conversation about your property and your guest flow." },
+              { n: "02", title: "Confirmation", body: "We confirm availability within 60 seconds of each turnover request." },
+              { n: "03", title: "Same Team Arrives", body: "Your trained crew executes the turnover to the documented spec." },
+              { n: "04", title: "Photo Report", body: "Completion report with photos, delivered to your phone." },
+            ].map((s) => (
+              <div key={s.n}>
+                <p className="text-[#B8955A] text-sm tracking-[0.2em] mb-4 font-sans">{s.n}</p>
+                <h3 className="text-xl mb-3 font-medium">{s.title}</h3>
+                <p className="text-white/70 text-sm leading-relaxed font-sans">{s.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Service areas */}
+      <section className="py-20 px-6 border-t border-[#1A1A1A]/10">
+        <div className="max-w-4xl mx-auto text-center">
+          <p className="text-[#B8955A] text-xs uppercase tracking-[0.25em] mb-6">
+            Accepting inquiries from
+          </p>
+          <div className="flex flex-wrap justify-center gap-x-8 gap-y-3 text-sm uppercase tracking-[0.18em] text-[#1A1A1A]/80 font-sans">
+            {SERVICE_AREAS.map((area) => (
+              <span key={area}>{area}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Inquiry form */}
+      <section id="inquire" className="bg-[#FAF7F2] py-24 px-6 border-t border-[#1A1A1A]/10">
+        <div className="max-w-xl mx-auto">
+          <p className="text-center text-[#B8955A] text-xs uppercase tracking-[0.25em] mb-6">
+            By invitation
+          </p>
+          <h2 className="text-center text-3xl md:text-4xl mb-4 font-normal italic">
+            Request your consultation.
+          </h2>
+          <p className="text-center text-[#1A1A1A]/70 mb-12 font-sans text-sm">
+            We accept a limited number of new properties each season. A member of our team will reach out within 24 hours.
+          </p>
+
+          <div className="bg-white rounded-sm border border-[#1A1A1A]/10 shadow-sm p-8 md:p-10">
+            <BookingForm
+              source="meta"
+              preselectedService="airbnb-cleaning"
+              ctaLabel="Request Consultation"
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section className="py-24 px-6 border-t border-[#1A1A1A]/10">
+        <div className="max-w-3xl mx-auto">
+          <p className="text-center text-[#B8955A] text-xs uppercase tracking-[0.25em] mb-6">
+            Questions
+          </p>
+          <h2 className="text-center text-3xl md:text-4xl mb-16 font-normal italic">
+            Before you inquire.
+          </h2>
+
+          <div className="space-y-6">
             {FAQS.map((faq) => (
               <details
                 key={faq.question}
-                className="group bg-slate-50 rounded-xl border border-slate-200 overflow-hidden"
+                className="group border-b border-[#1A1A1A]/15 pb-6"
               >
-                <summary className="flex items-center justify-between cursor-pointer px-6 py-4 text-sm font-semibold text-slate-800 hover:bg-slate-100 transition-colors">
+                <summary className="flex items-center justify-between cursor-pointer text-lg font-medium">
                   {faq.question}
-                  <span className="text-slate-400 group-open:rotate-45 transition-transform text-lg ml-4">
+                  <span className="text-[#B8955A] group-open:rotate-45 transition-transform text-2xl ml-4 font-light">
                     +
                   </span>
                 </summary>
-                <div className="px-6 pb-4 text-sm text-slate-600 leading-relaxed">
+                <div className="mt-4 text-[#1A1A1A]/70 leading-relaxed font-sans text-sm">
                   {faq.answer}
                 </div>
               </details>
@@ -318,30 +283,25 @@ export default function AirbnbPage() {
         </div>
       </section>
 
-      {/* ---- Final CTA ---- */}
-      <section className="py-16 px-4 bg-[#164E63]">
-        <div className="max-w-xl mx-auto text-center">
-          <h2 className="text-3xl font-bold text-white mb-3 font-heading">
-            Ready to stop cleaning between guests?
-          </h2>
-          <p className="text-slate-300 mb-8">
-            Get your custom turnover pricing. Takes 60 seconds. No obligation.
-          </p>
-
-          <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 text-left">
-            <BookingForm source="meta" preselectedService="airbnb-cleaning" ctaLabel="Get Turnover Pricing" />
-          </div>
-
-          <p className="text-xs text-slate-400 mt-6">
-            Or call us directly:{" "}
-            <a href="tel:+14246771146" className="text-amber-300 hover:underline">
-              (424) 677-1146
-            </a>
-          </p>
-        </div>
+      {/* Final */}
+      <section className="bg-[#1A1A1A] text-white py-20 px-6 text-center">
+        <p className="text-[#B8955A] text-xs uppercase tracking-[0.25em] mb-4">
+          Spotless Scrubbers
+        </p>
+        <p className="text-xl italic mb-2">White-glove turnovers for LA's top listings.</p>
+        <p className="text-white/60 text-sm font-sans">
+          <a href="tel:+14246771146" className="hover:text-[#B8955A] transition-colors">
+            (424) 677-1146
+          </a>
+          <span className="mx-3">&middot;</span>
+          <a
+            href="mailto:dominic@spotlesservices.com"
+            className="hover:text-[#B8955A] transition-colors"
+          >
+            dominic@spotlesservices.com
+          </a>
+        </p>
       </section>
-
-      <div className="h-20 md:hidden" />
-    </>
+    </div>
   )
 }
