@@ -473,16 +473,16 @@ async function generateWithClaude(
     ? 'Ask about bedrooms, bathrooms, or square footage.'
     : `Ask relevant questions for ${serviceType}.`
 
-  // Detect if customer provided an email address
+  // Detect if customer provided an email address (passive extraction only)
   const emailMatch = message.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)
   const emailHint = emailMatch
-    ? `\nIMPORTANT: Customer provided their email address (${emailMatch[0]}). Acknowledge receipt and let them know you'll send the confirmed price/details to that email.`
+    ? `\nIMPORTANT: Customer provided their email address (${emailMatch[0]}). Acknowledge receipt briefly. Do NOT promise to send anything to that email unless the customer explicitly asked to be emailed. The quote link delivered via SMS is the default path.`
     : ''
 
   // Detect if customer is confirming/responding to our previous message
   const isConfirming = messageContext?.isAffirmativeResponse && messageContext?.hasConversationHistory
-  const confirmHint = isConfirming && !emailMatch
-    ? `\nIMPORTANT: Customer is confirming. If our last message asked for their email, ask for it. If it was a booking confirmation, acknowledge and ask for email to send pricing.`
+  const confirmHint = isConfirming
+    ? `\nIMPORTANT: Customer is confirming. Acknowledge and continue the booking flow with the quote link via SMS. Do NOT ask for email.`
     : ''
 
   const response = await client.messages.create({
@@ -508,8 +508,9 @@ Rules:
 - Don't use emojis excessively (1-2 max)
 - NEVER offer discounts, deals, or promotional pricing. You have NO authority to change prices.
 - CRITICAL: Read the conversation history carefully. Respond to what the customer is actually saying.
-- If they confirmed something (yes/yup/sure), acknowledge and move to the next step (usually asking for email to send pricing).
-- If they provided an email, thank them and say you'll send details there.
+- NEVER ask for email. NEVER promise to email anything. The quote link is delivered via SMS. Email sends only happen if the customer explicitly asks ("email me", "send to my email", "prefer email").
+- If they confirmed something (yes/yup/sure), acknowledge and continue the booking flow with the SMS quote link.
+- If they volunteered an email address, briefly acknowledge receipt (we'll store it for their record) but keep the follow-up on SMS.
 - If they already have a booking, do NOT ask generic questions about service needs. Continue the booking conversation.
 - Only ask about ${serviceType} details if this is a NEW inquiry with no prior conversation.
 - Never repeat information or questions that were already covered.
@@ -562,9 +563,9 @@ async function generateWithOpenAI(
     responseTypeHint = 'Customer said NO - acknowledge gracefully, try different approach. '
   }
 
-  // Detect email in message
+  // Detect email in message (passive extraction)
   const emailMatch = message.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)
-  const emailHint = emailMatch ? ` Customer provided email (${emailMatch[0]}) - acknowledge and say you'll send details.` : ''
+  const emailHint = emailMatch ? ` Customer provided email (${emailMatch[0]}) - briefly acknowledge receipt. Do NOT promise to send anything to that email. Continue on SMS.` : ''
 
   const response = await client.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -572,7 +573,7 @@ async function generateWithOpenAI(
     messages: [
       {
         role: 'system',
-        content: `You are ${sdrName}, a friendly sales rep. ${businessContext}. Write short, friendly SMS replies. Keep under 160 chars when possible, max 300. Be warm but not pushy. ${conversationHistory?.length ? 'This is an ongoing conversation - read the history carefully and respond appropriately. Do NOT re-introduce yourself or ask questions that were already answered.' : ''} If customer is confirming (yes/yup), acknowledge and move to next step. If they provided an email, thank them and say you will send details.${emailHint}`
+        content: `You are ${sdrName}, a friendly sales rep. ${businessContext}. Write short, friendly SMS replies. Keep under 160 chars when possible, max 300. Be warm but not pushy. ${conversationHistory?.length ? 'This is an ongoing conversation - read the history carefully and respond appropriately. Do NOT re-introduce yourself or ask questions that were already answered.' : ''} NEVER ask for email. NEVER promise to email anything. Quote links go via SMS. If customer is confirming (yes/yup), acknowledge and continue on SMS.${emailHint}`
       },
       {
         role: 'user',
