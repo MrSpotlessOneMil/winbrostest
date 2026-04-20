@@ -118,7 +118,12 @@ export default function PostConstructionPage() {
     <>
       {/* Hero */}
       <section className="relative bg-[#164E63] overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#164E63] via-[#155f73] to-[#1a7a94] opacity-90" />
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: "url('/images/marketing/team-post-construction.jpg')" }}
+          aria-hidden
+        />
+        <div className="absolute inset-0 bg-gradient-to-br from-[#164E63]/88 via-[#155f73]/82 to-[#1a7a94]/75" />
 
         <div className="relative max-w-5xl mx-auto px-4 py-16 md:py-24">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
