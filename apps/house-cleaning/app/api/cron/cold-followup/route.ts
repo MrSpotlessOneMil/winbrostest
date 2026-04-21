@@ -16,7 +16,7 @@ import { templateForStage, COLD_FOLLOWUP_MIN_HOURS, type ColdFollowupStage } fro
  * and sends staged nudges at +4h / +1d / +3d. Cadence stops on any inbound
  * reply, job creation, human takeover, or escalation.
  *
- * Schedule: */30 * * * *
+ * Schedule: every 30 minutes (see vercel.json)
  *
  * Per-tenant cap: 50 sends per run (avoids blasting after a backlog builds).
  */
