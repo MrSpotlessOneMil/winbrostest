@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS pending_sms_assignments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   cleaner_id INTEGER NOT NULL REFERENCES cleaners(id),
-  assignment_id INTEGER NOT NULL REFERENCES cleaner_assignments(id),
+  assignment_id INTEGER NOT NULL REFERENCES cleaner_assignments(id) ON DELETE CASCADE,
   job_id INTEGER NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now(),
   expires_at TIMESTAMPTZ DEFAULT now() + interval '4 hours',
