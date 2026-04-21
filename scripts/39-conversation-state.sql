@@ -85,6 +85,7 @@ CREATE OR REPLACE FUNCTION sync_conversation_state_from_job() RETURNS TRIGGER AS
 DECLARE
   v_customer_phone TEXT;
   v_new_status TEXT;
+  v_appointment_at TIMESTAMPTZ;
 BEGIN
   -- Determine booking_status mapping
   v_new_status := CASE NEW.status
@@ -109,13 +110,23 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- Combine jobs.date (DATE) + jobs.scheduled_at (TEXT time like "10:00") into a TIMESTAMPTZ.
+  -- scheduled_at is TEXT, so cast via date + time concatenation.
+  IF NEW.date IS NOT NULL AND NEW.scheduled_at IS NOT NULL AND NEW.scheduled_at <> '' THEN
+    v_appointment_at := (NEW.date::date || ' ' || NEW.scheduled_at)::timestamptz;
+  ELSIF NEW.date IS NOT NULL THEN
+    v_appointment_at := NEW.date::date::timestamptz;
+  ELSE
+    v_appointment_at := NULL;
+  END IF;
+
   -- Upsert — if the new row represents the most recent active job, adopt it.
   INSERT INTO conversation_state (
     tenant_id, customer_id, phone,
     booking_status, active_job_id, appointment_at, updated_at
   ) VALUES (
     NEW.tenant_id, NEW.customer_id, v_customer_phone,
-    v_new_status, NEW.id, NEW.scheduled_at, now()
+    v_new_status, NEW.id, v_appointment_at, now()
   )
   ON CONFLICT (tenant_id, phone) DO UPDATE SET
     booking_status = CASE
