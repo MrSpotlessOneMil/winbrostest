@@ -12,7 +12,7 @@
 
 ## Project Context
 
-**Osiris** — multi-tenant SaaS automating operations for service businesses (cleaning). Next.js 16 (App Router) on Vercel, Supabase (Postgres + RLS), Stripe. Tenants: WinBros, Cedar Rapids, Spotless Scrubbers, and West Niagara Cleaning. This is a Turborepo monorepo. Shared code goes in packages/core/src/. House cleaning code goes in apps/house-cleaning/lib/. Window washing code goes in apps/window-washing/lib/. Always push to the main branch. The Vercel projects are osiris-house-cleaning and osiris-window-washing under mrspotlessonemils-projects (Pro). Never use the dominics-projects-2073b92a account.
+**Osiris** — multi-tenant SaaS automating operations for service businesses (cleaning). Next.js 16 (App Router) on Vercel, Supabase (Postgres + RLS), Stripe. Tenants: WinBros, Cedar Rapids, Spotless Scrubbers, West Niagara Cleaning, and Texas Nova Cleaning. This is a Turborepo monorepo. Shared code goes in packages/core/src/. House cleaning code goes in apps/house-cleaning/lib/. Window washing code goes in apps/window-washing/lib/. Always push to the main branch. The Vercel projects are osiris-house-cleaning and osiris-window-washing under mrspotlessonemils-projects (Pro). Never use the dominics-projects-2073b92a account.
 
 **Core flow:** Lead intake (VAPI, OpenPhone, HCP, GHL, Meta, website) → AI qualification → Job scheduling (FullCalendar) → Cleaner dispatch (Telegram) → Payment (Stripe card-on-file → charge on completion) → Lifecycle automation (reviews, re-engagement, campaigns)
 
@@ -31,7 +31,7 @@ Next.js 16 / TypeScript / Tailwind / Shadcn/ui • Supabase (Postgres + RLS via 
 
 **Monorepo structure:**
 - `packages/core/src/` — shared code (auth, SMS, payments, scheduling). Edit here if the change affects both apps.
-- `apps/house-cleaning/` — house cleaning app (Spotless, Cedar Rapids, West Niagara)
+- `apps/house-cleaning/` — house cleaning app (Spotless, Cedar Rapids, West Niagara, Texas Nova)
 - `apps/window-washing/` — window washing app (WinBros)
 
 **Each app contains its own `app/`, `lib/`, `components/`, `hooks/`, `integrations/`.**
