@@ -120,7 +120,7 @@ export default function PostConstructionPage() {
       <section className="relative bg-[#164E63] overflow-hidden">
         <div
           className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: "url('/images/marketing/team-post-construction.jpg')" }}
+          style={{ backgroundImage: "url('/images/marketing/post-construction-site.jpg')" }}
           aria-hidden
         />
         <div className="absolute inset-0 bg-gradient-to-br from-[#164E63]/88 via-[#155f73]/82 to-[#1a7a94]/75" />
