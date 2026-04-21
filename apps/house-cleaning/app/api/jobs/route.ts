@@ -561,21 +561,10 @@ export async function POST(request: NextRequest) {
     const scheduledDate = body.scheduled_date || body.date || undefined
     const scheduledAt = body.scheduled_time || body.scheduled_at || undefined
 
-    // Resolve cleaner pay on write so jobs.computed_cleaner_pay is authoritative at
-    // the row level (not just enriched on the calendar GET). Override wins.
-    const price = body.estimated_value != null ? Number(body.estimated_value) : 0
-    const hours = body.duration_minutes ? Number(body.duration_minutes) / 60 : 0
     const override =
       body.cleaner_pay_override != null && body.cleaner_pay_override !== ""
         ? Number(body.cleaner_pay_override)
         : null
-    const computed =
-      override == null && price > 0
-        ? calculateCleanerPay(tenant, price, hours, body.service_type)
-        : null
-    const effectiveCleanerPay = override != null ? override : computed
-    const cleanerPaySource: "override" | "calculated" | null =
-      override != null ? "override" : computed != null ? "calculated" : null
 
     const inserted = await client
       .from("jobs")
@@ -592,8 +581,6 @@ export async function POST(request: NextRequest) {
         notes: body.notes || undefined,
         cleaner_notes: body.cleaner_notes || undefined,
         cleaner_pay_override: override,
-        computed_cleaner_pay: effectiveCleanerPay,
-        computed_cleaner_pay_source: cleanerPaySource,
         status: body.status === "quoted" ? "quoted" : "scheduled",
         booked: body.status !== "quoted",
         addons: body.addons ? JSON.stringify(body.addons) : undefined,
