@@ -3,21 +3,26 @@ import { getSupabaseServiceClient } from "@/lib/supabase"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { getTenantBySlug } from "@/lib/tenant"
+import { getTenantBySlug, type Tenant } from "@/lib/tenant"
 import { upsertLeadCustomer } from "@/lib/customer-dedup"
+import { sendSMS } from "@/lib/openphone"
+import { generateAutoResponse } from "@/lib/auto-response"
+import { analyzeBookingIntent } from "@/lib/ai-intent"
 
 /**
- * Meta Lead Ads Webhook
+ * Meta Webhook Router — handles ALL Page events for a tenant.
  *
  * GET  /api/webhooks/meta/{slug} — Verification (Meta sends hub.challenge)
- * POST /api/webhooks/meta/{slug} — Lead notification (Meta sends leadgen event)
+ * POST /api/webhooks/meta/{slug} — Event delivery
  *
- * When a lead fills out a Meta Lead Ad form:
- * 1. Meta POSTs a leadgen event with lead_id
- * 2. We fetch the lead data from Meta Graph API using the tenant's page access token
- * 3. Create customer + lead in Osiris
- * 4. Schedule SMS follow-up sequence
+ * Supports:
+ *   - leadgen / leadgen_update  → ingest lead, schedule SMS follow-up
+ *   - messages                   → AI auto-reply via Messenger (reuses SMS responder)
+ *   - ratings                    → auto-thank 4-5★, alert owner on 1-3★
+ *   - feed                       → auto-reply to public comments with price/service intent
  */
+
+const META_API_BASE = "https://graph.facebook.com/v21.0"
 
 // ── GET: Webhook Verification ──
 export async function GET(
@@ -34,10 +39,10 @@ export async function GET(
     return new NextResponse("Invalid mode", { status: 400 })
   }
 
-  // Verify token matches tenant config or env
   const tenant = await getTenantBySlug(slug)
-  const expectedToken = (tenant?.workflow_config as Record<string, unknown>)?.meta_verify_token
-    || process.env.META_VERIFY_TOKEN
+  const expectedToken =
+    (tenant?.workflow_config as Record<string, unknown>)?.meta_verify_token ||
+    process.env.META_VERIFY_TOKEN
 
   if (!expectedToken || token !== expectedToken) {
     console.error(`[Meta Webhook] Verification failed for ${slug} — token mismatch`)
@@ -48,7 +53,7 @@ export async function GET(
   return new NextResponse(challenge, { status: 200 })
 }
 
-// ── POST: Leadgen Event ──
+// ── POST: Event Delivery ──
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -69,66 +74,85 @@ export async function POST(
   }
 
   const wc = (tenant.workflow_config || {}) as Record<string, unknown>
-  // Prefer System User token (new, multi-scope, never-expires) → fall back to page access token → env
-  const pageAccessToken =
+  const accessToken =
     (wc.meta_ads_access_token as string) ||
     (wc.meta_page_access_token as string) ||
     process.env.META_PAGE_ACCESS_TOKEN ||
     process.env.META_ACCESS_TOKEN
-  if (!pageAccessToken) {
+  if (!accessToken) {
     console.error(`[Meta Webhook] No access token for ${slug}`)
     return NextResponse.json({ received: true })
   }
 
-  // Meta sends: { object: "page", entry: [{ id, time, changes: [{ field: "leadgen", value: { ... } }] }] }
   const entries = (body.entry || []) as Array<Record<string, unknown>>
-
-  let leadsProcessed = 0
+  let counters = { leadgen: 0, messenger: 0, ratings: 0, feed: 0, other: 0 }
 
   for (const entry of entries) {
+    // Messenger messages arrive as entry.messaging[], not entry.changes[]
+    const messaging = entry.messaging as Array<Record<string, unknown>> | undefined
+    if (messaging && messaging.length > 0) {
+      for (const msg of messaging) {
+        try {
+          const handled = await handleMessengerEvent(tenant, msg, accessToken)
+          if (handled) counters.messenger++
+        } catch (err) {
+          console.error(`[Meta Webhook:${slug}] messenger error:`, err)
+        }
+      }
+      continue
+    }
+
     const changes = (entry.changes || []) as Array<Record<string, unknown>>
-
     for (const change of changes) {
-      if (change.field !== "leadgen") continue
-
+      const field = change.field as string
       const value = change.value as Record<string, unknown>
-      const leadgenId = value?.leadgen_id as string
-      if (!leadgenId) continue
 
       try {
-        const leadData = await fetchMetaLead(leadgenId, pageAccessToken)
-        if (!leadData) continue
-
-        await processMetaLead(tenant, leadData, leadgenId)
-        leadsProcessed++
+        if (field === "leadgen" || field === "leadgen_update") {
+          const leadgenId = value?.leadgen_id as string
+          if (!leadgenId) continue
+          const leadData = await fetchMetaLead(leadgenId, accessToken)
+          if (leadData) {
+            await processMetaLead(tenant, leadData, leadgenId)
+            counters.leadgen++
+          }
+        } else if (field === "ratings") {
+          await handleRatingChange(tenant, value, accessToken)
+          counters.ratings++
+        } else if (field === "feed") {
+          await handleFeedChange(tenant, value, accessToken)
+          counters.feed++
+        } else {
+          counters.other++
+        }
       } catch (err) {
-        console.error(`[Meta Webhook] Error processing lead ${leadgenId}:`, err)
+        console.error(`[Meta Webhook:${slug}] ${field} error:`, err)
       }
     }
   }
 
-  console.log(`[Meta Webhook] Processed ${leadsProcessed} leads for ${slug}`)
-  return NextResponse.json({ received: true, processed: leadsProcessed })
+  console.log(`[Meta Webhook:${slug}] processed`, counters)
+  return NextResponse.json({ received: true, ...counters })
 }
 
-// ── Fetch lead data from Meta Graph API ──
+// =====================================================================
+// LEADGEN
+// =====================================================================
+
 async function fetchMetaLead(leadId: string, accessToken: string) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10000)
 
   try {
-    const res = await fetch(
-      `https://graph.facebook.com/v21.0/${leadId}?access_token=${accessToken}`,
-      { signal: controller.signal }
-    )
+    const res = await fetch(`${META_API_BASE}/${leadId}?access_token=${accessToken}`, {
+      signal: controller.signal,
+    })
     clearTimeout(timeout)
-
     if (!res.ok) {
       const err = await res.text()
       console.error(`[Meta Webhook] Graph API error: ${res.status} ${err}`)
       return null
     }
-
     return await res.json()
   } catch (err) {
     clearTimeout(timeout)
@@ -137,7 +161,6 @@ async function fetchMetaLead(leadId: string, accessToken: string) {
   }
 }
 
-// ── Process a single Meta lead ──
 async function processMetaLead(
   tenant: { id: string; slug: string; name: string; business_name_short?: string },
   leadData: Record<string, unknown>,
@@ -145,7 +168,6 @@ async function processMetaLead(
 ) {
   const client = getSupabaseServiceClient()
 
-  // Parse Meta form fields
   const fieldData = (leadData.field_data || []) as Array<{ name: string; values: string[] }>
   const fields: Record<string, string> = {}
   for (const f of fieldData) {
@@ -166,7 +188,6 @@ async function processMetaLead(
     return
   }
 
-  // Dedup: check if we already processed this leadgen_id
   const { data: existing } = await client
     .from("leads")
     .select("id")
@@ -180,9 +201,6 @@ async function processMetaLead(
     return
   }
 
-  // Dedup-aware upsert: match existing customer by email first, then phone.
-  // Prevents duplicate customer records when the same person submits with a
-  // different phone number (AJ incident 2026-04-17).
   const dedupResult = await upsertLeadCustomer(client, {
     tenant_id: tenant.id,
     phone_number: phone,
@@ -226,7 +244,6 @@ async function processMetaLead(
     })
   }
 
-  // Create lead
   const { data: lead, error: leadError } = await client
     .from("leads")
     .insert({
@@ -273,7 +290,6 @@ async function processMetaLead(
     },
   })
 
-  // Schedule follow-up (same sequence as website leads — stage 1 fires immediately via SMS)
   if (lead?.id) {
     try {
       const leadName = `${firstName || ""} ${lastName || ""}`.trim() || "Customer"
@@ -282,5 +298,232 @@ async function processMetaLead(
     } catch (err) {
       console.error("[Meta Webhook] Error scheduling follow-up:", err)
     }
+  }
+}
+
+// =====================================================================
+// MESSENGER
+// =====================================================================
+
+interface MessengerEvent {
+  sender?: { id?: string }
+  recipient?: { id?: string }
+  timestamp?: number
+  message?: { mid?: string; text?: string; is_echo?: boolean }
+  postback?: { payload?: string; title?: string }
+}
+
+async function handleMessengerEvent(
+  tenant: Tenant,
+  rawEvent: Record<string, unknown>,
+  accessToken: string
+): Promise<boolean> {
+  const event = rawEvent as MessengerEvent
+  const senderId = event.sender?.id
+  const pageMessage = event.message
+
+  // Echo (our own outbound message) → skip
+  if (pageMessage?.is_echo) return false
+  if (!senderId) return false
+
+  const text = pageMessage?.text || event.postback?.payload || event.postback?.title
+  if (!text || !text.trim()) return false
+
+  const mid = pageMessage?.mid || `postback-${senderId}-${event.timestamp ?? Date.now()}`
+  const client = getSupabaseServiceClient()
+
+  // Dedup — Meta retries on non-200 within ~20s
+  const { data: existing } = await client
+    .from("messages")
+    .select("id")
+    .eq("tenant_id", tenant.id)
+    .eq("external_message_id", mid)
+    .limit(1)
+    .maybeSingle()
+  if (existing) {
+    console.log(`[Messenger:${tenant.slug}] duplicate mid ${mid} — skipping`)
+    return false
+  }
+
+  // Persist inbound
+  await client.from("messages").insert({
+    tenant_id: tenant.id,
+    direction: "inbound",
+    content: text,
+    external_message_id: mid,
+    source: "meta_messenger",
+    message_type: "messenger",
+    role: "client",
+    metadata: {
+      messenger_psid: senderId,
+      page_id: event.recipient?.id,
+      timestamp: event.timestamp,
+    },
+  })
+
+  // Generate AI reply via the existing SMS auto-responder
+  let reply: string | null = null
+  try {
+    const intent = await analyzeBookingIntent(text)
+    const aiResult = await generateAutoResponse(text, intent, tenant, [], undefined, {})
+    if (aiResult.shouldSend && aiResult.response?.trim()) {
+      reply = aiResult.response.replace(/\|\|\|/g, "\n\n").trim()
+    } else {
+      console.log(`[Messenger:${tenant.slug}] AI declined reply: ${aiResult.reason}`)
+    }
+  } catch (err) {
+    console.error(`[Messenger:${tenant.slug}] AI generation failed:`, err)
+  }
+
+  if (!reply) {
+    const short = tenant.business_name_short || tenant.name || "our team"
+    reply = `Thanks for reaching out to ${short}! One of our team will follow up shortly.`
+  }
+
+  await sendMessengerMessage(senderId, reply, accessToken)
+  await client.from("messages").insert({
+    tenant_id: tenant.id,
+    direction: "outbound",
+    content: reply,
+    source: "meta_messenger_ai",
+    message_type: "messenger",
+    role: "assistant",
+    ai_generated: true,
+    metadata: { messenger_psid: senderId, auto: true },
+  })
+
+  await logSystemEvent({
+    tenant_id: tenant.id,
+    source: "meta_messenger",
+    event_type: "MESSENGER_AI_REPLY",
+    message: `Messenger AI replied to PSID ${senderId}`,
+    metadata: { psid: senderId, inbound_preview: text.slice(0, 120), outbound_preview: reply.slice(0, 120) },
+  })
+
+  return true
+}
+
+async function sendMessengerMessage(recipientPsid: string, text: string, accessToken: string) {
+  const body = {
+    recipient: { id: recipientPsid },
+    messaging_type: "RESPONSE",
+    message: { text: text.slice(0, 2000) },
+  }
+  const res = await fetch(`${META_API_BASE}/me/messages?access_token=${accessToken}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.text()
+    console.error(`[Messenger] send failed ${res.status}: ${err.slice(0, 200)}`)
+  }
+  return res.ok
+}
+
+// =====================================================================
+// RATINGS
+// =====================================================================
+
+async function handleRatingChange(
+  tenant: Tenant,
+  value: Record<string, unknown>,
+  _accessToken: string
+) {
+  const verb = (value.verb as string) || "unknown"
+  if (verb !== "add") return
+
+  const rating = typeof value.rating === "number" ? value.rating : parseInt(String(value.rating || 0), 10)
+  const reviewText = (value.review_text as string) || ""
+  const reviewerName = (value.reviewer?.name as string) || "A customer"
+  const permalink = (value.permalink_url as string) || ""
+
+  const client = getSupabaseServiceClient()
+  await client.from("system_events").insert({
+    tenant_id: tenant.id,
+    source: "meta_ratings",
+    event_type: rating >= 4 ? "FB_REVIEW_POSITIVE" : "FB_REVIEW_NEGATIVE",
+    message: `${rating}★ review from ${reviewerName}${reviewText ? ": " + reviewText.slice(0, 200) : ""}`,
+    metadata: { rating, reviewer_name: reviewerName, review_text: reviewText, permalink },
+  })
+
+  if (tenant.owner_phone) {
+    if (rating <= 3) {
+      const msg = `🚨 ${rating}★ FB REVIEW for ${tenant.name}\n${reviewerName}: ${reviewText || "(no text)"}\n${permalink}\n\nReview + respond ASAP.`
+      await sendSMS(tenant, tenant.owner_phone, msg, { source: "meta_ratings", bypassFilters: true })
+    } else {
+      const msg = `⭐ ${rating}★ FB review for ${tenant.name} from ${reviewerName}. ${permalink}`
+      await sendSMS(tenant, tenant.owner_phone, msg, { source: "meta_ratings", bypassFilters: true })
+    }
+  }
+}
+
+// =====================================================================
+// FEED (public comments on page posts)
+// =====================================================================
+
+const PRICE_INTENT_PATTERNS = [
+  /\bhow much\b/i,
+  /\bprice\b/i,
+  /\bcost\b/i,
+  /\bquote\b/i,
+  /\$\d/,
+  /\bfor (a|my)\b.*\b(bed|bath|house|apt)/i,
+]
+
+function hasPriceIntent(text: string): boolean {
+  return PRICE_INTENT_PATTERNS.some((re) => re.test(text))
+}
+
+async function handleFeedChange(
+  tenant: Tenant,
+  value: Record<string, unknown>,
+  accessToken: string
+) {
+  const item = value.item as string | undefined
+  const verb = value.verb as string | undefined
+  const commentId = value.comment_id as string | undefined
+  const message = (value.message as string) || ""
+  const from = value.from as { id?: string; name?: string } | undefined
+
+  if (item !== "comment" || verb !== "add" || !commentId) return
+  if (from?.id === (tenant.workflow_config as Record<string, unknown>)?.meta_page_id) return // our own comment
+  if (!message.trim()) return
+
+  const client = getSupabaseServiceClient()
+  await client.from("system_events").insert({
+    tenant_id: tenant.id,
+    source: "meta_feed",
+    event_type: "FB_PAGE_COMMENT",
+    message: `${from?.name || "Someone"} commented: ${message.slice(0, 200)}`,
+    metadata: { comment_id: commentId, from, message, value },
+  })
+
+  if (!hasPriceIntent(message)) return
+
+  const shortName = tenant.business_name_short || tenant.name || "us"
+  const reply = `Hi ${from?.name?.split(" ")[0] || "there"}, just DM'd you a quote from ${shortName}. Check your Messenger!`
+
+  try {
+    const res = await fetch(
+      `${META_API_BASE}/${commentId}/comments?access_token=${accessToken}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ message: reply }).toString(),
+      }
+    )
+    if (!res.ok) {
+      const err = await res.text()
+      console.error(`[Feed] public reply failed ${res.status}: ${err.slice(0, 200)}`)
+    }
+  } catch (err) {
+    console.error(`[Feed:${tenant.slug}] public reply error:`, err)
+  }
+
+  // Attempt DM — may fail if we can't initiate (Meta's 24h rule), that's fine
+  if (from?.id) {
+    const dmText = `Hi ${from.name?.split(" ")[0] || "there"}! Saw your comment on our page. For a fast quote, text us your address + bed/bath count and we'll send pricing right back.`
+    await sendMessengerMessage(from.id, dmText, accessToken)
   }
 }
