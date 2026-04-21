@@ -1,0 +1,74 @@
+name: Spotless Website Smoke (Playwright)
+
+# Fires after every push to main. Waits for Vercel to finish deploying the
+# spotlesswebsite project, then runs Playwright against the live site to
+# confirm every Meta-ad landing page still returns 200 + renders its form.
+#
+# Complements the /api/cron/ad-url-health runtime check (catches broken ad
+# URLs). This catches the OTHER failure mode: a code push that breaks the
+# landing page itself.
+#
+# Exits non-zero on any failure; the Actions UI will red-flag it and you
+# can quickly git revert.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Landing-page smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Wait for Vercel deploy to propagate
+        # spotlesswebsite project usually promotes within ~90s of a push.
+        # We poll the homepage every 10s for up to 4 min looking for the
+        # current commit SHA (injected by Vercel into a `<meta>` tag, or
+        # simply for a successful 200 after the push timestamp).
+        run: |
+          deadline=$((SECONDS + 240))
+          while [ $SECONDS -lt $deadline ]; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" https://spotlessscrubbers.org/)
+            if [ "$code" = "200" ]; then
+              echo "Homepage returns 200 — continuing. (Vercel may still be promoting but the live URL is reachable.)"
+              break
+            fi
+            echo "  homepage returned $code — sleeping 10s..."
+            sleep 10
+          done
+
+      - name: Run landing-page smoke
+        env:
+          SPOTLESS_BASE_URL: https://spotlessscrubbers.org
+        run: npx playwright test --project=spotless-smoke
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Smoke failure summary
+        if: failure()
+        run: |
+          echo "::error::Spotless landing-page smoke failed. One of the Meta-ad landing pages is broken on production. Roll back with: git revert HEAD && git push"

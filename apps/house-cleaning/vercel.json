@@ -97,6 +97,14 @@
       "schedule": "0 */6 * * *"
     },
     {
+      "path": "/api/cron/ad-url-health",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-ci-smoke",
+      "schedule": "0 4 * * *"
+    },
+    {
       "path": "/api/cron/meta-ads-monitor",
       "schedule": "0 16 * * *"
     },

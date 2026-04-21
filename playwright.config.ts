@@ -22,6 +22,17 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
     {
+      // Landing-page smoke for Meta ads. Runs unauthenticated against a
+      // configurable base URL (SPOTLESS_BASE_URL env var), so the same spec
+      // can hit production, a Vercel preview, or localhost.
+      name: 'spotless-smoke',
+      testMatch: /spotless-landing-smoke\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env.SPOTLESS_BASE_URL || 'https://spotlessscrubbers.org',
+      },
+    },
+    {
       name: 'setup',
       testMatch: /auth\.setup\.ts/,
     },
