@@ -275,30 +275,15 @@ export async function POST(
     smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for reaching out about ${friendlyService}! What's your address and how many bedrooms and bathrooms? I'll get you a quote right away!`
   }
 
-  // Pre-insert message record so outbound webhook dedup finds it
-  const { data: msgRecord } = await client.from("messages").insert({
-    tenant_id: tenant.id,
-    customer_id: customer?.id ?? null,
-    phone_number: phone,
-    role: "assistant",
-    content: smsMessage,
-    direction: "outbound",
-    message_type: "sms",
-    ai_generated: false,
-    timestamp: new Date().toISOString(),
-    source: "website_lead_auto",
-  }).select("id").single()
-
+  // sendSMS pre-inserts its own messages row (via the `source` option) and
+  // cleans it up on failure, so no manual insert is needed here.
   const smsResult = await sendSMS(tenant, phone, smsMessage, {
     skipDedup: true,
     source: 'website_lead_auto',
+    customerId: customer?.id ?? null,
   })
 
   if (!smsResult.success) {
-    // Clean up pre-inserted record since send failed
-    if (msgRecord?.id) {
-      await client.from("messages").delete().eq("id", msgRecord.id)
-    }
     console.error(`[Website Webhook] SMS send failed for ${phone}:`, smsResult.error)
   }
 
