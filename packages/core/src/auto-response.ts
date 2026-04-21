@@ -249,7 +249,7 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
 
   // Active jobs
   if (ctx.activeJobs.length > 0) {
-    parts.push('ACTIVE BOOKINGS FOR THIS CUSTOMER:')
+    parts.push('== AUTHORITATIVE APPOINTMENT (source of truth — overrides anything said earlier in conversation) ==')
     for (const job of ctx.activeJobs) {
       const rawDate = job.date || job.scheduled_at || ''
       const datePart = rawDate ? formatDateForContext(rawDate, tenant.timezone || 'America/Chicago') : 'TBD'
@@ -258,7 +258,8 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
       parts.push(`  - ${(job.service_type || 'Cleaning').replace(/_/g, ' ')} on ${datePart} (${job.status})${pricePart}${cleanerPart}`)
     }
     parts.push('')
-    parts.push('IMPORTANT: This customer has an active booking. Do NOT try to re-book them or run the booking flow.')
+    parts.push('CRITICAL — The appointment above is the current, correct time. If earlier messages in the conversation mention a different date/time (e.g., the time was corrected after the first proposal), the AUTHORITATIVE time above is right and the earlier mention is stale. Always state the authoritative time in your reply.')
+    parts.push('This customer has an active booking. Do NOT try to re-book them or run the booking flow.')
     parts.push('Instead, help them with questions about their upcoming service (date, time, what to expect, prep instructions).')
     parts.push('If they want to reschedule, cancel, or have a complaint, use [ESCALATE:reason].')
     parts.push('')
@@ -290,6 +291,41 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
     if (ctx.customer.address) parts.push(`Address on file: ${ctx.customer.address}`)
     if (ctx.customer.notes) parts.push(`Notes: ${ctx.customer.notes}`)
     parts.push('')
+  }
+
+  // ── KNOWN FACTS FROM FORM SUBMISSION (T3 — 2026-04-20) ─────────────
+  // Linda Kingcade submitted the Texas Nova estimate form with bedrooms,
+  // bathrooms, sqft, service, email and estimate. The SMS agent then asked
+  // her for ALL of that again. Customers hate redundant intake. Surface the
+  // form fields as "already known" and tell the agent to only ask for gaps.
+  if (ctx.lead?.form_data && typeof ctx.lead.form_data === 'object') {
+    const fd = ctx.lead.form_data as Record<string, unknown>
+    const knownLines: string[] = []
+    const pushIf = (label: string, val: unknown) => {
+      if (val !== null && val !== undefined && String(val).trim() !== '') knownLines.push(`${label}: ${val}`)
+    }
+    pushIf('Name', fd.name || [fd.first_name, fd.last_name].filter(Boolean).join(' '))
+    pushIf('Address', fd.address)
+    pushIf('City', fd.city)
+    pushIf('Email', fd.email)
+    pushIf('Bedrooms', fd.bedrooms)
+    pushIf('Bathrooms', fd.bathrooms)
+    pushIf('Half baths', fd.half_baths || fd.halfBathrooms)
+    pushIf('Sqft', fd.sqft || fd.square_footage || fd.squareFootage || fd.sqft_range)
+    pushIf('Service', (fd.service_type as string) || (fd.serviceType as string))
+    pushIf('Frequency', fd.frequency)
+    pushIf('Estimate shown on form', fd.estimated_price ? `$${fd.estimated_price}` : null)
+    pushIf('Preferred date', fd.preferred_date || fd.preferredDate)
+    pushIf('Message/notes', fd.message || fd.notes)
+
+    if (knownLines.length > 0) {
+      parts.push('== KNOWN FACTS FROM FORM SUBMISSION (do NOT re-ask) ==')
+      parts.push(...knownLines)
+      parts.push('')
+      parts.push('CRITICAL: These fields were already collected via the website form. NEVER re-ask for anything in the list above. Only ask for what is STILL MISSING (e.g., if address is unknown and you need it to book, ask for address — but do NOT ask for bedrooms/bathrooms/email/service type if they are listed above).')
+      parts.push('If the customer restates one of the known facts, acknowledge briefly and move the conversation forward — do not re-collect.')
+      parts.push('')
+    }
   }
 
   if (parts.length === 0) {
@@ -485,6 +521,7 @@ Rules:
 - Be warm but professional
 - Don't use emojis excessively (1-2 max)
 - NEVER offer discounts, deals, or promotional pricing. You have NO authority to change prices.
+- CRITICAL — BOOKING LANGUAGE: NEVER use phrases like "you're all set", "you're booked", "you're confirmed", "we've got you booked", "scheduled for [day]", "locked in for", "booking confirmed", or "see you [day]" unless the system has already created a confirmed booking. If you are discussing or proposing a time, use proposal language only: "Want me to hold [time] for you?" or "I can lock that in once you confirm" or "Let me pencil you in — I'll confirm once it's locked." The system emits the real confirmation message automatically when a booking is created; you do NOT author confirmations.
 - CRITICAL: Read the conversation history carefully. Respond to what the customer is actually saying.
 - NEVER ask for email. NEVER promise to email anything. The quote link is delivered via SMS. Email sends only happen if the customer explicitly asks ("email me", "send to my email", "prefer email").
 - If they confirmed something (yes/yup/sure), acknowledge and continue the booking flow with the SMS quote link.
@@ -874,7 +911,7 @@ async function generateWinBrosResponse(
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5-20250929',
       max_tokens: 500,
-      system: systemPrompt,
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: userMessage }],
     })
 
@@ -1340,7 +1377,7 @@ export async function generateEmailResponse(
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5-20250929',
       max_tokens: 800,
-      system: systemPrompt,
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: userMessage }],
     })
 
@@ -1767,7 +1804,7 @@ CRITICAL:
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5-20250929',
       max_tokens: 500,
-      system: systemPrompt,
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: userMessage }],
     })
 

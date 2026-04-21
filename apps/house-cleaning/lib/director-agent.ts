@@ -234,12 +234,16 @@ export async function handleDirectorMessage(
 
   const toolsUsed: string[] = []
 
+  const cachedTools = (TOOL_SCHEMAS as unknown as Anthropic.Messages.Tool[]).map((t, i, arr) =>
+    i === arr.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t
+  )
+
   for (let turn = 0; turn < 4; turn++) {
     const resp = await client.messages.create({
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-4-5-20250929',
       max_tokens: 600,
-      system: SYSTEM_PROMPT,
-      tools: TOOL_SCHEMAS as unknown as Anthropic.Messages.Tool[],
+      system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+      tools: cachedTools,
       messages,
     })
 

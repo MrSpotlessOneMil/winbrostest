@@ -137,9 +137,9 @@ async function generateAndPersist(
   try {
     const message = await anthropic.messages.create(
       {
-        model: "claude-sonnet-4-6-20250620",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 4096,
-        system: systemPrompt,
+        system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
         messages: [
           {
             role: "user",

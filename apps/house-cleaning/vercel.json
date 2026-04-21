@@ -62,7 +62,7 @@
     },
     {
       "path": "/api/cron/generate-blog-post",
-      "schedule": "0 10 * * 1,3,5"
+      "schedule": "0 10 * * 1,4"
     },
     {
       "path": "/api/cron/poll-lsa-leads",
@@ -70,7 +70,7 @@
     },
     {
       "path": "/api/cron/poll-meta-sheet",
-      "schedule": "*/2 * * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/score-conversations",
@@ -78,7 +78,7 @@
     },
     {
       "path": "/api/cron/brain-ingest",
-      "schedule": "*/30 * * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/brain-embed",
@@ -107,6 +107,18 @@
     {
       "path": "/api/cron/ghost-watchdog",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/drain-sms-queue",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/cold-followup",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/release-takeover",
+      "schedule": "0 5 * * *"
     }
   ]
 }

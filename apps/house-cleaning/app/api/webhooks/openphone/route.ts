@@ -2496,7 +2496,7 @@ export async function POST(request: NextRequest) {
           const Anthropic = (await import('@anthropic-ai/sdk')).default
           const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
           const resp = await anthropicClient.messages.create({
-            model: 'claude-sonnet-4-5-20250929',
+            model: 'claude-haiku-4-5-20251001',
             max_tokens: 200,
             system: `You are ${sdrName} from ${businessName}. The customer (${customerName}) has a confirmed booking and has already received their pricing and payment links. Respond naturally and helpfully to their questions. You have access to their account info below — share it if they ask.\n\nCustomer info:\n${customerCtx || 'No additional details on file.'}${jobCtx}\n\nRules:\n- Keep it to 1-3 sentences (this is SMS)\n- Do NOT re-ask booking questions or ask for their email\n- Answer their questions directly and warmly\n- If you don't have the info they're asking about, say so honestly\n- If they say thanks, say you're welcome and let them know to reach out if they need anything\n- Do NOT use emojis unless the customer uses them first\n- Do NOT use markdown formatting`,
             messages: [{ role: 'user', content: `Conversation:\n${historyCtx}\n\nCustomer: "${combinedMessage}"\n\nRespond as ${sdrName}. SMS text only.` }],

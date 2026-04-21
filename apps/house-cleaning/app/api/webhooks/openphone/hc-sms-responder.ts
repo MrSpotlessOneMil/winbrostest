@@ -13,6 +13,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
+import { buildIntakeSnapshot, decideIntake } from '@/lib/intake-state-machine'
 
 // ── Types ──
 
@@ -225,7 +226,13 @@ CRITICAL:
 - Never re-ask something already answered
 - Never send a price AND [BOOKING_COMPLETE] in the same message
 - If a human is already texting this customer, stay out of it
-- If they want a job as a cleaner: "Text ${tenant.owner_phone || 'the owner'} about opportunities"`
+- If they want a job as a cleaner: "Text ${tenant.owner_phone || 'the owner'} about opportunities"
+
+BOOKING LANGUAGE (NEVER claim a confirmed booking that doesn't exist):
+- NEVER say "you're all set", "you're booked", "you're confirmed", "we've got you booked", "scheduled for [day]", "locked in for", "booking confirmed", or "see you [day]" unless the CUSTOMER BRAIN above says "ALREADY BOOKED".
+- If you're proposing a time, use: "Want me to hold [time]?" / "I can pencil you in for [time] — I'll confirm once it's locked" / "Sound good? Just say yes and I'll get you on the calendar".
+- The system sends the real confirmation text automatically after a booking is created. You do NOT author confirmations.
+- Hallucinating a confirmation causes no-shows and chargebacks. This is a hard rule.`
 }
 
 // ── Main Responder ──
@@ -286,6 +293,24 @@ export async function generateHCResponse(input: HCResponderInput): Promise<HCRes
     }
   }
 
+  // ── Intake state machine (T4 — 2026-04-20) ─────────────────────────
+  // Deterministic decision: are we ready to quote? If yes, force the LLM
+  // toward [BOOKING_COMPLETE]. If no, pin the focus gap so it asks for the
+  // right thing instead of freelancing. Fixes the Natasha Jones stall
+  // where the agent collected bed+bath then just stopped.
+  let intakeBlock = ''
+  try {
+    const snap = buildIntakeSnapshot(null, customer, knownInfo)
+    const decision = decideIntake(snap)
+    if (decision.complete) {
+      intakeBlock = `\n\nINTAKE STATE: COMPLETE. You have every required field. Quote the exact price from the PRICING block above and fire [BOOKING_COMPLETE] on the NEXT turn (not this one — give the price first, let the customer react).\n`
+    } else if (decision.gaps.length > 0) {
+      intakeBlock = `\n\nINTAKE STATE: missing ${decision.gaps.join(', ')}. FOCUS: ${decision.focus}. Ask ONE short question: "${decision.nextQuestion}". Do NOT ask for anything in INFO ON FILE.\n`
+    }
+  } catch {
+    // Non-blocking — fall back to existing behavior if snapshot fails.
+  }
+
   // Load brain + patterns + pricing in parallel
   const [brainChunks, winningPatterns, pricingBlock] = await Promise.all([
     loadBrainChunks(supabaseClient, message),
@@ -341,7 +366,7 @@ export async function generateHCResponse(input: HCResponderInput): Promise<HCRes
   const userMessage = `Today: ${today}
 
 Conversation so far:
-${historyContext}${knownInfoBlock}${pricingContext}${specialContext}${customerBrain}${brainBlock}${patternsBlock}${frustrationWarning}
+${historyContext}${knownInfoBlock}${intakeBlock}${pricingContext}${specialContext}${customerBrain}${brainBlock}${patternsBlock}${frustrationWarning}
 
 Customer just texted: "${message}"
 
@@ -360,7 +385,7 @@ REMEMBER: ONE message only. No emojis. No em dashes. No markdown. Do NOT include
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5-20250929',
       max_tokens: 400,
-      system: systemPrompt,
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: userMessage }],
     })
 

@@ -2960,18 +2960,30 @@ export async function POST(request: NextRequest) {
     let currentMessages = anthropicMessages
     let finalText = ""
     let iterations = 0
-    const MAX_ITERATIONS = 20
+    const MAX_ITERATIONS = 8
     const toolsUsed: Record<string, number> = {}
     const collectedUrls: string[] = [] // Track URLs from tool results across all iterations
+
+    // Cache the (large, stable) system prompt + tool schemas — up to 90% cheaper on repeat iterations
+    const cachedSystem = [
+      { type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } },
+    ]
+    const cachedTools = tools.length > 0
+      ? tools.map((t, i) =>
+          i === tools.length - 1
+            ? { ...t, cache_control: { type: "ephemeral" as const } }
+            : t
+        )
+      : tools
 
     while (iterations < MAX_ITERATIONS) {
       iterations++
 
       const response = await anthropic.messages.create({
-        model: "claude-opus-4-6",
+        model: "claude-sonnet-4-6",
         max_tokens: 4096,
-        system: systemPrompt,
-        tools: tools,
+        system: cachedSystem,
+        tools: cachedTools,
         messages: currentMessages,
       })
 
