@@ -5,6 +5,7 @@ import { sendSMS } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
 import { getAllActiveTenants, getTenantServiceDescription, tenantUsesFeature, getCleanerPhoneSet, isCleanerPhone } from '@/lib/tenant'
 import { canSendToCustomer, recordMessageSent } from '@/lib/lifecycle-engine'
+import { isRetargetingExcluded, isInPersonalHours } from '@/lib/cron-hours-guard'
 
 /**
  * Lifecycle Re-engagement Cron
@@ -36,6 +37,14 @@ export async function GET(request: NextRequest) {
 
   for (const tenant of tenants) {
     if (!tenantUsesFeature(tenant, 'monthly_followup_enabled')) {
+      continue
+    }
+    if (isRetargetingExcluded(tenant.slug)) {
+      console.log(`[Lifecycle Reengagement] Skipping ${tenant.slug} (retargeting excluded)`)
+      continue
+    }
+    if (!isInPersonalHours(tenant)) {
+      console.log(`[Lifecycle Reengagement] Skipping ${tenant.slug} — outside 9am–9pm ${tenant.timezone || 'America/Chicago'}`)
       continue
     }
 

@@ -4,6 +4,7 @@ import { getSupabaseServiceClient } from '@/lib/supabase'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
 import { getAllActiveTenants, getCleanerPhoneSet } from '@/lib/tenant'
+import { isInPersonalHours } from '@/lib/cron-hours-guard'
 
 // route-check:no-vercel-cron
 
@@ -22,29 +23,27 @@ export async function GET(request: NextRequest) {
   }
 
   const tag = '[Follow-Up Quoted]'
-
-  // GUARD: Only send between 9 AM and 7 PM in each tenant's timezone
-  // Default to Pacific Time for safety
-  const pacificHour = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false })
-  const currentHourPT = parseInt(pacificHour)
-  if (currentHourPT < 9 || currentHourPT >= 19) {
-    console.log(`${tag} Outside business hours (${currentHourPT}:00 PT) — skipping`)
-    return NextResponse.json({ success: true, skipped: 'outside_business_hours', currentHourPT })
-  }
-
-  console.log(`${tag} Starting follow-up check (${currentHourPT}:00 PT)...`)
+  console.log(`${tag} Starting follow-up check (per-tenant timezone gate)...`)
 
   const client = getSupabaseServiceClient()
   const tenants = await getAllActiveTenants()
   const appDomain = process.env.NEXT_PUBLIC_APP_URL || 'https://cleanmachine.live'
 
-  const summary: Array<{ tenant: string; checked: number; nudged: number; abandoned: number }> = []
+  const summary: Array<{ tenant: string; checked: number; nudged: number; abandoned: number; skipped?: string }> = []
 
   // WinBros does NOT use automated quote follow-up — Jack handles his own outreach
   const EXCLUDED_TENANTS = ['winbros']
 
   for (const tenant of tenants) {
     if (EXCLUDED_TENANTS.includes(tenant.slug)) continue
+
+    // Per-tenant business-hours guard (9am–9pm local). The old code used a single PT check
+    // which meant West Niagara (ET) and Cedar Rapids (CT) could receive late-night texts.
+    if (!isInPersonalHours(tenant)) {
+      console.log(`${tag} Skipping ${tenant.slug} — outside 9am–9pm ${tenant.timezone || 'America/Chicago'}`)
+      summary.push({ tenant: tenant.slug, checked: 0, nudged: 0, abandoned: 0, skipped: 'outside_business_hours' })
+      continue
+    }
 
     let checked = 0
     let nudged = 0

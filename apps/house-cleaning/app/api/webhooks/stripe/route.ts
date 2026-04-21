@@ -1199,7 +1199,7 @@ async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
     try {
       const customerName = quote.customer_name?.split(' ')[0] || 'there'
       const businessName = tenant.business_name || tenant.name
-      const depositStr = quote.deposit_amount ? `$${Number(quote.deposit_amount).toFixed(2)}` : 'your deposit'
+      const depositStr = quote.deposit_amount ? formatTenantCurrency(tenant, Number(quote.deposit_amount)) : 'your deposit'
       const message = `Hey ${customerName}! Your ${depositStr} deposit for ${serviceName} with ${businessName} has been received. We'll be in touch to schedule your service. Thank you!`
       await sendSMS(tenant, smsPhone, message)
     } catch (err) {

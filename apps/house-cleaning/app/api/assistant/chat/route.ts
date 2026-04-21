@@ -3,7 +3,7 @@ import { requireAuth } from "@/lib/auth"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { toE164 } from "@/lib/phone-utils"
 import Anthropic from "@anthropic-ai/sdk"
-import { getTenantById, tenantHasIntegration, getTenantServiceDescription, tenantUsesFeature, type Tenant } from "@/lib/tenant"
+import { getTenantById, tenantHasIntegration, getTenantServiceDescription, tenantUsesFeature, formatTenantCurrency, type Tenant } from "@/lib/tenant"
 import { hasAssistantMemory, buildMemoryContext, saveConversation, extractAndStoreFacts, recordToolUsage } from "@/lib/assistant-memory"
 
 export const maxDuration = 300
@@ -979,17 +979,19 @@ async function executeTool(
       )
 
       const depositAmount = Math.round((estimate.totalPrice / 2) * 1.03 * 100) / 100
+      const priceTenant = tenantId ? await getTenantById(tenantId) : null
+      const money = (n: number) => priceTenant ? formatTenantCurrency(priceTenant, n) : `$${n}`
       return JSON.stringify({
         service_type: toolInput.service_type,
         bedrooms: toolInput.bedrooms,
         bathrooms: toolInput.bathrooms,
-        base_price: `$${estimate.basePrice}`,
-        add_on_price: `$${estimate.addOnPrice}`,
-        total_price: `$${estimate.totalPrice}`,
+        base_price: money(estimate.basePrice),
+        add_on_price: money(estimate.addOnPrice),
+        total_price: money(estimate.totalPrice),
         estimated_hours: estimate.totalHours,
         cleaners_needed: estimate.cleaners,
         hours_per_cleaner: estimate.hoursPerCleaner,
-        deposit_amount: `$${depositAmount}`,
+        deposit_amount: money(depositAmount),
         add_ons: estimate.addOns,
       })
     } catch (err: any) {

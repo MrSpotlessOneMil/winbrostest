@@ -4,6 +4,7 @@ import { getSupabaseServiceClient } from '@/lib/supabase'
 import { getAllActiveTenants, tenantUsesFeature } from '@/lib/tenant'
 import { sendSMS } from '@/lib/openphone'
 import { scheduleRetargetingSequence, type RetargetingSequenceType } from '@/lib/scheduler'
+import { isRetargetingExcluded, isInPersonalHours } from '@/lib/cron-hours-guard'
 
 /**
  * Lifecycle Auto-Enrollment Cron
@@ -46,6 +47,14 @@ export async function GET(request: NextRequest) {
 
   for (const tenant of tenants) {
     if (!tenantUsesFeature(tenant, 'monthly_followup_enabled')) {
+      continue
+    }
+    if (isRetargetingExcluded(tenant.slug)) {
+      console.log(`[Lifecycle Auto-Enroll] Skipping ${tenant.slug} (retargeting excluded)`)
+      continue
+    }
+    if (!isInPersonalHours(tenant)) {
+      console.log(`[Lifecycle Auto-Enroll] Skipping ${tenant.slug} — outside 9am–9pm ${tenant.timezone || 'America/Chicago'}`)
       continue
     }
 

@@ -16,6 +16,7 @@ import { seasonalReminder } from '@/lib/sms-templates'
 import { getAllActiveTenants } from '@/lib/tenant'
 import { logSystemEvent } from '@/lib/system-events'
 import type { SeasonalCampaign } from '@/lib/tenant'
+import { isRetargetingExcluded, isInPersonalHours } from '@/lib/cron-hours-guard'
 
 const BATCH_LIMIT = 50 // Max customers per campaign per run
 
@@ -36,6 +37,14 @@ export async function GET(request: NextRequest) {
 
   for (const tenant of tenants) {
     if (!tenant.workflow_config?.seasonal_reminders_enabled) continue
+    if (isRetargetingExcluded(tenant.slug)) {
+      console.log(`[Seasonal Reminders] Skipping ${tenant.slug} (retargeting excluded)`)
+      continue
+    }
+    if (!isInPersonalHours(tenant)) {
+      console.log(`[Seasonal Reminders] Skipping ${tenant.slug} — outside 9am–9pm ${tenant.timezone || 'America/Chicago'}`)
+      continue
+    }
 
     const campaigns = tenant.workflow_config?.seasonal_campaigns || []
     const activeCampaigns = campaigns.filter(

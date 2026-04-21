@@ -575,7 +575,9 @@ async function processJobBroadcast(
     // Escalate to owner
     const ownerPhone = tenant?.owner_phone || process.env.OWNER_PHONE
     if (ownerPhone && tenant) {
-      await sendSMS(tenant, ownerPhone, `URGENT: Job ${jobId} needs manual assignment. All cleaners are unavailable.`)
+      // Pre-insert via source tag so the outbound webhook does not flip this owner
+      // SMS into a false manual_takeover on the owner's phone record.
+      await sendSMS(tenant, ownerPhone, `URGENT: Job ${jobId} needs manual assignment. All cleaners are unavailable.`, { source: 'owner_escalation' })
     } else if (!tenant) {
       console.error(`[cleaner-retry] No tenant for job ${jobId} — cannot send escalation SMS`)
     }
@@ -720,7 +722,9 @@ async function processSmsRetry(
 
   console.log(`[sms-retry] Retrying SMS to ${phone.slice(-4)} for tenant ${tenant?.slug}`)
 
-  const result = await sendSMS(tenant, phone, message)
+  // Pre-insert via source tag (feedback_send_sms_takeover.md): without this, the outbound
+  // webhook can mistake the retry for a manual owner send and trigger auto_response_paused.
+  const result = await sendSMS(tenant, phone, message, { source: 'sms_retry' })
 
   if (result.success && messageId) {
     // Update the stored failed message to sent status
@@ -1137,7 +1141,10 @@ async function processRetargeting(
     preInsertedMsgId = msgRecord?.id || null
   }
 
-  const result = await sendSMS(tenant, customerPhone, message)
+  // skipDedup: the caller already pre-inserted the messages row above (line 1129).
+  // Without this flag, sendSMS's 5-min content-dedup would match that row and refuse
+  // to send, silently ghosting the customer.
+  const result = await sendSMS(tenant, customerPhone, message, { skipDedup: true })
 
   if (!result.success && preInsertedMsgId) {
     // Clean up pre-inserted record since send failed
@@ -1239,7 +1246,7 @@ async function processHotLeadFollowup(
   const preview = lastMessage.length > 100 ? lastMessage.slice(0, 100) + '...' : lastMessage
   const alertMessage = `Hot lead! ${firstName} replied to retargeting and seems interested but hasn't booked yet. Last message: "${preview}". Phone: ${customerPhone}`
 
-  await sendSMS(tenant, ownerPhone, alertMessage)
+  await sendSMS(tenant, ownerPhone, alertMessage, { source: 'hot_lead_alert' })
 
   await logSystemEvent({
     source: 'scheduler',
@@ -1297,7 +1304,7 @@ async function processPostJobReview(
   const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
   const message = `Hi ${customerName}! Thanks for choosing us. A quick review really helps our small business grow: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings — you'd get ${recurringDiscount} off every visit and never have to think about scheduling. Would that be something you'd be interested in?`
 
-  const result = await sendSMS(tenant, customerPhone, message)
+  const result = await sendSMS(tenant, customerPhone, message, { source: 'post_job_review' })
 
   if (result.success) {
     await client.from('jobs').update({
@@ -1343,7 +1350,7 @@ async function processPostJobRecurringPush(
   const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
   const message = `Hi ${customerName}! A lot of our customers love setting up recurring cleanings — you'd get ${recurringDiscount} off every visit and never have to worry about scheduling. Would that be something you'd be interested in?`
 
-  const result = await sendSMS(tenant, customerPhone, message)
+  const result = await sendSMS(tenant, customerPhone, message, { source: 'recurring_offer' })
 
   if (result.success) {
     const client = getSupabaseServiceClient()
@@ -1400,7 +1407,7 @@ async function processQuoteFollowupUrgent(
 
   const message = `Hey ${customerName || 'there'}! Did you get a chance to look at your quote? We only have a few spots left this week — let me know if you have any questions!`
 
-  const result = await sendSMS(tenant, customerPhone, message)
+  const result = await sendSMS(tenant, customerPhone, message, { source: 'quote_followup_urgent' })
 
   if (result.success && customerId) {
     await recordMessageSent(tenant.id, customerId, customerPhone, 'quote_followup_urgent', 'quote_followup')

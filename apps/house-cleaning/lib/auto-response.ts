@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import type { IntentAnalysis } from './ai-intent'
 import type { Tenant } from './tenant'
-import { getTenantServiceDescription, getTenantBusinessContext, tenantUsesFeature } from './tenant'
+import { getTenantServiceDescription, getTenantBusinessContext, tenantUsesFeature, formatTenantCurrency } from './tenant'
 import { getPromoConfig, CAMPAIGN_CONTEXTS } from './promo-config'
 
 // =====================================================================
@@ -258,7 +258,7 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
       const rawDate = job.date || job.scheduled_at || ''
       const datePart = rawDate ? formatDateForContext(rawDate, tenant.timezone || 'America/Chicago') : 'TBD'
       const cleanerPart = job.cleaner_name ? ` | Cleaner: ${job.cleaner_name}` : ''
-      const pricePart = job.price ? ` | Price: $${job.price}` : ''
+      const pricePart = job.price ? ` | Price: ${formatTenantCurrency(tenant, Number(job.price))}` : ''
       parts.push(`  - ${(job.service_type || 'Cleaning').replace(/_/g, ' ')} on ${datePart} (${job.status})${pricePart}${cleanerPart}`)
     }
     parts.push('')
@@ -271,13 +271,13 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
 
   // Service history
   if (ctx.totalJobs > 0) {
-    parts.push(`CUSTOMER HISTORY: ${ctx.totalJobs} completed job${ctx.totalJobs > 1 ? 's' : ''}, $${ctx.totalSpend} total spend`)
+    parts.push(`CUSTOMER HISTORY: ${ctx.totalJobs} completed job${ctx.totalJobs > 1 ? 's' : ''}, ${formatTenantCurrency(tenant, Number(ctx.totalSpend) || 0)} total spend`)
     if (ctx.recentJobs.length > 0) {
       parts.push('Recent jobs:')
       for (const job of ctx.recentJobs) {
         const rawDate = job.date || job.completed_at || ''
         const jobDate = rawDate ? formatDateForContext(rawDate, tenant.timezone || 'America/Chicago') : 'unknown'
-        parts.push(`  - ${(job.service_type || 'Cleaning').replace(/_/g, ' ')} on ${jobDate} ($${job.price || 0})`)
+        parts.push(`  - ${(job.service_type || 'Cleaning').replace(/_/g, ' ')} on ${jobDate} (${formatTenantCurrency(tenant, Number(job.price) || 0)})`)
       }
     }
     if (ctx.activeJobs.length === 0) {
@@ -1532,12 +1532,12 @@ async function generateHouseCleaningResponse(
       if (cust.email) brainParts.push(`Email: ${cust.email}`)
 
       if (customerContext.totalJobs > 0) {
-        brainParts.push(`History: ${customerContext.totalJobs} completed job${customerContext.totalJobs > 1 ? 's' : ''}, $${customerContext.totalSpend} total`)
+        brainParts.push(`History: ${customerContext.totalJobs} completed job${customerContext.totalJobs > 1 ? 's' : ''}, ${formatTenantCurrency(tenant, Number(customerContext.totalSpend) || 0)} total`)
         if (customerContext.recentJobs?.length > 0) {
           const lastJob = customerContext.recentJobs[0]
           const jobDate = lastJob.date || lastJob.completed_at
           const daysAgo = jobDate ? Math.round((Date.now() - new Date(jobDate).getTime()) / (24 * 60 * 60 * 1000)) : null
-          brainParts.push(`Last service: ${(lastJob.service_type || 'cleaning').replace(/_/g, ' ')} ($${lastJob.price || 0})${daysAgo ? ` — ${daysAgo} days ago` : ''}`)
+          brainParts.push(`Last service: ${(lastJob.service_type || 'cleaning').replace(/_/g, ' ')} (${formatTenantCurrency(tenant, Number(lastJob.price) || 0)})${daysAgo ? ` — ${daysAgo} days ago` : ''}`)
         }
       }
 

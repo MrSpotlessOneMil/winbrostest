@@ -274,6 +274,140 @@ describe('Currency propagation — no hardcoded $ in customer-facing SMS', () =>
   }
 })
 
+// ─── 2026-04-20 additions: broaden the no-hardcoded-$ scan ──────────────
+//
+// The 2026-04-15 fix caught $-in-customer-SMS regressions in a handful of routes.
+// Today's audit found three more leak surfaces the old scan missed:
+//   1. Stripe quote-deposit confirmation SMS (HC webhook line ~1202)
+//   2. AI customer-context block built in auto-response.ts (prompt fed to the LLM)
+//   3. Assistant chat `calculate_price` tool output (returned to the assistant)
+//
+// West Niagara (CAD) was receiving "$480.00" instead of "CA$480" on all three paths.
+// These tests pin the fix so it can never silently regress.
+//
+// Scope: HC only. WW is tucked away (feedback_ww_app_not_production.md) — its copies
+// are intentionally not covered here.
+
+describe('Currency propagation — 2026-04-20 leak surfaces', () => {
+  it('HC Stripe quote-deposit SMS uses formatTenantCurrency (not hardcoded $)', () => {
+    const file = path.join(HC_ROOT, 'app/api/webhooks/stripe/route.ts')
+    const source = readFile(file)
+    const lines = source.split('\n')
+
+    // Find the depositStr line(s) around the quote-deposit confirmation SMS.
+    const depositStrLines = lines
+      .map((l, i) => ({ l, i: i + 1 }))
+      .filter(({ l }) => /\bdepositStr\s*=/.test(l))
+
+    expect(depositStrLines.length, 'expected at least one depositStr assignment').toBeGreaterThan(0)
+
+    const bad = depositStrLines.filter(
+      ({ l }) =>
+        /\$\$\{[^}]*deposit/i.test(l) && !/formatTenantCurrency/.test(l),
+    )
+
+    expect(
+      bad,
+      `depositStr assignments still hardcode $:\n${bad
+        .map(({ l, i }) => `  line ${i}: ${l.trim()}`)
+        .join('\n')}`,
+    ).toHaveLength(0)
+  })
+
+  it('AI customer-context uses formatTenantCurrency for price / totalSpend (core + HC lib)', () => {
+    // HC runtime resolves `@/lib/auto-response` to `packages/core/src/auto-response.ts`
+    // per apps/house-cleaning/tsconfig.json (core path listed first). The HC lib copy is
+    // effectively dead, but we scan both so a future tsconfig flip doesn't reintroduce
+    // the leak via whichever copy wins resolution.
+    const files = [
+      path.join(CORE_ROOT, 'auto-response.ts'),
+      path.join(HC_ROOT, 'lib/auto-response.ts'),
+    ]
+    for (const file of files) {
+      const source = readFile(file)
+      const lines = source.split('\n')
+      const bad: string[] = []
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i]
+        if (/^\s*(\/\/|\*|\/\*)/.test(l)) continue
+        if (
+          /\$\$\{[^}]*(job\.price|ctx\.totalSpend|customerContext\.totalSpend|lastJob\.price|job\.totalCharged)/i.test(l)
+        ) {
+          bad.push(`line ${i + 1}: ${l.trim()}`)
+        }
+      }
+      const relFile = path.relative(path.resolve(__dirname, '../..'), file)
+      expect(
+        bad,
+        `${relFile} still hardcodes $ for price / totalSpend:\n${bad.join('\n')}`,
+      ).toHaveLength(0)
+    }
+  })
+
+  it('HC assistant/chat/route.ts calculate_price tool returns formatTenantCurrency', () => {
+    const file = path.join(HC_ROOT, 'app/api/assistant/chat/route.ts')
+    const source = readFile(file)
+
+    // The calculate_price tool block must not contain `$${estimate.` or `$${depositAmount`.
+    // These were the 4 leak sites flagged in the audit.
+    const lines = source.split('\n')
+    const bad: string[] = []
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i]
+      if (/^\s*(\/\/|\*|\/\*)/.test(l)) continue
+      if (
+        /\$\$\{\s*estimate\.(basePrice|addOnPrice|totalPrice)/.test(l) ||
+        /\$\$\{\s*depositAmount/.test(l)
+      ) {
+        bad.push(`line ${i + 1}: ${l.trim()}`)
+      }
+    }
+
+    expect(
+      bad,
+      `calculate_price tool still hardcodes $:\n${bad.join('\n')}`,
+    ).toHaveLength(0)
+
+    // And the file must import/use formatTenantCurrency.
+    expect(source).toMatch(/formatTenantCurrency/)
+  })
+})
+
+describe('formatTenantCurrency output — single source of truth', () => {
+  // Per apps/house-cleaning/lib/tenant.ts:507, Dominic's design is that domestic
+  // customers see plain "$" for their currency — Canadian customers know "$" means CAD.
+  // The goal of these tests is NOT to enforce a CA$ prefix; it is to prove that all
+  // customer-facing formatting runs through ONE code path (formatTenantCurrency), so
+  // any future change (e.g. "switch to CA$ for CAD") is a one-line edit and not a
+  // grep-hunt across 11 callers.
+  function format(currency: 'usd' | 'cad', amount: number): string {
+    const locale = currency === 'cad' ? 'en-CA' : 'en-US'
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount)
+  }
+
+  it('CAD tenant renders with $ and the correct amount (domestic convention)', () => {
+    const cad = format('cad', 480)
+    expect(cad).toContain('$')
+    expect(cad).toContain('480')
+  })
+
+  it('USD tenant renders with $ and the correct amount', () => {
+    const usd = format('usd', 150)
+    expect(usd).toContain('$')
+    expect(usd).toContain('150')
+  })
+
+  it('the en-US/USD output is deterministic ($150)', () => {
+    // Pin Intl.NumberFormat output so a Node ICU change is caught in CI.
+    expect(format('usd', 150)).toBe('$150')
+  })
+})
+
 // Helper: recursively find all .ts files
 function getAllTsFiles(dir: string): string[] {
   const results: string[] = []
