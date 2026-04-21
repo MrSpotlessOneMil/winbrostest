@@ -133,10 +133,22 @@ async function sendMultiPartSMS(
       .limit(1)
       .maybeSingle()).data
 
+    // Confirmed booking = real scheduled/in_progress job (excludes 'quoted').
+    // Required for the booking-confirmation guard to allow confirmation language.
+    const hasConfirmedBooking = !!(await client
+      .from('jobs')
+      .select('id')
+      .eq('customer_id', customerId)
+      .eq('tenant_id', tenant.id)
+      .in('status', ['scheduled', 'in_progress'])
+      .limit(1)
+      .maybeSingle()).data
+
     const guard = await guardMessage(fullResponse, tenant.id, convHistory, {
       bedrooms: custData?.bedrooms,
       bathrooms: custData?.bathrooms,
       hasActiveJob,
+      hasConfirmedBooking,
       hasPriceBeenQuoted: convHistory.some((m: any) => m.role === 'assistant' && /\$\d/.test(m.content)),
     })
 
@@ -179,6 +191,7 @@ REASON BLOCKED: ${guard.reason}
 CRITICAL RULES:
 - You have ZERO authority to change, reduce, or discount prices. EVER.
 - NEVER offer discounts, deals, free add-ons, or any price reduction.
+- NEVER claim a booking is confirmed, locked in, or scheduled unless the system has created a real booking. Use proposal language like "Want me to hold [time] for you?" or "I can lock that in once you confirm" instead of "you're all set" / "you're booked" / "scheduled for [day]".
 - If the customer wants a lower price, build VALUE instead: satisfaction guarantee, insured & bonded, background-checked cleaners, 5-star reviews, professional supplies included.
 - If they keep pushing, say: "I totally understand — let me have the owner reach out to discuss options with you"
 - Keep it to 1-3 sentences. This is SMS.
@@ -200,6 +213,7 @@ Write a CORRECTED message that handles the customer's request without violating 
             bedrooms: custData?.bedrooms,
             bathrooms: custData?.bathrooms,
             hasActiveJob,
+            hasConfirmedBooking,
             hasPriceBeenQuoted: convHistory.some((m: any) => m.role === 'assistant' && /\$\d/.test(m.content)),
           })
 
@@ -636,6 +650,64 @@ export async function POST(request: NextRequest) {
           })
 
           console.log(`[OpenPhone] Manual takeover: customer ${customer.id}, AI paused + retargeting stopped`)
+
+          // ── W1: Datetime correction extraction ──────────────────────
+          // When staff corrects an appointment time ("Sorry we meant Wed 11am"),
+          // propagate that to `jobs.scheduled_at` so when the AI resumes after
+          // auto-unpause it reads the authoritative time. Paige Elizabeth
+          // incident, West Niagara, 2026-04-20.
+          try {
+            const { looksLikeDatetimeCorrection, extractDatetimeCorrection } = await import('@/lib/extract-datetime-correction')
+            if (extracted.content && looksLikeDatetimeCorrection(extracted.content)) {
+              const extraction = await extractDatetimeCorrection(
+                extracted.content,
+                tenant.timezone || 'America/Chicago',
+                new Date(),
+              )
+              if (extraction.hasChange && extraction.newDatetimeIso && extraction.confidence >= 0.7) {
+                // Find the most recent active job for this customer and update scheduled_at.
+                const { data: activeJob } = await client
+                  .from("jobs")
+                  .select("id, scheduled_at, date")
+                  .eq("tenant_id", tenant.id)
+                  .eq("customer_id", customer.id)
+                  .in("status", ["quoted", "scheduled", "in_progress"])
+                  .order("created_at", { ascending: false })
+                  .limit(1)
+                  .maybeSingle()
+
+                if (activeJob) {
+                  await client
+                    .from("jobs")
+                    .update({ scheduled_at: extraction.newDatetimeIso })
+                    .eq("id", activeJob.id)
+                    .eq("tenant_id", tenant.id)
+
+                  await logSystemEvent({
+                    source: "openphone",
+                    event_type: "APPOINTMENT_EXTRACTED_FROM_OPERATOR_SMS",
+                    message: `Operator SMS corrected appointment for ${maskPhone(toPhone)} from ${activeJob.scheduled_at || activeJob.date} -> ${extraction.newDatetimeIso} (confidence ${extraction.confidence})`,
+                    tenant_id: tenant.id,
+                    phone_number: toE164,
+                    metadata: {
+                      customerId: customer.id,
+                      jobId: activeJob.id,
+                      previous: activeJob.scheduled_at || activeJob.date,
+                      extracted: extraction.newDatetimeIso,
+                      confidence: extraction.confidence,
+                      reasoning: extraction.reasoning,
+                      operatorMessage: extracted.content,
+                    },
+                  })
+                  console.log(`[OpenPhone] W1: Updated job ${activeJob.id} scheduled_at to ${extraction.newDatetimeIso} from operator SMS (confidence ${extraction.confidence})`)
+                }
+              }
+            }
+          } catch (err) {
+            // Never fail the webhook on extraction errors — this is an
+            // enhancement path, not a critical one. Log and move on.
+            console.error(`[OpenPhone] W1 datetime extraction failed for customer ${customer.id}:`, err)
+          }
         }
       }
     }
@@ -735,6 +807,19 @@ export async function POST(request: NextRequest) {
   // Messages are still stored for dashboard visibility.
   // ============================================
   const senderDigits = normalizePhone(phone)
+
+  // ── DIRECTOR AGENT: Dominic → Spotless → route to autonomous ads director
+  // Dominic authorized Claude Code to act on his SMS commands in real-time (2026-04-20).
+  if (tenant?.slug === 'spotless-scrubbers' && senderDigits === '4242755847') {
+    try {
+      const { handleDirectorSMS } = await import('@/lib/director-agent')
+      await handleDirectorSMS(tenant, phone, extracted.content || '', opMessageId)
+      return NextResponse.json({ success: true, routed: 'director_agent' })
+    } catch (err) {
+      console.error('[OpenPhone] Director agent crashed:', err)
+      // Fall through to normal flow so we don't silently swallow Dominic's text
+    }
+  }
 
   // God mode: bypass all internal filters for admin test numbers
   const GOD_MODE_NUMBERS = ["4242755847"]
