@@ -69,9 +69,14 @@ export async function POST(
   }
 
   const wc = (tenant.workflow_config || {}) as Record<string, unknown>
-  const pageAccessToken = (wc.meta_page_access_token as string) || process.env.META_PAGE_ACCESS_TOKEN
+  // Prefer System User token (new, multi-scope, never-expires) → fall back to page access token → env
+  const pageAccessToken =
+    (wc.meta_ads_access_token as string) ||
+    (wc.meta_page_access_token as string) ||
+    process.env.META_PAGE_ACCESS_TOKEN ||
+    process.env.META_ACCESS_TOKEN
   if (!pageAccessToken) {
-    console.error(`[Meta Webhook] No page access token for ${slug}`)
+    console.error(`[Meta Webhook] No access token for ${slug}`)
     return NextResponse.json({ received: true })
   }
 

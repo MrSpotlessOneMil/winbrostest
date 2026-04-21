@@ -42,3 +42,4 @@ scripts/import-*-jobber.sql
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+scripts/install-meta-token.js
