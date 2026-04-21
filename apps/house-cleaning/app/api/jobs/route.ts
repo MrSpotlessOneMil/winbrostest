@@ -774,10 +774,12 @@ export async function POST(request: NextRequest) {
 
     const response: ApiResponse<Job> = { success: true, data: createdJob, message: "Job created successfully" }
     return NextResponse.json(response, { status: 201 })
-  } catch (error) {
+  } catch (error: any) {
+    console.error("[Jobs POST] Failed to create job:", error)
+    const detail = error?.message || error?.details || error?.hint || "Failed to create job"
     const response: ApiResponse<never> = {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to create job",
+      error: detail,
     }
     return NextResponse.json(response, { status: 400 })
   }
