@@ -43,6 +43,32 @@ describe('computeMrr', () => {
     ]
     expect(computeMrr(series)).toEqual({ mrr: 0, activeCount: 0 })
   })
+
+  it('dedupes by customer_id — one customer with many scheduled occurrences counts once', () => {
+    // Simulates the Cedar Rapids data shape: the extend-recurring-jobs cron
+    // materializes 30+ future rows per customer. Each row is "a recurring job"
+    // at $200 monthly — the customer is ONE series, not 30.
+    const series: RecurringSeries[] = Array.from({ length: 30 }, (_, i) => ({
+      id: i + 1,
+      customer_id: 'cust-a',
+      price: 200,
+      frequency: 'monthly',
+    }))
+    const { mrr, activeCount } = computeMrr(series)
+    expect(activeCount).toBe(1)
+    expect(mrr).toBe(200)
+  })
+
+  it('paused on any row for a customer excludes that customer', () => {
+    const series: RecurringSeries[] = [
+      { id: 1, customer_id: 'cust-a', price: 200, frequency: 'monthly' },
+      { id: 2, customer_id: 'cust-a', price: 200, frequency: 'monthly', paused_at: '2026-01-01T00:00:00Z' },
+      { id: 3, customer_id: 'cust-b', price: 150, frequency: 'weekly' },
+    ]
+    const { mrr, activeCount } = computeMrr(series)
+    expect(activeCount).toBe(1)
+    expect(mrr).toBe(Math.round(150 * CADENCE_FACTOR.weekly))
+  })
 })
 
 describe('mrrAsOf', () => {

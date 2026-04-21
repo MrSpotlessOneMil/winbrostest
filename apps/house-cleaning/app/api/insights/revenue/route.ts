@@ -356,17 +356,22 @@ export async function GET(request: NextRequest) {
   // Canonical MRR: sum of (price × cadence factor) across active recurring
   // parent series. Supersedes the old mrr=recurringRevenue heuristic.
   // -----------------------------------------------------------------------
+  // NOTE: We intentionally do NOT filter on parent_job_id here. The extend-
+  // recurring-jobs cron materializes each future occurrence as its own row,
+  // and historically many rows were imported with parent_job_id=NULL per
+  // occurrence. computeMrr dedupes by customer_id so one customer counts once
+  // at price × cadence factor regardless of how many occurrences exist.
   const { data: allParentSeriesRaw } = await client
     .from("jobs")
-    .select("id, price, frequency, created_at, paused_at")
+    .select("id, customer_id, price, frequency, created_at, paused_at")
     .eq("tenant_id", tenant.id)
     .neq("frequency", "one-time")
     .not("frequency", "is", null)
-    .is("parent_job_id", null)
     .not("price", "is", null)
 
   const allParentSeries: RecurringSeries[] = (allParentSeriesRaw ?? []).map((s) => ({
     id: s.id,
+    customer_id: s.customer_id,
     price: s.price,
     frequency: s.frequency,
     created_at: s.created_at,

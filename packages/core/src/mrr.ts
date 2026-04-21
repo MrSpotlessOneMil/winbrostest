@@ -16,14 +16,62 @@ export const CADENCE_FACTOR: Record<string, number> = {
 
 export interface RecurringSeries {
   id?: string | number
+  customer_id?: string | null
   price: number | string | null
   frequency: string | null
   created_at?: string | Date | null
   paused_at?: string | Date | null
   /**
-   * Only parent rows are passed in for MRR math (parent_job_id IS NULL).
-   * Callers must filter before handing the array to computeMrr / computeMrrTrend.
+   * Recurring rows are passed in (frequency IS NOT NULL, != 'one-time'). Because
+   * the extend-recurring-jobs cron writes each future occurrence as its own row
+   * (sometimes with parent_job_id=NULL, sometimes pointing at an original seed),
+   * the caller should NOT pre-filter on parent_job_id. We de-duplicate by
+   * customer_id inside this module so one customer == one series, regardless
+   * of how many future occurrences are materialized.
    */
+}
+
+/**
+ * Collapse many occurrence-rows to one representative row per customer.
+ * Rules:
+ *  - A customer is paused (as-of `asOf` if provided, else as-of "now") when ANY
+ *    row for that customer has a paused_at that would exclude it.
+ *  - Otherwise we pick the row with the EARLIEST created_at so as-of filters
+ *    include the customer on/after their true start date.
+ *  - Rows without a customer_id are kept as-is (treated as their own series).
+ */
+function dedupeByCustomer(series: RecurringSeries[], asOf?: Date): RecurringSeries[] {
+  const byCustomer = new Map<string, RecurringSeries>()
+  const orphans: RecurringSeries[] = []
+  for (const s of series) {
+    if (!s.customer_id) {
+      orphans.push(s)
+      continue
+    }
+    const existing = byCustomer.get(s.customer_id)
+    if (!existing) {
+      byCustomer.set(s.customer_id, s)
+      continue
+    }
+    // Paused wins — if ANY row says paused (within window), surface that.
+    const existingPaused = existing.paused_at ? new Date(existing.paused_at) : null
+    const currentPaused = s.paused_at ? new Date(s.paused_at) : null
+    const isPausedInWindow = (p: Date | null) => {
+      if (!p) return false
+      if (!asOf) return true
+      return p <= asOf
+    }
+    if (isPausedInWindow(currentPaused) && !isPausedInWindow(existingPaused)) {
+      byCustomer.set(s.customer_id, s)
+      continue
+    }
+    if (isPausedInWindow(existingPaused)) continue
+    // Otherwise prefer earliest created_at so as-of filters don't miss the customer.
+    const existingCreated = existing.created_at ? new Date(existing.created_at).getTime() : Infinity
+    const currentCreated = s.created_at ? new Date(s.created_at).getTime() : Infinity
+    if (currentCreated < existingCreated) byCustomer.set(s.customer_id, s)
+  }
+  return [...byCustomer.values(), ...orphans]
 }
 
 /**
@@ -36,7 +84,7 @@ export function computeMrr(series: RecurringSeries[]): {
 } {
   let mrr = 0
   let active = 0
-  for (const s of series) {
+  for (const s of dedupeByCustomer(series)) {
     const factor = s.frequency ? CADENCE_FACTOR[s.frequency] : undefined
     if (!factor) continue
     if (s.paused_at) continue // excluded even without asOf — paused is paused
@@ -55,7 +103,7 @@ export function computeMrr(series: RecurringSeries[]): {
  */
 export function mrrAsOf(series: RecurringSeries[], asOf: Date): number {
   let mrr = 0
-  for (const s of series) {
+  for (const s of dedupeByCustomer(series, asOf)) {
     const factor = s.frequency ? CADENCE_FACTOR[s.frequency] : undefined
     if (!factor) continue
     const createdAt = s.created_at ? new Date(s.created_at) : null
