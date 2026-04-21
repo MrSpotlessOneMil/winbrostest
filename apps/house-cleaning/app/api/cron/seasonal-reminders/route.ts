@@ -17,6 +17,7 @@ import { getAllActiveTenants } from '@/lib/tenant'
 import { logSystemEvent } from '@/lib/system-events'
 import type { SeasonalCampaign } from '@/lib/tenant'
 import { isRetargetingExcluded, isInPersonalHours } from '@/lib/cron-hours-guard'
+import { customersWithConfirmedBookings } from '@/lib/has-confirmed-booking'
 
 const BATCH_LIMIT = 50 // Max customers per campaign per run
 
@@ -114,10 +115,21 @@ export async function GET(request: NextRequest) {
         }
 
         // Filter out customers who already received this campaign
-        const eligibleCustomers = customers.filter((c) => {
+        const alreadyReceived = customers.filter((c) => {
           const tracker = (c.seasonal_reminder_tracker || {}) as Record<string, string>
           return !tracker[campaign.id]
-        }).slice(0, BATCH_LIMIT) // Apply batch limit after filtering
+        })
+
+        // Skip customers with confirmed bookings — no promo blasts to people
+        // already on the calendar (W2 — 2026-04-20).
+        const bookedSet = await customersWithConfirmedBookings(
+          client,
+          tenant.id,
+          alreadyReceived.map(c => c.id).filter((id): id is number => typeof id === 'number'),
+        )
+        const eligibleCustomers = alreadyReceived
+          .filter(c => !bookedSet.has(String(c.id)))
+          .slice(0, BATCH_LIMIT)
 
         console.log(`[Seasonal Reminders] Campaign '${campaign.name}': ${eligibleCustomers.length} eligible (${customers.length} total)`)
 

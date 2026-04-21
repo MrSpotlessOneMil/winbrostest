@@ -5,6 +5,7 @@ import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
 import { getAllActiveTenants, getCleanerPhoneSet } from '@/lib/tenant'
 import { isInPersonalHours } from '@/lib/cron-hours-guard'
+import { customerHasConfirmedBooking } from '@/lib/has-confirmed-booking'
 
 // route-check:no-vercel-cron
 
@@ -97,6 +98,16 @@ export async function GET(request: NextRequest) {
 
       if (customer?.auto_response_paused || customer?.auto_response_disabled || customer?.sms_opt_out) {
         console.log(`${tag} Skipping job ${job.id} — customer paused/disabled/opted out`)
+        continue
+      }
+
+      // Skip customers who already have a confirmed booking for ANY job.
+      // Prevents W2: cold-nurturing already-booked customers (Paige Elizabeth,
+      // West Niagara, 2026-04-20). The quoted job row can linger in `status='quoted'`
+      // while a separate scheduled job exists — follow-up must respect the
+      // customer's overall state, not just the single quote row.
+      if (await customerHasConfirmedBooking(client, tenant.id, job.customer_id)) {
+        console.log(`${tag} Skipping job ${job.id} — customer ${job.customer_id} has a confirmed booking elsewhere`)
         continue
       }
 

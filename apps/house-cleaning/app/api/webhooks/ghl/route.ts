@@ -137,6 +137,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Unknown tenant" }, { status: 404 })
   }
 
+  // GHL decommissioned — return 410 Gone so GHL stops retrying and the tenant
+  // migrates fully to Osiris-native intake paths (website form, Meta lead ads
+  // via Meta webhook, etc.). Texas Nova migrated off GHL 2026-04-20.
+  const GHL_DECOMMISSIONED_SLUGS = new Set(["texas-nova"])
+  const explicitlyDisabled = tenant.workflow_config?.ghl_bridge_enabled === false
+  if (GHL_DECOMMISSIONED_SLUGS.has(tenant.slug) || explicitlyDisabled) {
+    await logSystemEvent({
+      source: "ghl",
+      event_type: "GHL_WEBHOOK_REJECTED_DECOMMISSIONED",
+      message: `GHL webhook rejected for ${tenant.slug} — bridge decommissioned. Reconfigure GHL to stop sending.`,
+      tenant_id: tenant.id,
+      metadata: { locationId, sourceId, phone },
+    })
+    return NextResponse.json(
+      { success: false, error: `GHL bridge decommissioned for ${tenant.slug}` },
+      { status: 410 }
+    )
+  }
+
   const client = getSupabaseClient()
 
   // Detect lead source from GHL payload

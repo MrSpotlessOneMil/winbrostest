@@ -51,9 +51,17 @@ export async function POST(
   let body: Record<string, unknown>
   try {
     body = await request.json()
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'unknown parse error'
+    await logSystemEvent({
+      tenant_id: tenant.id,
+      source: "website",
+      event_type: "WEBSITE_FORM_PARSE_FAIL",
+      message: `Website form payload could not be parsed: ${msg}`,
+      metadata: { error: msg },
+    })
     return NextResponse.json(
-      { success: false, error: "Invalid JSON body" },
+      { success: false, error: "Invalid JSON body", code: "parse_error" },
       { status: 400, headers: corsHeaders }
     )
   }
@@ -220,9 +228,46 @@ export async function POST(
     .single()
 
   if (leadError) {
-    console.error(`[Website Webhook] Error creating lead for ${tenant.slug}:`, leadError)
+    // Structured error logging — the generic "Something went wrong" message
+    // on the Texas Nova form came from swallowing these details. Log the
+    // full PostgrestError shape (code, message, hint, details) to
+    // system_events so Patrick/Dominic can diagnose from the dashboard.
+    // Bug T1 — 2026-04-20.
+    console.error(`[Website Webhook] Error creating lead for ${tenant.slug}:`, {
+      code: leadError.code,
+      message: leadError.message,
+      details: leadError.details,
+      hint: leadError.hint,
+    })
+    await logSystemEvent({
+      tenant_id: tenant.id,
+      source: "website",
+      event_type: "WEBSITE_FORM_LEAD_INSERT_FAIL",
+      message: `Failed to insert lead for ${tenant.slug}: ${leadError.code} ${leadError.message}`,
+      phone_number: phone,
+      metadata: {
+        code: leadError.code,
+        message: leadError.message,
+        details: leadError.details,
+        hint: leadError.hint,
+        payload_keys: Object.keys(body),
+        name: nameRaw,
+        bedrooms,
+        bathrooms,
+        has_email: !!email,
+        has_address: !!address,
+        service_type: serviceType,
+      },
+    })
+    // Return a descriptive error code (NOT the raw DB details — those can
+    // leak schema). The form UI can map the code to a user-friendly message.
     return NextResponse.json(
-      { success: false, error: "Failed to create lead" },
+      {
+        success: false,
+        error: "Could not submit your estimate. Please try again or call us.",
+        code: "lead_insert_failed",
+        ref: `${tenant.slug}-${Date.now().toString(36)}`,
+      },
       { status: 500, headers: corsHeaders }
     )
   }

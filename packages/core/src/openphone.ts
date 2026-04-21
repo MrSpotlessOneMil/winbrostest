@@ -75,12 +75,60 @@ export async function sendSMS(
     source?: string
     /** Optional customer ID for the pre-inserted record */
     customerId?: string | number | null
+    /**
+     * Classifier for quiet-hours gating (T6 — 2026-04-20):
+     *   - 'transactional' (default when missing): reply to an inbound customer
+     *     message or any time-critical confirmation. Always sends.
+     *   - 'outreach': proactive cron/agent-initiated send. Gated on the
+     *     tenant's 9am–9pm quiet-hours window. Outside the window, the message
+     *     is enqueued into sms_outreach_queue for /api/cron/drain-sms-queue.
+     *   - 'internal': cleaner dispatch or owner alerts. Always sends.
+     */
+    kind?: 'transactional' | 'outreach' | 'internal'
   }
 ): Promise<SendSMSResponse> {
 
   if (!tenant) {
     console.error('No tenant found - cannot send SMS')
     return { success: false, error: 'No tenant configured' }
+  }
+
+  // ── T6 Quiet-hours gate ───────────────────────────────────────────
+  // Only applies to kind='outreach'. Transactional replies and internal
+  // (cleaner-facing) sends always go immediately.
+  if (options?.kind === 'outreach') {
+    try {
+      const { isWithinQuietHoursWindow, nextAllowedSendAt, resolveTimezone } = await import('./timezone-from-area-code')
+      const tz = resolveTimezone({ tenantTimezone: tenant.timezone, phone: to })
+      if (!isWithinQuietHoursWindow(tz)) {
+        const scheduledFor = nextAllowedSendAt(tz)
+        const queueClient = getSupabaseServiceClient()
+        const { data: queued, error: queueErr } = await queueClient
+          .from('sms_outreach_queue')
+          .insert({
+            tenant_id: tenant.id,
+            customer_id: options.customerId ? Number(options.customerId) || null : null,
+            phone: to,
+            body: message,
+            source: options.source || 'unknown',
+            scheduled_for_at: scheduledFor.toISOString(),
+            status: 'pending',
+            metadata: { reason: 'quiet_hours', timezone: tz },
+          })
+          .select('id')
+          .single()
+        if (queueErr) {
+          console.error(`[${tenant.slug}] Quiet-hours queue insert failed — skipping send:`, queueErr.message)
+          return { success: false, error: `Queue insert failed: ${queueErr.message}` }
+        }
+        console.log(`[${tenant.slug}] SMS queued for ${scheduledFor.toISOString()} (${tz}) — outside 9am–9pm window. queue_id=${queued?.id}`)
+        return { success: true, messageId: `queued:${queued?.id || ''}` }
+      }
+    } catch (err) {
+      // Never let quiet-hours logic block a send when the helper itself errors.
+      // Fall through to the normal send path.
+      console.error(`[${tenant.slug}] Quiet-hours gate failed (non-blocking):`, err)
+    }
   }
 
   // Try tenant config first, then fall back to env var
@@ -93,17 +141,18 @@ export async function sendSMS(
 
   console.log(`[${tenant.slug}] Using OpenPhone API key from: ${tenant.openphone_api_key ? 'tenant config' : 'env var'}`)
 
-  // Use cleaner-specific phone ID when requested (falls back to main if not configured)
+  // Use cleaner-specific phone ID when requested (falls back to main if not configured).
+  // NOTE: no env-var fallback for the main phone ID — a missing tenant.openphone_phone_id
+  // must fail closed. Falling through to a shared process.env.OPENPHONE_PHONE_ID would
+  // send the message from another tenant's number (cross-tenant brand leak).
   const phoneNumberId = (options?.useCleaner && tenant.openphone_cleaner_phone_id)
     ? tenant.openphone_cleaner_phone_id
-    : (tenant.openphone_phone_id || process.env.OPENPHONE_PHONE_ID)
+    : tenant.openphone_phone_id
 
   if (!phoneNumberId) {
-    console.error(`[${tenant.slug}] OpenPhone phone number ID not configured in tenant or env`)
-    return { success: false, error: 'OpenPhone phone number ID not configured' }
+    console.error(`[${tenant.slug}] OpenPhone phone number ID not configured for tenant — refusing to send to avoid cross-tenant send`)
+    return { success: false, error: 'OpenPhone phone number ID not configured for tenant' }
   }
-
-  console.log(`[${tenant.slug}] Using OpenPhone phone ID from: ${tenant.openphone_phone_id ? 'tenant config' : 'env var'}`)
 
   const toE164Format = toE164(to)
   if (!toE164Format) {

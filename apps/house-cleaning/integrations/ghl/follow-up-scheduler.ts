@@ -118,6 +118,24 @@ export async function processFollowUp(
     // Resolve tenant from lead's brand slug
     const tenant = lead.brand ? await getTenantBySlug(lead.brand) : null
 
+    // ── GHL Decommission Kill Switch ─────────────────────────────────
+    // Any tenant in the explicit denylist OR with workflow_config.ghl_bridge_enabled
+    // explicitly set to false will have ALL GHL follow-ups cancelled. Used to
+    // decommission GHL for tenants that have fully migrated to Osiris
+    // (Texas Nova, 2026-04-20). Prevents double-messaging from the legacy bridge.
+    const GHL_DECOMMISSIONED_SLUGS = new Set(['texas-nova'])
+    if (tenant) {
+      const explicitlyDisabled = tenant.workflow_config?.ghl_bridge_enabled === false
+      if (GHL_DECOMMISSIONED_SLUGS.has(tenant.slug) || explicitlyDisabled) {
+        await updateGHLFollowUp(followUp.id!, {
+          status: 'cancelled',
+          error_message: `GHL bridge decommissioned for tenant ${tenant.slug}`,
+          executed_at: new Date().toISOString(),
+        })
+        return { success: true, action: 'skipped_ghl_decommissioned' }
+      }
+    }
+
     // Process based on follow-up type
     switch (followUp.followup_type) {
       case 'initial_sms':

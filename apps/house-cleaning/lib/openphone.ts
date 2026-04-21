@@ -93,14 +93,16 @@ export async function sendSMS(
 
   console.log(`[${tenant.slug}] Using OpenPhone API key from: ${tenant.openphone_api_key ? 'tenant config' : 'env var'}`)
 
-  // Use cleaner-specific phone ID when requested (falls back to main if not configured)
+  // Use cleaner-specific phone ID when requested (falls back to main if not configured).
+  // NO env-var fallback — missing tenant.openphone_phone_id must fail closed to avoid
+  // cross-tenant send from a shared OPENPHONE_PHONE_ID env.
   const phoneNumberId = (options?.useCleaner && tenant.openphone_cleaner_phone_id)
     ? tenant.openphone_cleaner_phone_id
-    : (tenant.openphone_phone_id || process.env.OPENPHONE_PHONE_ID)
+    : tenant.openphone_phone_id
 
   if (!phoneNumberId) {
-    console.error(`[${tenant.slug}] OpenPhone phone number ID not configured in tenant or env`)
-    return { success: false, error: 'OpenPhone phone number ID not configured' }
+    console.error(`[${tenant.slug}] OpenPhone phone number ID not configured for tenant — refusing to send`)
+    return { success: false, error: 'OpenPhone phone number ID not configured for tenant' }
   }
 
   console.log(`[${tenant.slug}] Using OpenPhone phone ID from: ${tenant.openphone_phone_id ? 'tenant config' : 'env var'}`)

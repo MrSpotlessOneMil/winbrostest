@@ -5,6 +5,7 @@ import { getAllActiveTenants, tenantUsesFeature } from '@/lib/tenant'
 import { sendSMS } from '@/lib/openphone'
 import { scheduleRetargetingSequence, type RetargetingSequenceType } from '@/lib/scheduler'
 import { isRetargetingExcluded, isInPersonalHours } from '@/lib/cron-hours-guard'
+import { customersWithConfirmedBookings } from '@/lib/has-confirmed-booking'
 
 /**
  * Lifecycle Auto-Enrollment Cron
@@ -90,11 +91,22 @@ export async function GET(request: NextRequest) {
 
       if (!candidates || candidates.length === 0) continue
 
+      // Batch-fetch customers with confirmed bookings so we don't enroll anyone
+      // already on the calendar into retargeting sequences (W2 — 2026-04-20).
+      const candidateIds = candidates.map(c => c.id).filter((id): id is number => typeof id === 'number')
+      const bookedSet = await customersWithConfirmedBookings(client, tenant.id, candidateIds)
+
       for (const cust of candidates) {
         if (enrolled >= MAX_ENROLLMENTS_PER_TENANT) break
 
         // Skip opted-out customers
         if (cust.sms_opt_out) {
+          skipped++
+          continue
+        }
+
+        // Skip customers with a confirmed booking elsewhere
+        if (bookedSet.has(String(cust.id))) {
           skipped++
           continue
         }
