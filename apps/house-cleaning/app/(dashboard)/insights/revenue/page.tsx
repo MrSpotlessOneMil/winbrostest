@@ -68,6 +68,13 @@ interface RevenueInsights {
     recurring: number
     oneTime: number
   }[]
+  activeRecurringSeries?: number
+  mrrTrend?: {
+    month: string
+    label: string
+    mrr: number
+    momGrowth: number | null
+  }[]
   month: string
 }
 
@@ -329,9 +336,13 @@ export default function RevenueInsightsPage() {
           iconBgClass="bg-blue-500/10 text-blue-400"
         />
         <KpiCard
-          title="Recurring Revenue (MRR)"
-          value={formatFullCurrency(data.recurringRevenue)}
-          subtitle={`${data.recurringJobCount} recurring jobs`}
+          title="MRR (projected)"
+          value={formatFullCurrency(data.mrr)}
+          subtitle={
+            data.activeRecurringSeries != null
+              ? `${data.activeRecurringSeries} active recurring customers`
+              : `${data.recurringJobCount} recurring jobs this month`
+          }
           icon={Repeat}
           accentColor="#4ade80"
           iconBgClass="bg-green-500/10 text-green-400"
@@ -632,6 +643,68 @@ export default function RevenueInsightsPage() {
                   radius={[4, 4, 0, 0]}
                 />
               </BarChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ----- 6-Month MRR Trend ----- */}
+      {Array.isArray(data.mrrTrend) && data.mrrTrend.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">MRR Trend (last 6 months)</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Projected monthly recurring revenue from active recurring series.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={{ mrr: { label: "MRR", color: "#4ade80" } }} className="h-[220px] w-full">
+              <AreaChart
+                data={data.mrrTrend}
+                margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "#9ca3af", fontSize: 11 }}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "#9ca3af", fontSize: 12 }}
+                  tickFormatter={(v) => formatCurrency(v as number)}
+                />
+                <ChartTooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload || !payload.length) return null
+                    const p = payload[0].payload as { label: string; mrr: number; momGrowth: number | null }
+                    return (
+                      <div className="rounded-md border border-border bg-card p-3 text-xs shadow">
+                        <div className="font-medium text-foreground mb-1">{p.label}</div>
+                        <div className="text-muted-foreground">
+                          MRR: <span className="text-foreground tabular-nums">${p.mrr.toLocaleString()}</span>
+                        </div>
+                        {p.momGrowth != null && (
+                          <div className="text-muted-foreground">
+                            MoM: <span className={p.momGrowth >= 0 ? "text-green-400" : "text-red-400"}>
+                              {p.momGrowth >= 0 ? "+" : ""}{p.momGrowth}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="mrr"
+                  stroke="#4ade80"
+                  fill="#4ade8033"
+                  strokeWidth={2}
+                />
+              </AreaChart>
             </ChartContainer>
           </CardContent>
         </Card>

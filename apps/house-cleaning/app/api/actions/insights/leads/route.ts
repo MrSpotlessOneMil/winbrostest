@@ -135,6 +135,14 @@ export async function GET(request: NextRequest) {
 
   // -----------------------------------------------------------------------
   // 3. Completed jobs tied to converted leads (current period)
+  //
+  // NOTE: the historical implementation attributed revenue using the lead's
+  // `converted_to_job_id` pointer — a single job per lead. That undercounts
+  // recurring customers who came in via one source but have 10+ completed
+  // jobs under the same customer. Now kept ONLY as a lightweight fallback
+  // `jobsByIdCurrent` for legacy trend/sparkline math; the richer
+  // `byLeadSource` shape below uses customer→lead source attribution which
+  // correctly aggregates ALL completed jobs per source.
   // -----------------------------------------------------------------------
   const convertedJobIds = (currentLeads ?? [])
     .filter((l) => l.converted_to_job_id)
@@ -176,6 +184,79 @@ export async function GET(request: NextRequest) {
       }
     }
   }
+
+  // -----------------------------------------------------------------------
+  // 4b. Customer→lead-source map + full completed-jobs aggregation
+  // -----------------------------------------------------------------------
+  // Build map: customer_id → earliest lead source. A customer can have
+  // multiple leads over time (recurring re-engagement); use the most recent
+  // one as the "current" attribution source.
+  const allLeadsForCustomers = await supabase
+    .from("leads")
+    .select("customer_id, source, created_at")
+    .eq("tenant_id", tenant.id)
+    .not("customer_id", "is", null)
+    .order("created_at", { ascending: false })
+
+  const customerSourceMap = new Map<number, string>()
+  for (const l of allLeadsForCustomers.data ?? []) {
+    if (l.customer_id && l.source && !customerSourceMap.has(l.customer_id)) {
+      customerSourceMap.set(l.customer_id, l.source)
+    }
+  }
+
+  // Fetch ALL completed jobs in the current period for this tenant (any customer).
+  // Excludes cancelled / no-show / refunded by status filter. Uses completed_at
+  // if present, else date column, to stay in range.
+  const { data: completedJobsInRange } = await supabase
+    .from("jobs")
+    .select("id, price, customer_id, status, completed_at, date")
+    .eq("tenant_id", tenant.id)
+    .eq("status", "completed")
+    .not("price", "is", null)
+    .or(
+      `and(completed_at.gte.${start},completed_at.lte.${end}),and(completed_at.is.null,date.gte.${start.slice(0, 10)},date.lte.${end.slice(0, 10)})`
+    )
+
+  interface LeadSourceBucket {
+    leads: number
+    bookedCustomers: Set<number>
+    jobCount: number
+    revenue: number
+  }
+  const leadSourceMap: Record<string, LeadSourceBucket> = {}
+
+  for (const l of currentLeads ?? []) {
+    const src = l.source || "unknown"
+    if (!leadSourceMap[src]) {
+      leadSourceMap[src] = { leads: 0, bookedCustomers: new Set(), jobCount: 0, revenue: 0 }
+    }
+    leadSourceMap[src].leads++
+  }
+
+  for (const j of completedJobsInRange ?? []) {
+    if (!j.customer_id) continue
+    const src = customerSourceMap.get(Number(j.customer_id)) || "direct"
+    if (!leadSourceMap[src]) {
+      leadSourceMap[src] = { leads: 0, bookedCustomers: new Set(), jobCount: 0, revenue: 0 }
+    }
+    const bucket = leadSourceMap[src]
+    bucket.bookedCustomers.add(Number(j.customer_id))
+    bucket.jobCount++
+    bucket.revenue += Number(j.price) || 0
+  }
+
+  const byLeadSource = Object.entries(leadSourceMap)
+    .map(([source, b]) => ({
+      source,
+      leads: b.leads,
+      booked: b.bookedCustomers.size,
+      conversionRate: b.leads > 0 ? Math.round((b.bookedCustomers.size / b.leads) * 1000) / 10 : 0,
+      revenue: Math.round(b.revenue),
+      avgJobValue: b.jobCount > 0 ? Math.round(b.revenue / b.jobCount) : 0,
+      jobCount: b.jobCount,
+    }))
+    .sort((a, b) => b.revenue - a.revenue)
 
   // -----------------------------------------------------------------------
   // Aggregate by source
@@ -429,6 +510,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     bySource,
+    byLeadSource,
     trends,
     totals: {
       ...totals,

@@ -14,6 +14,7 @@ import { formatDate } from "@fullcalendar/core"
 import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
 import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pricebook"
 import { TIER_UPGRADES, isIncludedInTier, getPaidAddons, isEffectivelyIncluded } from "@/lib/service-scope"
+import { suggestCleanerPay, type CleanerPayConfig } from "@/lib/suggest-cleaner-pay"
 import ScheduleGantt, { type GanttJob } from "@/components/dashboard/schedule-gantt"
 import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loader2 } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
@@ -466,6 +467,12 @@ export default function JobsPage() {
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
+  // Per-tenant cleaner pay rule, fetched once from /api/actions/settings so we can
+  // auto-populate the "Cleaner Pay Override" field in the Create/Edit Job modals.
+  const [cleanerPayConfig, setCleanerPayConfig] = useState<CleanerPayConfig | null>(null)
+  // Dispatcher-edited flag: once the user types into cleaner_pay_override, stop
+  // auto-overwriting it. Resets when the Create modal closes.
+  const [userEditedCleanerPay, setUserEditedCleanerPay] = useState(false)
   const [quoteSuccess, setQuoteSuccess] = useState<{ url: string; token: string; quoteId?: string; sent: boolean; sending?: boolean; customerPhone?: string; customerId?: string } | null>(null)
   const [addonsList, setAddonsList] = useState<AddonOption[]>([])
   // Payment menu state (shared between quote success + event detail)
@@ -580,6 +587,7 @@ export default function JobsPage() {
           if (res.window_tiers && Array.isArray(res.window_tiers) && res.window_tiers.length > 0) {
             setWindowTiers(res.window_tiers)
           }
+          if (res.cleaner_pay) setCleanerPayConfig(res.cleaner_pay as CleanerPayConfig)
         })
         .catch(() => {})
       return
@@ -592,7 +600,62 @@ export default function JobsPage() {
         }
       })
       .catch(() => {})
+    // Cleaner pay config (tenant.workflow_config.cleaner_pay_* → nested shape from settings API)
+    fetch("/api/actions/settings", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.cleaner_pay) setCleanerPayConfig(res.cleaner_pay as CleanerPayConfig)
+      })
+      .catch(() => {})
   }, [createOpen, addChargeOpen])
+
+  // When the Create modal opens fresh, reset dispatcher-edit flag so suggestions
+  // flow again; when it closes, clear too so the next open starts clean.
+  useEffect(() => {
+    if (!createOpen) setUserEditedCleanerPay(false)
+  }, [createOpen])
+
+  // Suggested cleaner pay based on current form inputs + tenant rule.
+  const cleanerPaySuggestion = useMemo(() => {
+    return suggestCleanerPay(cleanerPayConfig, {
+      price: createForm.price,
+      serviceType: createForm.service_type,
+      hours: createForm.duration_minutes ? Number(createForm.duration_minutes) / 60 : undefined,
+    })
+  }, [cleanerPayConfig, createForm.price, createForm.service_type, createForm.duration_minutes])
+
+  // Auto-populate cleaner_pay_override on suggestion change (unless dispatcher has edited)
+  useEffect(() => {
+    if (!createOpen) return
+    if (userEditedCleanerPay) return
+    const suggested = cleanerPaySuggestion.amount
+    if (suggested == null) return
+    const current = (createForm as any).cleaner_pay_override
+    if (current && String(current) === String(suggested)) return // no-op
+    setCreateForm((prev) => ({ ...prev, cleaner_pay_override: String(suggested) } as any))
+  }, [createOpen, userEditedCleanerPay, cleanerPaySuggestion.amount])
+
+  // Edit-mode equivalents of the same logic
+  const editCleanerPaySuggestion = useMemo(() => {
+    const hoursVal =
+      selectedEvent && (selectedEvent as any).hours != null
+        ? Number((selectedEvent as any).hours)
+        : undefined
+    return suggestCleanerPay(cleanerPayConfig, {
+      price: editForm.price,
+      serviceType: editForm.serviceType,
+      hours: hoursVal,
+    })
+  }, [cleanerPayConfig, editForm.price, editForm.serviceType, selectedEvent])
+
+  useEffect(() => {
+    if (!editMode) return
+    if (editUserEditedCleanerPay) return
+    const suggested = editCleanerPaySuggestion.amount
+    if (suggested == null) return
+    if (editForm.cleanerPayOverride && editForm.cleanerPayOverride === String(suggested)) return
+    setEditForm((prev) => ({ ...prev, cleanerPayOverride: String(suggested) }))
+  }, [editMode, editUserEditedCleanerPay, editCleanerPaySuggestion.amount])
 
   // Derive addon list with tier-specific prices for interior/track_detailing (WinBros)
   const derivedAddonsList = useMemo(() => {
@@ -950,7 +1013,8 @@ export default function JobsPage() {
   // Drag-and-drop / edit state
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const [editMode, setEditMode] = useState(false)
-  const [editForm, setEditForm] = useState({ date: "", time: "", cleanerIds: [] as string[], customerName: "", customerPhone: "", customerEmail: "", address: "", price: "", notes: "", serviceType: "", status: "" })
+  const [editForm, setEditForm] = useState({ date: "", time: "", cleanerIds: [] as string[], customerName: "", customerPhone: "", customerEmail: "", address: "", price: "", notes: "", serviceType: "", status: "", cleanerPayOverride: "" })
+  const [editUserEditedCleanerPay, setEditUserEditedCleanerPay] = useState(false)
   const [cleanerDropdownOpen, setCleanerDropdownOpen] = useState(false)
   const cleanerDropdownRef = useRef<HTMLDivElement>(null)
   const [saving, setSaving] = useState(false)
@@ -1446,6 +1510,7 @@ export default function JobsPage() {
       initialCleanerIds = [selectedEvent.cleanerId]
     }
 
+    const existingOverride = (selectedEvent as any).cleaner_pay_override
     setEditForm({
       date, time,
       cleanerIds: initialCleanerIds,
@@ -1457,7 +1522,10 @@ export default function JobsPage() {
       notes: selectedEvent.notes || "",
       serviceType: selectedEvent.service || "",
       status: selectedEvent.status || "",
+      cleanerPayOverride: existingOverride != null ? String(existingOverride) : "",
     })
+    // A pre-existing override counts as "dispatcher already edited it" — don't auto-overwrite.
+    setEditUserEditedCleanerPay(existingOverride != null)
     setCleanerDropdownOpen(false)
     setEditMode(true)
 
@@ -1808,6 +1876,10 @@ export default function JobsPage() {
     if (editForm.notes !== (selectedEvent.notes || "")) body.notes = editForm.notes
     if (editForm.serviceType !== (selectedEvent.service || "")) body.service_type = editForm.serviceType
     if (editForm.status !== (selectedEvent.status || "")) body.status = editForm.status
+    // Cleaner pay override: send when the dispatcher edited (including clearing to empty string)
+    if (editUserEditedCleanerPay) {
+      body.cleaner_pay_override = editForm.cleanerPayOverride === "" ? null : Number(editForm.cleanerPayOverride)
+    }
 
     try {
       const res = await fetch("/api/jobs", {
@@ -3067,6 +3139,36 @@ export default function JobsPage() {
                     <label className="cal-form-label">Price</label>
                     <input type="number" className="cal-form-control" placeholder="0.00" step="0.01" value={editForm.price} onChange={(e) => setEditForm((f) => ({ ...f, price: e.target.value }))} />
                   </div>
+                </div>
+                {/* Cleaner Pay (auto-suggest) */}
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <label className="cal-form-label">Cleaner Pay</label>
+                  <input
+                    type="number"
+                    className="cal-form-control"
+                    placeholder="Auto (leave blank)"
+                    step="0.01"
+                    min="0"
+                    value={editForm.cleanerPayOverride}
+                    onChange={(e) => {
+                      setEditUserEditedCleanerPay(true)
+                      setEditForm((f) => ({ ...f, cleanerPayOverride: e.target.value }))
+                    }}
+                    onBlur={(e) => {
+                      if (!e.target.value) setEditUserEditedCleanerPay(false)
+                    }}
+                  />
+                  {editCleanerPaySuggestion.amount != null && editCleanerPaySuggestion.ruleDescription ? (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {editUserEditedCleanerPay
+                        ? `Manually edited. Clear to re-auto.`
+                        : `(auto: $${editCleanerPaySuggestion.amount} — ${editCleanerPaySuggestion.ruleDescription})`}
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      No auto-rule configured. Set rates in Settings → Service Editor.
+                    </p>
+                  )}
                 </div>
                 {/* Customer info */}
                 <div style={{ marginBottom: "0.5rem" }}>
@@ -4604,7 +4706,7 @@ export default function JobsPage() {
 
                 {/* Cleaner Pay Override */}
                 <div>
-                  <label className="cal-form-label">Cleaner Pay Override</label>
+                  <label className="cal-form-label">Cleaner Pay</label>
                   <input
                     type="number"
                     className="cal-form-control"
@@ -4612,11 +4714,26 @@ export default function JobsPage() {
                     min="0"
                     step="0.01"
                     value={(createForm as any).cleaner_pay_override || ""}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      setUserEditedCleanerPay(true)
                       setCreateForm((prev) => ({ ...prev, cleaner_pay_override: e.target.value }))
-                    }
+                    }}
+                    onBlur={(e) => {
+                      // If dispatcher cleared the field, re-enable auto-suggest
+                      if (!e.target.value) setUserEditedCleanerPay(false)
+                    }}
                   />
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Exact amount each cleaner sees. Blank = auto-calculated.</p>
+                  {cleanerPaySuggestion.amount != null && cleanerPaySuggestion.ruleDescription ? (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {userEditedCleanerPay
+                        ? `Manually edited. Clear to re-auto.`
+                        : `(auto: $${cleanerPaySuggestion.amount} — ${cleanerPaySuggestion.ruleDescription})`}
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      No auto-rule configured. Set rates in Settings → Service Editor.
+                    </p>
+                  )}
                 </div>
 
                 {/* Override Price */}

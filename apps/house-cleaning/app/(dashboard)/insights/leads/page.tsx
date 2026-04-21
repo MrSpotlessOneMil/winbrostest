@@ -55,8 +55,19 @@ interface RevenueTimelineEntry {
   bySource: Record<string, { revenue: number; profit: number }>
 }
 
+interface LeadSourceRow {
+  source: string
+  leads: number
+  booked: number
+  conversionRate: number
+  revenue: number
+  avgJobValue: number
+  jobCount: number
+}
+
 interface InsightsData {
   bySource: SourceRow[]
+  byLeadSource: LeadSourceRow[]
   trends: TrendRow[]
   totals: {
     leads: number
@@ -218,27 +229,10 @@ export default function LeadSourcesPage() {
       {/* Charts row                                                         */}
       {/* ----------------------------------------------------------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Line chart — Revenue + Profit */}
+        {/* Bar chart — Revenue by Source (primary) */}
         <div className="lg:col-span-3">
-          <ChartCard title="Revenue & Profit">
-            <div className="mb-3 flex items-center gap-2">
-              <select
-                value={revenueSourceFilter}
-                onChange={(e) => setRevenueSourceFilter(e.target.value)}
-                className="text-xs bg-muted border border-border rounded-md px-2 py-1 text-foreground"
-              >
-                <option value="all">All Sources</option>
-                {(data.revenueSources ?? []).map((src) => (
-                  <option key={src} value={src}>
-                    {getSourceConfig(src).label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <RevenueLineChart
-              data={data.revenueTimeline ?? []}
-              sourceFilter={revenueSourceFilter}
-            />
+          <ChartCard title="Revenue by Lead Source">
+            <RevenueBySourceBarChart data={data.byLeadSource ?? []} />
           </ChartCard>
         </div>
 
@@ -251,10 +245,163 @@ export default function LeadSourcesPage() {
       </div>
 
       {/* ----------------------------------------------------------------- */}
-      {/* Source breakdown table                                              */}
+      {/* Source breakdown table — revenue-first, sortable                    */}
       {/* ----------------------------------------------------------------- */}
-      <SourceTable data={bySource} />
+      <LeadSourceTable data={data.byLeadSource ?? []} />
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Bar chart: revenue by lead source
+// ---------------------------------------------------------------------------
+
+function RevenueBySourceBarChart({ data }: { data: LeadSourceRow[] }) {
+  const chartData = data
+    .filter((r) => r.revenue > 0 || r.leads > 0)
+    .map((r) => ({
+      ...r,
+      name: getSourceConfig(r.source).label,
+      color: getSourceConfig(r.source).color,
+    }))
+
+  if (chartData.length === 0) {
+    return (
+      <p className="text-muted-foreground text-sm py-12 text-center">
+        No revenue data for this period
+      </p>
+    )
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
+        <XAxis
+          dataKey="name"
+          tick={{ fontSize: 10 }}
+          tickLine={false}
+          axisLine={false}
+          interval={0}
+          className="fill-muted-foreground"
+        />
+        <YAxis
+          tick={{ fontSize: 11 }}
+          tickLine={false}
+          axisLine={false}
+          className="fill-muted-foreground"
+          tickFormatter={(v: number) => `$${v.toLocaleString()}`}
+        />
+        <Tooltip
+          contentStyle={{
+            backgroundColor: "hsl(var(--card))",
+            border: "1px solid hsl(var(--border))",
+            borderRadius: 8,
+            fontSize: 12,
+          }}
+          content={({ active, payload }) => {
+            if (!active || !payload || !payload.length) return null
+            const row = payload[0].payload as LeadSourceRow & { name: string; color: string }
+            return (
+              <div className="rounded-md border border-border bg-card p-3 text-xs shadow">
+                <div className="font-medium text-foreground mb-1.5 flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: row.color }} />
+                  {row.name}
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-muted-foreground">
+                  <span>Leads</span>
+                  <span className="text-right text-foreground tabular-nums">{row.leads}</span>
+                  <span>Booked</span>
+                  <span className="text-right text-foreground tabular-nums">{row.booked}</span>
+                  <span>Conv %</span>
+                  <span className="text-right text-foreground tabular-nums">{row.conversionRate}%</span>
+                  <span>Revenue</span>
+                  <span className="text-right text-foreground tabular-nums">
+                    ${row.revenue.toLocaleString()}
+                  </span>
+                  <span>Avg Job</span>
+                  <span className="text-right text-foreground tabular-nums">
+                    ${row.avgJobValue.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            )
+          }}
+        />
+        <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
+          {chartData.map((entry, i) => (
+            <Cell key={i} fill={entry.color} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Source breakdown table (lead-source attribution, sortable by every column)
+// ---------------------------------------------------------------------------
+
+function LeadSourceTable({ data }: { data: LeadSourceRow[] }) {
+  type Row = LeadSourceRow & Record<string, unknown>
+  const columns: Column<Row>[] = [
+    {
+      key: "source",
+      label: "Source",
+      render: (row) => {
+        const cfg = getSourceConfig(row.source)
+        return (
+          <div className="flex items-center gap-2">
+            <span
+              className="h-2.5 w-2.5 rounded-full shrink-0"
+              style={{ backgroundColor: cfg.color }}
+            />
+            <span className="font-medium">{cfg.label}</span>
+          </div>
+        )
+      },
+    },
+    { key: "leads", label: "Leads", align: "right" },
+    { key: "booked", label: "Booked", align: "right" },
+    {
+      key: "conversionRate",
+      label: "Conv %",
+      align: "right",
+      render: (row) => (
+        <span
+          className={cn(
+            "font-medium",
+            row.conversionRate >= 35
+              ? "text-success"
+              : row.conversionRate >= 20
+                ? "text-amber-500"
+                : "text-destructive"
+          )}
+        >
+          {row.conversionRate}%
+        </span>
+      ),
+    },
+    {
+      key: "revenue",
+      label: "Revenue",
+      align: "right",
+      render: (row) => <span>${row.revenue.toLocaleString()}</span>,
+    },
+    {
+      key: "avgJobValue",
+      label: "Avg Job Value",
+      align: "right",
+      render: (row) => <span>${row.avgJobValue.toLocaleString()}</span>,
+    },
+  ]
+
+  return (
+    <DetailTable<Row>
+      title="Source Breakdown"
+      columns={columns}
+      data={data as Row[]}
+      defaultExpanded
+    />
   )
 }
 

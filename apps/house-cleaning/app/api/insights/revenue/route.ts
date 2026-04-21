@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 import { getStripeClientForTenant } from "@/lib/stripe-client"
+import { computeMrr, computeMrrTrend, type RecurringSeries } from "@/lib/mrr"
 import type Stripe from "stripe"
 
 // route-check:no-vercel-cron
@@ -37,6 +38,19 @@ interface RevenueInsightsResponse {
     revenue: number
     recurring: number
     oneTime: number
+  }[]
+  /**
+   * Active recurring customer count — parent recurring series that are not paused
+   * and have a known cadence. Supersedes `recurringJobCount` (sum of in-period
+   * jobs) as the real count of paying recurring customers.
+   */
+  activeRecurringSeries: number
+  /** Month-over-month MRR trend for the last 6 months. */
+  mrrTrend: {
+    month: string
+    label: string
+    mrr: number
+    momGrowth: number | null
   }[]
   month: string
 }
@@ -337,7 +351,30 @@ export async function GET(request: NextRequest) {
 
   const totalRevenue = recurringRevenue + oneTimeRevenue
   const totalJobCount = recurringJobCount + oneTimeJobCount
-  const mrr = recurringRevenue
+
+  // -----------------------------------------------------------------------
+  // Canonical MRR: sum of (price × cadence factor) across active recurring
+  // parent series. Supersedes the old mrr=recurringRevenue heuristic.
+  // -----------------------------------------------------------------------
+  const { data: allParentSeriesRaw } = await client
+    .from("jobs")
+    .select("id, price, frequency, created_at, paused_at")
+    .eq("tenant_id", tenant.id)
+    .neq("frequency", "one-time")
+    .not("frequency", "is", null)
+    .is("parent_job_id", null)
+    .not("price", "is", null)
+
+  const allParentSeries: RecurringSeries[] = (allParentSeriesRaw ?? []).map((s) => ({
+    id: s.id,
+    price: s.price,
+    frequency: s.frequency,
+    created_at: s.created_at,
+    paused_at: s.paused_at,
+  }))
+
+  const { mrr, activeCount: activeRecurringSeries } = computeMrr(allParentSeries)
+
   const arr = mrr * 12
   const averageJobValue = totalJobCount > 0 ? Math.round(totalRevenue / totalJobCount) : 0
 
@@ -424,6 +461,11 @@ export async function GET(request: NextRequest) {
     })
   }
 
+  // -----------------------------------------------------------------------
+  // 6-month MRR trend: reuse the same parent-series fetch above.
+  // -----------------------------------------------------------------------
+  const mrrTrend = computeMrrTrend(allParentSeries, 6)
+
   const response: RevenueInsightsResponse = {
     totalRevenue,
     recurringRevenue,
@@ -439,6 +481,8 @@ export async function GET(request: NextRequest) {
     topCustomers,
     dailyBreakdown,
     monthlyTrend,
+    activeRecurringSeries,
+    mrrTrend,
     month,
   }
 

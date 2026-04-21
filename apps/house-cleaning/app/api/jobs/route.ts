@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import type { Job, ApiResponse, PaginatedResponse } from "@/lib/types"
 import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
-import { getTenantById, tenantUsesFeature } from "@/lib/tenant"
+import { getTenantById, tenantUsesFeature, calculateCleanerPay } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
@@ -193,7 +193,35 @@ export async function PATCH(request: NextRequest) {
     if (body.price !== undefined) updates.price = body.price
     if (body.status !== undefined) updates.status = body.status
     if (body.notes !== undefined) updates.notes = body.notes
+    if (body.cleaner_notes !== undefined) updates.cleaner_notes = body.cleaner_notes
     if (body.phone_number !== undefined) updates.phone_number = body.phone_number
+
+    // Cleaner pay: recompute when the dispatcher provides an override OR when
+    // price/service_type/hours change (so computed_cleaner_pay stays in sync).
+    const payRelevantChange =
+      body.cleaner_pay_override !== undefined ||
+      body.price !== undefined ||
+      body.service_type !== undefined ||
+      body.hours !== undefined
+    if (payRelevantChange && tenant) {
+      const nextPrice = body.price !== undefined ? Number(body.price) : Number(oldJob?.price || 0)
+      const nextHours = body.hours !== undefined ? Number(body.hours) : Number(oldJob?.hours || 0)
+      const nextService = body.service_type !== undefined ? body.service_type : oldJob?.service_type
+      const incomingOverride =
+        body.cleaner_pay_override !== undefined
+          ? body.cleaner_pay_override === null || body.cleaner_pay_override === ""
+            ? null
+            : Number(body.cleaner_pay_override)
+          : oldJob?.cleaner_pay_override ?? null
+      if (body.cleaner_pay_override !== undefined) updates.cleaner_pay_override = incomingOverride
+      const nextComputed =
+        incomingOverride == null && nextPrice > 0
+          ? calculateCleanerPay(tenant, nextPrice, nextHours, nextService)
+          : null
+      updates.computed_cleaner_pay = incomingOverride != null ? incomingOverride : nextComputed
+      updates.computed_cleaner_pay_source =
+        incomingOverride != null ? "override" : nextComputed != null ? "calculated" : null
+    }
 
     // Update linked customer record if customer fields provided
     if (oldJob?.customer_id && (body.customer_name !== undefined || body.customer_email !== undefined || body.customer_phone !== undefined || body.customer_address !== undefined)) {
@@ -532,6 +560,23 @@ export async function POST(request: NextRequest) {
 
     const scheduledDate = body.scheduled_date || body.date || undefined
     const scheduledAt = body.scheduled_time || body.scheduled_at || undefined
+
+    // Resolve cleaner pay on write so jobs.computed_cleaner_pay is authoritative at
+    // the row level (not just enriched on the calendar GET). Override wins.
+    const price = body.estimated_value != null ? Number(body.estimated_value) : 0
+    const hours = body.duration_minutes ? Number(body.duration_minutes) / 60 : 0
+    const override =
+      body.cleaner_pay_override != null && body.cleaner_pay_override !== ""
+        ? Number(body.cleaner_pay_override)
+        : null
+    const computed =
+      override == null && price > 0
+        ? calculateCleanerPay(tenant, price, hours, body.service_type)
+        : null
+    const effectiveCleanerPay = override != null ? override : computed
+    const cleanerPaySource: "override" | "calculated" | null =
+      override != null ? "override" : computed != null ? "calculated" : null
+
     const inserted = await client
       .from("jobs")
       .insert({
@@ -545,6 +590,10 @@ export async function POST(request: NextRequest) {
         hours: body.duration_minutes ? Number(body.duration_minutes) / 60 : undefined,
         price: body.estimated_value != null ? Number(body.estimated_value) : undefined,
         notes: body.notes || undefined,
+        cleaner_notes: body.cleaner_notes || undefined,
+        cleaner_pay_override: override,
+        computed_cleaner_pay: effectiveCleanerPay,
+        computed_cleaner_pay_source: cleanerPaySource,
         status: body.status === "quoted" ? "quoted" : "scheduled",
         booked: body.status !== "quoted",
         addons: body.addons ? JSON.stringify(body.addons) : undefined,
