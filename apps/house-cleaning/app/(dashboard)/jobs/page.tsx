@@ -635,6 +635,15 @@ export default function JobsPage() {
     setCreateForm((prev) => ({ ...prev, cleaner_pay_override: String(suggested) } as any))
   }, [createOpen, userEditedCleanerPay, cleanerPaySuggestion.amount])
 
+  // Drag-and-drop / edit state (declared here so the edit-mode useMemo below can reference them)
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
+  const [editMode, setEditMode] = useState(false)
+  const [editForm, setEditForm] = useState({ date: "", time: "", cleanerIds: [] as string[], customerName: "", customerPhone: "", customerEmail: "", address: "", price: "", notes: "", serviceType: "", status: "", cleanerPayOverride: "" })
+  const [editUserEditedCleanerPay, setEditUserEditedCleanerPay] = useState(false)
+  const [cleanerDropdownOpen, setCleanerDropdownOpen] = useState(false)
+  const cleanerDropdownRef = useRef<HTMLDivElement>(null)
+  const [saving, setSaving] = useState(false)
+
   // Edit-mode equivalents of the same logic
   const editCleanerPaySuggestion = useMemo(() => {
     const hoursVal =
@@ -1010,14 +1019,6 @@ export default function JobsPage() {
     return () => clearTimeout(timer)
   }, [createForm.address, createOpen])
 
-  // Drag-and-drop / edit state
-  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
-  const [editMode, setEditMode] = useState(false)
-  const [editForm, setEditForm] = useState({ date: "", time: "", cleanerIds: [] as string[], customerName: "", customerPhone: "", customerEmail: "", address: "", price: "", notes: "", serviceType: "", status: "", cleanerPayOverride: "" })
-  const [editUserEditedCleanerPay, setEditUserEditedCleanerPay] = useState(false)
-  const [cleanerDropdownOpen, setCleanerDropdownOpen] = useState(false)
-  const cleanerDropdownRef = useRef<HTMLDivElement>(null)
-  const [saving, setSaving] = useState(false)
   const [autoScheduling, setAutoScheduling] = useState(false)
   const [autoScheduleResult, setAutoScheduleResult] = useState<string | null>(null)
   const [cleanersList, setCleanersList] = useState<{ id: string; name: string }[]>([])
