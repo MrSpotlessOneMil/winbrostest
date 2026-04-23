@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import CubeLoader from "@/components/ui/cube-loader"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -144,9 +145,11 @@ function getQuoteUrl(token: string) {
 }
 
 export default function QuotesPage() {
+  const router = useRouter()
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [openingBuilder, setOpeningBuilder] = useState(false)
   const [activeTab, setActiveTab] = useState<FilterTab>("all")
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
@@ -463,19 +466,46 @@ export default function QuotesPage() {
             Create and manage customer quotes
           </p>
         </div>
-        <Button onClick={() => (showCreate ? resetCreateForm() : setShowCreate(true))}>
-          {showCreate ? (
-            <>
-              <X className="h-4 w-4 mr-2" />
-              Cancel
-            </>
-          ) : (
-            <>
-              <Plus className="h-4 w-4 mr-2" />
-              New Quote
-            </>
-          )}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            disabled={openingBuilder}
+            onClick={async () => {
+              setOpeningBuilder(true)
+              try {
+                const res = await fetch('/api/actions/quotes', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ customer_name: 'New Quote (draft)' }),
+                })
+                if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                const body = await res.json()
+                const id: string | undefined = body?.quote?.id
+                if (id) router.push(`/quotes/${id}`)
+              } catch (e) {
+                setError(e instanceof Error ? e.message : 'Failed to open builder')
+              } finally {
+                setOpeningBuilder(false)
+              }
+            }}
+          >
+            <FileText className="h-4 w-4 mr-2" />
+            {openingBuilder ? 'Opening…' : 'Builder (beta)'}
+          </Button>
+          <Button onClick={() => (showCreate ? resetCreateForm() : setShowCreate(true))}>
+            {showCreate ? (
+              <>
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </>
+            ) : (
+              <>
+                <Plus className="h-4 w-4 mr-2" />
+                New Quote
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Create Quote Form */}

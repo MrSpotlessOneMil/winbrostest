@@ -152,8 +152,16 @@ export async function POST(request: NextRequest) {
 
   const hasPreconfirm = Array.isArray(cleaner_ids) && cleaner_ids.length > 0
 
-  // Validate line_items if provided
-  const parsedLineItems: Array<{ service_name: string; description?: string; price: number; quantity: number }> = []
+  // Validate line_items if provided. Round 2 task 6: optionality + is_upsell.
+  type ParsedLineItem = {
+    service_name: string
+    description?: string
+    price: number
+    quantity: number
+    optionality: 'required' | 'recommended' | 'optional'
+    is_upsell: boolean
+  }
+  const parsedLineItems: ParsedLineItem[] = []
   if (Array.isArray(line_items) && line_items.length > 0) {
     for (const item of line_items) {
       if (!item || typeof item !== 'object') continue
@@ -161,18 +169,37 @@ export async function POST(request: NextRequest) {
       const sPrice = Number(item.price)
       const sQty = item.quantity != null ? Number(item.quantity) : 1
       if (!sName || isNaN(sPrice) || sPrice < 0) continue
+      const rawOpt = typeof item.optionality === 'string' ? item.optionality : 'required'
+      const optionality: ParsedLineItem['optionality'] =
+        rawOpt === 'recommended' || rawOpt === 'optional' ? rawOpt : 'required'
       parsedLineItems.push({
         service_name: sName,
         description: typeof item.description === 'string' ? item.description.trim() || undefined : undefined,
         price: sPrice,
         quantity: sQty,
+        optionality,
+        is_upsell: item.is_upsell === true,
       })
     }
   }
 
-  // Compute total_price from line items if present, otherwise fall back to custom_base_price
+  // Round 2: original_price is the editable anchor used by the customer view
+  // to show discount math. Falls back to line-item total if omitted.
+  const parsedOriginalPrice = body.original_price != null ? Number(body.original_price) : null
+  const originalPrice =
+    parsedOriginalPrice != null && !Number.isNaN(parsedOriginalPrice) && parsedOriginalPrice >= 0
+      ? parsedOriginalPrice
+      : null
+
+  // Compute total_price from line items if present, otherwise fall back to custom_base_price.
+  // Round 2: only 'required' and 'recommended' (default-on) lines contribute to
+  // the shown total; 'optional' lines are opt-in by the customer. Upsell lines
+  // count toward total like any other line so the quote reflects what the customer
+  // will see.
   const lineItemsTotal = parsedLineItems.length > 0
-    ? parsedLineItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
+    ? parsedLineItems
+        .filter(item => item.optionality !== 'optional')
+        .reduce((sum, item) => sum + item.price * item.quantity, 0)
     : null
 
   const { data: quote, error } = await supabase
@@ -194,6 +221,7 @@ export async function POST(request: NextRequest) {
       notes: notes || null,
       custom_base_price: parsedCustomPrice,
       ...(lineItemsTotal != null ? { total_price: lineItemsTotal } : {}),
+      ...(originalPrice != null ? { original_price: originalPrice } : {}),
       ...(parsedCleanerPay != null ? { cleaner_pay: parsedCleanerPay } : {}),
       ...(description ? { description: description as string } : {}),
       ...(hasPreconfirm ? { preconfirm_status: 'awaiting_cleaners' } : {}),
@@ -234,6 +262,8 @@ export async function POST(request: NextRequest) {
       description: item.description || null,
       price: item.price,
       quantity: item.quantity,
+      optionality: item.optionality,
+      is_upsell: item.is_upsell,
       sort_order: index,
     }))
 
