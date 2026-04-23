@@ -138,9 +138,10 @@ Checks in order (all must pass):
 5. No active job in (`pending`, `quoted`, `scheduled`, `in_progress`)
 6. Not on manual-managed list
 7. Phone is not a cleaner's
-8. For `retargeting`: no inbound reply in last 14 days
-9. For email channel: not previously bounced
-10. Kill switch: `RETARGETING_DISABLED` env not set to `true`
+8. No active conversation: inbound message within last 30 min (universal, per-tenant override `workflow_config.active_conversation_window_minutes`)
+9. For `retargeting`: no inbound reply in last 14 days
+10. For email channel: not previously bounced
+11. Kill switch: `RETARGETING_DISABLED` env not set to `true`
 
 Every refusal logged to `system_events` with reason + kind + customer_id. Queryable for audit.
 
@@ -175,7 +176,7 @@ Every refusal logged to `system_events` with reason + kind + customer_id. Querya
 | 3 | +1d after stage 2 | offer close (tenant-capped discount, 7-day deadline) | yes | A and B |
 | 4 | +3d after stage 3 | last chance — "slot's coming off the books" | same offer | A and B |
 
-**Stage 1 live-convo skip**: if an outbound+inbound message pair exists in the last 10 minutes, skip. Customer is already in a conversation with AI — don't interrupt.
+**Universal active-conversation gate** (2026-04-23 update, applies to EVERY pipeline — A, B, C): `outreach-gate.ts` refuses outreach with reason `active_conversation` if the customer sent any inbound message in the last 30 minutes. Default window overridable per tenant via `workflow_config.active_conversation_window_minutes` (0 to disable). Covers: owner manually texting, AI mid-convo, reply-in-flight. Distinct from the 14-day retargeting `recent_inbound` check, which also drives the `retargeting -> engaged` state transition upstream.
 
 **Stage 3 offer cap per tenant** (`workflow_config.post_quote_max_discount`):
 - Spotless Scrubbers: 10%
@@ -563,6 +564,7 @@ All future changes to this spec get an entry here.
 | Date | Change | Reason | Approved by |
 |------|--------|--------|-------------|
 | 2026-04-22 | Initial freeze — v1.0 | Phase 2 redesign after 2026-04-22 West Niagara audit | Dominic |
+| 2026-04-23 | Universal 30-min active-conversation gate added to all 3 pipelines; legacy post-quote stage-1 10-min skip superseded. | Dominic flagged that follow-ups could fire mid-convo when customer is actively texting. | Dominic |
 
 ---
 
