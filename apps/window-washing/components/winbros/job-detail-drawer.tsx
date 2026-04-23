@@ -166,14 +166,11 @@ interface JobDetailDrawerProps {
 
 // ----------- Constants -----------
 
-const PRICE_BOOK = [
-  { name: 'Interior Windows', price: 200 },
-  { name: 'Exterior Windows', price: 150 },
-  { name: 'Screen Cleaning', price: 75 },
-  { name: 'Gutter Cleaning', price: 250 },
-  { name: 'Pressure Washing', price: 300 },
-  { name: 'Track Cleaning', price: 50 },
-]
+// Round 2 task 8: prices always editable. The in-drawer "Price book" used to
+// be a hardcoded const; it now hydrates from tech_upsell_catalog so admins
+// can rename/reprice under /tech-upsells and the drawer picks it up live.
+interface PriceBookItem { name: string; price: number }
+const PRICE_BOOK_FALLBACK: PriceBookItem[] = []
 
 const STATUS_ORDER: VisitStatus[] = [
   'not_started', 'on_my_way', 'in_progress', 'stopped',
@@ -256,8 +253,9 @@ export function JobDetailDrawer({ jobId, open, onClose, onJobUpdated }: JobDetai
   // Crew checkboxes (local toggle for who is on the job)
   const [crewOnJob, setCrewOnJob] = useState<number[]>([])
 
-  // Price book collapsible
+  // Price book collapsible (hydrated from /api/actions/tech-upsell-catalog)
   const [priceBookOpen, setPriceBookOpen] = useState(false)
+  const [priceBook, setPriceBook] = useState<PriceBookItem[]>(PRICE_BOOK_FALLBACK)
 
   // Info tab: notes editing
   const [editingNotes, setEditingNotes] = useState(false)
@@ -296,6 +294,23 @@ export function JobDetailDrawer({ jobId, open, onClose, onJobUpdated }: JobDetai
     if (open && jobId) {
       fetchData()
       setActiveTab('visit')
+      // Hydrate price book from the tenant tech-upsell catalog so prices are
+      // editable via /tech-upsells instead of a code-frozen constant.
+      ;(async () => {
+        try {
+          const res = await fetch('/api/actions/tech-upsell-catalog')
+          if (!res.ok) return
+          const body: { items?: { name: string; price: number | string }[] } = await res.json()
+          if (Array.isArray(body.items)) {
+            setPriceBook(
+              body.items.map(i => ({ name: i.name, price: Number(i.price) || 0 }))
+            )
+          }
+        } catch {
+          // Silent fallback to PRICE_BOOK_FALLBACK; admin can still type
+          // freeform service name + price in the upsell form.
+        }
+      })()
     }
     if (!open) {
       setData(null)
@@ -1012,7 +1027,7 @@ export function JobDetailDrawer({ jobId, open, onClose, onJobUpdated }: JobDetai
                 </button>
                 {priceBookOpen && (
                   <div className="px-3 pb-3 space-y-1.5">
-                    {PRICE_BOOK.map(item => (
+                    {priceBook.map(item => (
                       <div key={item.name} className="flex items-center justify-between text-sm">
                         <span className="text-zinc-400">{item.name}</span>
                         <div className="flex items-center gap-2">
@@ -1297,7 +1312,7 @@ export function JobDetailDrawer({ jobId, open, onClose, onJobUpdated }: JobDetai
               <div>
                 <p className="text-xs text-zinc-500 mb-1.5">Quick fill:</p>
                 <div className="flex flex-wrap gap-1">
-                  {PRICE_BOOK.map(item => (
+                  {priceBook.map(item => (
                     <button
                       key={item.name}
                       onClick={() => { setUpsellName(item.name); setUpsellPrice(String(item.price)) }}
