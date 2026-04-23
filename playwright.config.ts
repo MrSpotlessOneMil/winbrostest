@@ -44,6 +44,19 @@ export default defineConfig({
       },
       dependencies: ['setup'],
     },
+    {
+      // HTTP-only smoke tests that hit the API directly. Reuses the cached
+      // storageState from the setup project (which knows how to log in for
+      // the house-cleaning/admin flow) but skips dependency so a cached
+      // cookie from a previous run can still be used when the localhost
+      // login flow server-side-redirects to prod (WW tenants).
+      name: 'http-smoke',
+      testMatch: /wave\d+-round\d+-smoke\.spec\.ts|.*-api-smoke\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: STORAGE_STATE,
+      },
+    },
   ],
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined

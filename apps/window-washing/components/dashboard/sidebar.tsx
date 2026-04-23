@@ -62,7 +62,7 @@ const adminNavigation = [
   { name: "Command Center", href: "/overview", icon: LayoutDashboard },
   { name: "Customers", href: "/customers", icon: UserCircle },
   { name: "Pipeline", href: "/quotes", icon: Target },
-  { name: "Crew Assignment", href: "/crews", icon: Users },
+  { name: "Appointments", href: "/appointments", icon: Calendar },
   { name: "Scheduling", href: "/schedule", icon: CalendarDays },
   { name: "Service Plan Scheduling", href: "/service-plan-schedule", icon: Calendar },
   { name: "Service Plan Hub", href: "/service-plan-hub", icon: Repeat },
