@@ -153,6 +153,8 @@ export async function GET(request: NextRequest) {
         customerId: cust.id,
         kind: PIPELINE,
         channel: 'sms',
+        activeConversationWindowMinutes:
+          (tenant.workflow_config as any)?.active_conversation_window_minutes,
       })
       if (!gate.ok) {
         await logGateRefusal(client, tenant.id, cust.id, PIPELINE, gate)

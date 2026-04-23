@@ -57,9 +57,13 @@ function buildClient(fixtures: {
         if (table === 'messages') {
           const customerId = filters['customer_id'] as number
           const dir = filters['direction']
-          const rows = (fixtures.messages || []).filter(m =>
-            m.customer_id === customerId && (!dir || m.direction === dir)
-          )
+          const tsGte = filters['timestamp_gte'] as string | undefined
+          const rows = (fixtures.messages || []).filter(m => {
+            if (m.customer_id !== customerId) return false
+            if (dir && m.direction !== dir) return false
+            if (tsGte && typeof m.timestamp === 'string' && m.timestamp < tsGte) return false
+            return true
+          })
           return { data: rows[0] ?? null, error: null }
         }
         return { data: null, error: null }
@@ -301,14 +305,93 @@ describe('isEligibleForOutreach — active job / membership', () => {
 })
 
 describe('isEligibleForOutreach — retargeting recent-inbound pause', () => {
-  it('pauses retargeting if inbound in last 14 days', async () => {
+  it('pauses retargeting if inbound in last 14 days (but outside the 30-min live-convo window)', async () => {
+    // 2 hours ago: outside 30-min active window, inside 14-day retargeting window
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
     const client = buildClient({
       customers: { 7: { ...BASE_CUSTOMER, lifecycle_state: 'retargeting' } },
-      messages: [{ customer_id: 7, direction: 'inbound', timestamp: new Date().toISOString() }],
+      messages: [{ customer_id: 7, direction: 'inbound', timestamp: twoHoursAgo }],
     })
     const res = await isEligibleForOutreach({
       client, tenantId: 't1', tenantSlug: 'spotless-scrubbers', customerId: 7, kind: 'retargeting',
     })
     expect(res.reason).toBe('recent_inbound')
+  })
+})
+
+describe('isEligibleForOutreach — active conversation (live back-and-forth)', () => {
+  it('blocks pre_quote when customer sent an inbound message 5 minutes ago', async () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const client = buildClient({
+      customers: { 7: BASE_CUSTOMER },
+      messages: [{ customer_id: 7, direction: 'inbound', timestamp: fiveMinAgo }],
+    })
+    const res = await isEligibleForOutreach({
+      client, tenantId: 't1', tenantSlug: 'spotless-scrubbers', customerId: 7, kind: 'pre_quote',
+    })
+    expect(res.ok).toBe(false)
+    expect(res.reason).toBe('active_conversation')
+  })
+
+  it('blocks post_quote when customer sent an inbound message 5 minutes ago', async () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const client = buildClient({
+      customers: { 7: { ...BASE_CUSTOMER, lifecycle_state: 'quoted' } },
+      messages: [{ customer_id: 7, direction: 'inbound', timestamp: fiveMinAgo }],
+    })
+    const res = await isEligibleForOutreach({
+      client, tenantId: 't1', tenantSlug: 'spotless-scrubbers', customerId: 7, kind: 'post_quote',
+    })
+    expect(res.reason).toBe('active_conversation')
+  })
+
+  it('blocks retargeting when customer sent an inbound message 5 minutes ago', async () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const client = buildClient({
+      customers: { 7: { ...BASE_CUSTOMER, lifecycle_state: 'retargeting' } },
+      messages: [{ customer_id: 7, direction: 'inbound', timestamp: fiveMinAgo }],
+    })
+    const res = await isEligibleForOutreach({
+      client, tenantId: 't1', tenantSlug: 'spotless-scrubbers', customerId: 7, kind: 'retargeting',
+    })
+    expect(res.reason).toBe('active_conversation')
+  })
+
+  it('allows outreach when the inbound is older than the window (45 minutes ago, default 30-min window)', async () => {
+    const fortyFiveMinAgo = new Date(Date.now() - 45 * 60 * 1000).toISOString()
+    const client = buildClient({
+      customers: { 7: BASE_CUSTOMER },
+      messages: [{ customer_id: 7, direction: 'inbound', timestamp: fortyFiveMinAgo }],
+    })
+    const res = await isEligibleForOutreach({
+      client, tenantId: 't1', tenantSlug: 'spotless-scrubbers', customerId: 7, kind: 'pre_quote',
+    })
+    expect(res.ok).toBe(true)
+  })
+
+  it('per-tenant override: a 60-minute window blocks an inbound from 45 minutes ago', async () => {
+    const fortyFiveMinAgo = new Date(Date.now() - 45 * 60 * 1000).toISOString()
+    const client = buildClient({
+      customers: { 7: BASE_CUSTOMER },
+      messages: [{ customer_id: 7, direction: 'inbound', timestamp: fortyFiveMinAgo }],
+    })
+    const res = await isEligibleForOutreach({
+      client, tenantId: 't1', tenantSlug: 'spotless-scrubbers', customerId: 7, kind: 'pre_quote',
+      activeConversationWindowMinutes: 60,
+    })
+    expect(res.reason).toBe('active_conversation')
+  })
+
+  it('setting the window to 0 disables the check entirely', async () => {
+    const oneMinAgo = new Date(Date.now() - 60 * 1000).toISOString()
+    const client = buildClient({
+      customers: { 7: BASE_CUSTOMER },
+      messages: [{ customer_id: 7, direction: 'inbound', timestamp: oneMinAgo }],
+    })
+    const res = await isEligibleForOutreach({
+      client, tenantId: 't1', tenantSlug: 'spotless-scrubbers', customerId: 7, kind: 'pre_quote',
+      activeConversationWindowMinutes: 0,
+    })
+    expect(res.ok).toBe(true)
   })
 })

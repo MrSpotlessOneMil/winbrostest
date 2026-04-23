@@ -47,6 +47,7 @@ export type OutreachGateReason =
   | 'manual_managed'
   | 'cleaner_phone'
   | 'recent_inbound'
+  | 'active_conversation'
   | 'email_bounced'
   | 'internal_error'
 
@@ -64,6 +65,12 @@ export interface OutreachGateInput {
   customerId: number
   kind: 'pre_quote' | 'post_quote' | 'retargeting'
   channel?: 'sms' | 'email' | 'mms'
+  /**
+   * Minutes-since-last-inbound below which the gate treats the customer as
+   * mid-conversation and refuses outreach. Defaults to 30. Pass 0 to disable.
+   * Intended override: tenant.workflow_config.active_conversation_window_minutes.
+   */
+  activeConversationWindowMinutes?: number
   /** Override current time for tests. */
   now?: Date
 }
@@ -97,6 +104,8 @@ function normalizePhone(raw: string | null | undefined): string[] {
 export async function isEligibleForOutreach(input: OutreachGateInput): Promise<OutreachGateResult> {
   const { client, tenantId, tenantSlug, customerId, kind, channel = 'sms' } = input
   const now = input.now ?? new Date()
+  const activeWindowMinutes =
+    input.activeConversationWindowMinutes ?? 30
 
   // 1. Global kill switch (already live from Phase 1)
   if (isRetargetingPaused()) {
@@ -198,7 +207,30 @@ export async function isEligibleForOutreach(input: OutreachGateInput): Promise<O
     }
   }
 
-  // 14. Retargeting-specific: recent inbound pauses drip
+  // 14. Active conversation — never interrupt a live back-and-forth.
+  // Applies to EVERY pipeline. If the customer sent an inbound message in the
+  // last N minutes (default 30, override per-tenant), something is in flight:
+  // either Dominic is texting, the AI is mid-convo, or a reply just landed and
+  // hasn't been processed yet. Follow-ups can always wait another run.
+  if (activeWindowMinutes > 0) {
+    const activeCutoff = new Date(now.getTime() - activeWindowMinutes * 60 * 1000).toISOString()
+    const { data: liveInbound } = await client
+      .from('messages')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('customer_id', customerId)
+      .eq('direction', 'inbound')
+      .gte('timestamp', activeCutoff)
+      .limit(1)
+      .maybeSingle()
+    if (liveInbound) {
+      return { ok: false, reason: 'active_conversation', state }
+    }
+  }
+
+  // 15. Retargeting-specific: recent inbound pauses drip (14-day window,
+  // separate from the short live-convo window above — this one also drives
+  // the 'retargeting -> engaged' state transition upstream).
   if (kind === 'retargeting') {
     const cutoff = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString()
     const { data: recent } = await client
