@@ -51,7 +51,7 @@ export default defineConfig({
       // cookie from a previous run can still be used when the localhost
       // login flow server-side-redirects to prod (WW tenants).
       name: 'http-smoke',
-      testMatch: /wave\d+-round\d+-smoke\.spec\.ts|.*-api-smoke\.spec\.ts/,
+      testMatch: /wave[\w-]+-smoke\.spec\.ts|.*-api-smoke\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         storageState: STORAGE_STATE,
