@@ -11,6 +11,8 @@ ALTER TABLE quote_line_items
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS original_price DECIMAL(10,2);
 
 ALTER TABLE service_plans ADD COLUMN IF NOT EXISTS signed_ip TEXT;
+ALTER TABLE service_plans ADD COLUMN IF NOT EXISTS quote_id UUID REFERENCES quotes(id) ON DELETE SET NULL;
+ALTER TABLE service_plans ADD COLUMN IF NOT EXISTS plan_name TEXT;
 
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS agreement_pdf_url TEXT;
 

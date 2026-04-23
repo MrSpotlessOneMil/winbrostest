@@ -20,6 +20,7 @@ const publicRoutes = [
   '/api/auth/crew-login',
   '/quote',
   '/api/quotes',
+  '/api/public',
   '/tip',
   '/api/tip',
   '/crew',
