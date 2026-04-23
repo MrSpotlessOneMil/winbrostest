@@ -57,6 +57,18 @@ export default defineConfig({
         storageState: STORAGE_STATE,
       },
     },
+    {
+      // Customer-facing browser tests — no auth setup dependency. The
+      // /quote/:token/* routes are public (see middleware publicRoutes),
+      // so no login is required. Admin seeding still runs via request
+      // fixture with the cached storageState cookie.
+      name: 'customer-browser',
+      testMatch: /.*-browser\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: STORAGE_STATE,
+      },
+    },
   ],
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined
