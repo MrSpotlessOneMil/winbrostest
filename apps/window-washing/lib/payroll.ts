@@ -4,15 +4,15 @@
  * Weekly payroll calculation with frozen rate snapshots.
  *
  * Technicians/Team Leads:
- * - Revenue completed (from visit_line_items)
- * - Pay percentage of revenue
- * - Hourly rate * hours worked
- * - OT = 1.5x for overtime hours
+ * - pay_mode is 'hourly' XOR 'percentage' (Round 2 — never both).
+ *   - 'hourly': total = (hours * rate) + (OT_hours * rate * 1.5)
+ *   - 'percentage': total = revenue * pay_percentage
+ * - Revenue completed comes from visit_line_items (sold + upsell).
  *
  * Salesmen:
- * - Commission per plan type (1-time, triannual, quarterly)
- * - Different % for each plan type
- * - Only credited for original_quote revenue
+ * - Commission per plan type (1-time, triannual, quarterly).
+ * - pay_mode is inert for salesmen — commission path always runs.
+ * - Only credited for original_quote revenue.
  *
  * CRITICAL: Changing current pay rates NEVER affects past payroll weeks.
  * Each week's rates are frozen at generation time.
@@ -20,9 +20,12 @@
 
 import { SupabaseClient } from '@supabase/supabase-js'
 
+type PayMode = 'hourly' | 'percentage'
+
 interface PayRate {
   cleaner_id: number
   role: string
+  pay_mode: PayMode | null
   hourly_rate: number | null
   pay_percentage: number | null
   commission_1time_pct: number | null
@@ -60,32 +63,32 @@ interface SalesmanPayrollEntry {
 /**
  * Calculate technician pay for a week.
  *
- * If pay_percentage is set: total = revenue * percentage
- * If hourly: total = (hours * rate) + (OT_hours * rate * 1.5)
- * Can be both (percentage of revenue + hourly for non-revenue work)
+ * Strictly exclusive: pay_mode='hourly' pays ONLY hours * rate + OT.
+ * pay_mode='percentage' pays ONLY revenue * percentage.
+ * Round 2 — never both. `null` pay_mode defaults to 'hourly' as the safe floor.
  */
 export function calculateTechPay(
   revenueCompleted: number,
+  payMode: PayMode | null,
   payPercentage: number | null,
   hoursWorked: number,
   overtimeHours: number,
   hourlyRate: number | null,
   overtimeRate: number = 1.5
 ): number {
-  let total = 0
+  const mode: PayMode = payMode ?? 'hourly'
 
-  // Revenue-based pay
-  if (payPercentage && payPercentage > 0) {
-    total += revenueCompleted * (payPercentage / 100)
+  if (mode === 'percentage') {
+    const pct = payPercentage ?? 0
+    return Math.round(revenueCompleted * (pct / 100) * 100) / 100
   }
 
-  // Hourly pay (regular hours only — OT hours tracked separately)
-  if (hourlyRate && hourlyRate > 0) {
-    const regularHours = Math.max(0, hoursWorked - overtimeHours)
-    total += regularHours * hourlyRate
-    total += overtimeHours * hourlyRate * overtimeRate
-  }
+  // mode === 'hourly'
+  const rate = hourlyRate ?? 0
+  if (rate <= 0) return 0
 
+  const regularHours = Math.max(0, hoursWorked - overtimeHours)
+  const total = regularHours * rate + overtimeHours * rate * overtimeRate
   return Math.round(total * 100) / 100
 }
 
@@ -215,6 +218,7 @@ export async function generatePayrollWeek(
       const otHours = Math.max(0, hours - 40) // 40hr work week
       const totalPay = calculateTechPay(
         revenue,
+        rate.pay_mode,
         rate.pay_percentage,
         hours,
         otHours,
@@ -229,6 +233,7 @@ export async function generatePayrollWeek(
         revenue_completed: revenue,
         revenue_sold: sold,
         revenue_upsell: upsell,
+        pay_mode: rate.pay_mode ?? 'hourly',
         pay_percentage: rate.pay_percentage,
         hours_worked: hours,
         overtime_hours: otHours,

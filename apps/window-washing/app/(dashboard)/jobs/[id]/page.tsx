@@ -534,8 +534,6 @@ export default function JobDetailPage() {
           <VisitFlowBar
             visitId={visit.id}
             status={visit.status}
-            startedAt={visit.started_at}
-            stoppedAt={visit.stopped_at}
             checklistComplete={checklistComplete}
             paymentRecorded={visit.payment_recorded}
             onTransition={handleTransition}

@@ -238,6 +238,14 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     .eq('visit_id', visit.id)
     .order('created_at', { ascending: true })
 
+  // Fetch tech upsell catalog for this tenant (Q1=C — picker source)
+  const { data: catalog } = await client
+    .from('tech_upsell_catalog')
+    .select('id, name, description, price, sort_order')
+    .eq('tenant_id', cleaner.tenant_id)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+
   const customer = (job as any).customers
 
   return NextResponse.json({
@@ -269,6 +277,12 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       price: item.price,
       revenue_type: item.revenue_type,
       added_by_cleaner_id: item.added_by_cleaner_id,
+    })),
+    catalog: (catalog || []).map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      description: c.description,
+      price: Number(c.price),
     })),
     job: {
       id: job.id,
@@ -413,21 +427,31 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   // -----------------------------------------------------------------------
   // Action: upsell
+  // Round 2 (Q1=C): tech picks from tech_upsell_catalog only — no free-form entry.
   // -----------------------------------------------------------------------
   if (action === 'upsell') {
-    const { service_name, price, description } = body
-    if (!service_name || price == null) {
-      return NextResponse.json({ error: 'Missing service_name or price' }, { status: 400 })
+    const { catalog_item_id, quantity } = body
+    if (!catalog_item_id || typeof catalog_item_id !== 'number') {
+      return NextResponse.json({ error: 'Missing or invalid catalog_item_id' }, { status: 400 })
     }
+    const qty = typeof quantity === 'number' && quantity > 0 ? Math.floor(quantity) : 1
 
-    if (typeof price !== 'number' || price <= 0) {
-      return NextResponse.json({ error: 'Price must be a positive number' }, { status: 400 })
+    // Look up catalog row (tenant-scoped)
+    const { data: catalogItem } = await client
+      .from('tech_upsell_catalog')
+      .select('id, name, description, price, is_active')
+      .eq('id', catalog_item_id)
+      .eq('tenant_id', cleaner.tenant_id)
+      .maybeSingle()
+
+    if (!catalogItem || !catalogItem.is_active) {
+      return NextResponse.json({ error: 'Catalog item not found or inactive' }, { status: 404 })
     }
 
     const result = await addUpsell(client, visit.id, {
-      service_name,
-      description: description || undefined,
-      price,
+      service_name: catalogItem.name,
+      description: catalogItem.description || undefined,
+      price: Number(catalogItem.price) * qty,
       added_by_cleaner_id: cleaner.id,
     })
 

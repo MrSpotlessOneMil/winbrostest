@@ -65,6 +65,68 @@ describe('approveAndConvertQuote', () => {
   })
 })
 
+describe('createQuote — is_upsell flag (Round 2)', () => {
+  it('variant 1: defaults is_upsell to false when omitted', async () => {
+    const client = createMockClient()
+    client.single.mockResolvedValueOnce({ data: { id: 1 }, error: null })
+    client.insert.mockReturnValueOnce({
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 1 }, error: null }),
+      error: null,
+      data: null,
+    })
+
+    await createQuote(client as any, {
+      tenant_id: 't',
+      line_items: [{ service_name: 'Windows', price: 100 }],
+    })
+
+    // Second insert call is the line items insert
+    const lineItemInsert = client.insert.mock.calls[1][0]
+    expect(Array.isArray(lineItemInsert)).toBe(true)
+    expect(lineItemInsert[0].is_upsell).toBe(false)
+  })
+
+  it('variant 2: preserves is_upsell=true when supplied', async () => {
+    const client = createMockClient()
+    client.single.mockResolvedValueOnce({ data: { id: 2 }, error: null })
+    client.insert.mockReturnValueOnce({
+      select: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { id: 2 }, error: null }),
+      error: null,
+      data: null,
+    })
+
+    await createQuote(client as any, {
+      tenant_id: 't',
+      line_items: [
+        { service_name: 'Base service', price: 100, is_upsell: false },
+        { service_name: 'Upsold extra', price: 50, is_upsell: true },
+      ],
+    })
+
+    const lineItemInsert = client.insert.mock.calls[1][0]
+    expect(lineItemInsert[0].is_upsell).toBe(false)
+    expect(lineItemInsert[1].is_upsell).toBe(true)
+  })
+
+  it('variant 3: is_upsell lines still contribute to total_price', async () => {
+    const client = createMockClient()
+    client.single.mockResolvedValueOnce({ data: { id: 3 }, error: null })
+
+    await createQuote(client as any, {
+      tenant_id: 't',
+      line_items: [
+        { service_name: 'Base', price: 100, is_upsell: false },
+        { service_name: 'Upsold', price: 50, is_upsell: true },
+      ],
+    })
+
+    const quoteInsert = client.insert.mock.calls[0][0]
+    expect(quoteInsert.total_price).toBe(150)
+  })
+})
+
 describe('createQuote', () => {
   it('calculates total price from line items', async () => {
     const client = createMockClient()

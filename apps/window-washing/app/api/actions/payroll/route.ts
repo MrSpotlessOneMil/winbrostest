@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     // No payroll generated yet — return empty with pay rates for display
     const { data: rates } = await client
       .from('pay_rates')
-      .select('cleaner_id, role, hourly_rate, pay_percentage, commission_1time_pct, commission_triannual_pct, commission_quarterly_pct, cleaners!inner(name)')
+      .select('cleaner_id, role, pay_mode, hourly_rate, pay_percentage, commission_1time_pct, commission_triannual_pct, commission_quarterly_pct, cleaners!inner(name)')
       .eq('tenant_id', tenantId)
 
     const technicians = (rates || [])
@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
         revenue_completed: 0,
         revenue_sold: 0,
         revenue_upsell: 0,
+        pay_mode: ((r as any).pay_mode || 'hourly') as 'hourly' | 'percentage',
         pay_percentage: Number(r.pay_percentage || 0),
         hours_worked: 0,
         overtime_hours: 0,
@@ -92,6 +93,7 @@ export async function GET(request: NextRequest) {
       revenue_completed: Number(e.revenue_completed || 0),
       revenue_sold: Number(e.revenue_sold || 0),
       revenue_upsell: Number(e.revenue_upsell || 0),
+      pay_mode: ((e as any).pay_mode || 'hourly') as 'hourly' | 'percentage',
       pay_percentage: Number(e.pay_percentage || 0),
       hours_worked: Number(e.hours_worked || 0),
       overtime_hours: Number(e.overtime_hours || 0),
@@ -142,15 +144,20 @@ export async function POST(request: NextRequest) {
 
   // Build updates for pay_rates table
   const updates: Record<string, unknown> = {}
-  const allowedFields = [
+  const numericFields = [
     'hourly_rate', 'pay_percentage',
     'commission_1time_pct', 'commission_triannual_pct', 'commission_quarterly_pct',
   ] as const
 
-  for (const field of allowedFields) {
+  for (const field of numericFields) {
     if (field in body && typeof body[field] === 'number') {
       updates[field] = body[field]
     }
+  }
+
+  // pay_mode is a string enum, not a number — validate separately
+  if ('pay_mode' in body && (body.pay_mode === 'hourly' || body.pay_mode === 'percentage')) {
+    updates.pay_mode = body.pay_mode
   }
 
   if (Object.keys(updates).length > 0) {

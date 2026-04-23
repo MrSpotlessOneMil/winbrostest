@@ -14,6 +14,7 @@ interface QuoteLineItem {
   description: string | null
   price: number
   quantity: number
+  is_upsell: boolean
 }
 
 interface Quote {
@@ -109,7 +110,12 @@ export async function approveAndConvertQuote(
     return { success: false, error: `Failed to create visit: ${visitError?.message}` }
   }
 
-  // 4. Copy quote line items to visit line items (all as original_quote revenue)
+  // 4. Copy quote line items to visit line items.
+  //    Per Blake's spec:
+  //      quote line with is_upsell=true  → revenue_type='technician_upsell' (team lead credited)
+  //      quote line with is_upsell=false → revenue_type='original_quote'   (salesman credited)
+  //    added_by_cleaner_id stays null at conversion time — team lead may not be known yet.
+  //    Payroll resolves null-attribution upsells against job.cleaner_id / visit.technicians.
   if (lineItems && lineItems.length > 0) {
     const visitLineItems = lineItems.map((item: QuoteLineItem) => ({
       visit_id: visit.id,
@@ -118,7 +124,7 @@ export async function approveAndConvertQuote(
       service_name: item.service_name,
       description: item.description,
       price: item.price * item.quantity,
-      revenue_type: 'original_quote' as const,
+      revenue_type: (item.is_upsell ? 'technician_upsell' : 'original_quote') as 'technician_upsell' | 'original_quote',
       added_by_cleaner_id: null,
     }))
 
@@ -169,9 +175,12 @@ export async function createQuote(
       description?: string
       price: number
       quantity?: number
+      is_upsell?: boolean
     }>
   }
 ): Promise<{ success: boolean; quote_id?: number; error?: string }> {
+  // is_upsell lines still contribute to total (customer pays the full quote total).
+  // The flag only affects commission attribution at payroll time.
   const totalPrice = data.line_items.reduce(
     (sum, item) => sum + item.price * (item.quantity || 1),
     0
@@ -206,6 +215,7 @@ export async function createQuote(
     description: item.description || null,
     price: item.price,
     quantity: item.quantity || 1,
+    is_upsell: item.is_upsell === true,
     sort_order: index,
   }))
 

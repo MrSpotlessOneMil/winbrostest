@@ -7,14 +7,14 @@
  *                   Checklist → Collect Payment → Close Job
  *
  * Each button only active when previous step is done.
- * Shows running timer between Start/Stop.
+ * (Timer display removed in Round 2 — upsells no longer time-gated.)
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Navigation, Play, Square, CheckCircle2, ClipboardCheck,
-  CreditCard, Lock, Clock
+  CreditCard, Lock
 } from 'lucide-react'
 
 type VisitStatus =
@@ -24,8 +24,6 @@ type VisitStatus =
 interface VisitFlowBarProps {
   visitId: number
   status: VisitStatus
-  startedAt: string | null
-  stoppedAt: string | null
   checklistComplete: boolean
   paymentRecorded: boolean
   onTransition: (targetStatus: VisitStatus) => Promise<void>
@@ -56,44 +54,15 @@ function getStatusIndex(status: VisitStatus): number {
   return STATUS_ORDER.indexOf(status)
 }
 
-function formatDuration(seconds: number): string {
-  const hrs = Math.floor(seconds / 3600)
-  const mins = Math.floor((seconds % 3600) / 60)
-  const secs = seconds % 60
-  if (hrs > 0) {
-    return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-  }
-  return `${mins}:${String(secs).padStart(2, '0')}`
-}
-
 export function VisitFlowBar({
   visitId,
   status,
-  startedAt,
-  stoppedAt,
   checklistComplete,
   paymentRecorded,
   onTransition,
   onCollectPayment,
 }: VisitFlowBarProps) {
   const [loading, setLoading] = useState<string | null>(null)
-  const [elapsed, setElapsed] = useState(0)
-
-  // Running timer
-  useEffect(() => {
-    if (status === 'in_progress' && startedAt) {
-      const start = new Date(startedAt).getTime()
-      const interval = setInterval(() => {
-        setElapsed(Math.floor((Date.now() - start) / 1000))
-      }, 1000)
-      return () => clearInterval(interval)
-    }
-    if (stoppedAt && startedAt) {
-      setElapsed(
-        Math.floor((new Date(stoppedAt).getTime() - new Date(startedAt).getTime()) / 1000)
-      )
-    }
-  }, [status, startedAt, stoppedAt])
 
   const handleStep = useCallback(async (targetStatus: VisitStatus) => {
     if (targetStatus === 'payment_collected') {
@@ -112,22 +81,9 @@ export function VisitFlowBar({
 
   return (
     <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-950">
-      {/* Timer display */}
-      {(status === 'in_progress' || (startedAt && stoppedAt)) && (
-        <div className="flex items-center justify-center gap-2 mb-4 py-2 bg-zinc-900 rounded">
-          <Clock className="w-4 h-4 text-zinc-400" />
-          <span className={`text-xl font-mono font-bold ${status === 'in_progress' ? 'text-green-400' : 'text-zinc-300'}`}>
-            {formatDuration(elapsed)}
-          </span>
-          {status === 'in_progress' && (
-            <span className="text-xs text-green-500 animate-pulse">ACTIVE</span>
-          )}
-        </div>
-      )}
-
       {/* Step buttons */}
       <div className="flex flex-wrap gap-2">
-        {STEPS.map((step, index) => {
+        {STEPS.map((step) => {
           const stepIndex = getStatusIndex(step.status)
           const isDone = currentIndex >= stepIndex
           const isNext = currentIndex === stepIndex - 1

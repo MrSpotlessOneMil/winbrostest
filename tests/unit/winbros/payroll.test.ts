@@ -1,5 +1,8 @@
 /**
  * Payroll Engine — Unit Tests
+ *
+ * Round 2 (2026-04-23): pay_mode is hourly XOR percentage. Never both.
+ * Each operation tested with 3 input variants per the 3-tier-test-before-push rule.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -8,65 +11,68 @@ import {
   calculateSalesmanPay,
 } from '@/apps/window-washing/lib/payroll'
 
-describe('calculateTechPay', () => {
-  it('percentage-based: 15% of $4000 revenue = $600', () => {
-    expect(calculateTechPay(4000, 15, 0, 0, null)).toBe(600)
+describe('calculateTechPay — hourly mode', () => {
+  it('variant 1 (happy): 40hrs * $25/hr = $1000', () => {
+    expect(calculateTechPay(0, 'hourly', null, 40, 0, 25)).toBe(1000)
   })
 
-  it('percentage-based: 22% of $5750 revenue = $1265', () => {
-    expect(calculateTechPay(5750, 22, 0, 0, null)).toBe(1265)
+  it('variant 2 (with OT): 40 regular + 5 OT at 1.5x @ $25/hr = $1187.50', () => {
+    // Regular: 40 * 25 = 1000
+    // OT: 5 * 25 * 1.5 = 187.50
+    expect(calculateTechPay(0, 'hourly', null, 45, 5, 25, 1.5)).toBe(1187.5)
   })
 
-  it('hourly-based: 40hrs * $20/hr = $800', () => {
-    expect(calculateTechPay(0, null, 40, 0, 20)).toBe(800)
+  it('variant 3 (edge): hourly mode IGNORES pay_percentage even if set', () => {
+    // Revenue-based percentage must NOT contribute in hourly mode (that was the bug).
+    expect(calculateTechPay(5000, 'hourly', 35, 40, 0, 25)).toBe(1000)
+  })
+})
+
+describe('calculateTechPay — percentage mode', () => {
+  it('variant 1 (happy): 15% of $4000 = $600', () => {
+    expect(calculateTechPay(4000, 'percentage', 15, 0, 0, null)).toBe(600)
   })
 
-  it('hourly with OT: 45hrs (5 OT) * $20/hr, OT 1.5x', () => {
-    // Regular: 40 * 20 = 800
-    // OT: 5 * 20 * 1.5 = 150
-    // Total: 950
-    expect(calculateTechPay(0, null, 45, 5, 20, 1.5)).toBe(950)
+  it('variant 2 (fractional): 22% of $5750 = $1265.00', () => {
+    expect(calculateTechPay(5750, 'percentage', 22, 0, 0, null)).toBe(1265)
   })
 
-  it('combined: percentage + hourly', () => {
-    // 15% of $3000 = $450
-    // 20hrs * $15 = $300
-    // Total: $750
-    expect(calculateTechPay(3000, 15, 20, 0, 15)).toBe(750)
+  it('variant 3 (edge): percentage mode IGNORES hourly_rate + hours', () => {
+    // Hours * rate must NOT contribute in percentage mode.
+    expect(calculateTechPay(1000, 'percentage', 30, 40, 5, 25)).toBe(300)
+  })
+})
+
+describe('calculateTechPay — null/edge mode handling', () => {
+  it('variant 1: null pay_mode defaults to hourly (safe floor)', () => {
+    expect(calculateTechPay(5000, null, 35, 40, 0, 25)).toBe(1000)
   })
 
-  it('zero revenue and hours = $0', () => {
-    expect(calculateTechPay(0, 15, 0, 0, 20)).toBe(0)
+  it('variant 2: hourly mode with 0 rate returns 0 (never negative or NaN)', () => {
+    expect(calculateTechPay(1000, 'hourly', 30, 40, 0, 0)).toBe(0)
   })
 
-  it('handles null percentage gracefully', () => {
-    expect(calculateTechPay(5000, null, 0, 0, null)).toBe(0)
+  it('variant 3: percentage mode with null pct returns 0', () => {
+    expect(calculateTechPay(1000, 'percentage', null, 0, 0, null)).toBe(0)
   })
 })
 
 describe('calculateSalesmanPay', () => {
-  it('different rates per plan type', () => {
-    // $1000 1-time at 10% = $100
-    // $2000 triannual at 15% = $300
-    // $3000 quarterly at 20% = $600
-    // Total: $1000
+  it('variant 1 (happy): mixed plan types', () => {
+    // $1000 * 10% + $2000 * 15% + $3000 * 20% = 100 + 300 + 600 = 1000
     expect(calculateSalesmanPay(1000, 2000, 3000, 10, 15, 20)).toBe(1000)
   })
 
-  it('only 1-time revenue', () => {
-    expect(calculateSalesmanPay(5000, 0, 0, 12, 0, 0)).toBe(600)
-  })
-
-  it('only quarterly revenue', () => {
+  it('variant 2 (single plan): only quarterly', () => {
     expect(calculateSalesmanPay(0, 0, 10000, 0, 0, 8)).toBe(800)
   })
 
-  it('zero revenue = $0', () => {
-    expect(calculateSalesmanPay(0, 0, 0, 10, 15, 20)).toBe(0)
-  })
-
-  it('handles fractional cents with rounding', () => {
+  it('variant 3 (fractional): rounds to cents', () => {
     // $333 at 10% = $33.30
     expect(calculateSalesmanPay(333, 0, 0, 10, 0, 0)).toBe(33.3)
+  })
+
+  it('variant 4 (edge): zero revenue returns 0', () => {
+    expect(calculateSalesmanPay(0, 0, 0, 10, 15, 20)).toBe(0)
   })
 })

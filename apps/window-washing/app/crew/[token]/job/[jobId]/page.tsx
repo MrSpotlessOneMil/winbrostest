@@ -1,12 +1,12 @@
 "use client"
 
-import { useEffect, useState, useRef, useCallback } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import {
   ArrowLeft, Calendar, Clock, MapPin, Phone,
   CheckCircle2, Loader2, AlertCircle, Lock,
   Navigation, CreditCard, DollarSign, Banknote,
-  Timer, Plus, X, Check, CircleDot,
+  Plus, X, Check, CircleDot,
   ClipboardCheck, Receipt, XCircle,
 } from "lucide-react"
 
@@ -43,6 +43,13 @@ interface LineItem {
   revenue_type: string
 }
 
+interface CatalogItem {
+  id: number
+  name: string
+  description: string | null
+  price: number
+}
+
 interface ChecklistItem {
   id: number | string
   item_text: string
@@ -76,6 +83,7 @@ interface VisitData {
   visit: Visit
   checklist: ChecklistItem[]
   line_items: LineItem[]
+  catalog: CatalogItem[]
   job: JobDetail
   customer: CustomerInfo
   tenant: TenantInfo
@@ -277,15 +285,11 @@ export default function CrewJobVisitPage() {
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
 
-  // Timer
-  const [timerSeconds, setTimerSeconds] = useState(0)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // (Live visit timer removed in Round 2 — upsells no longer time-gated.)
 
-  // Upsell form
-  const [showUpsellForm, setShowUpsellForm] = useState(false)
-  const [upsellName, setUpsellName] = useState("")
-  const [upsellPrice, setUpsellPrice] = useState("")
-  const [upsellLoading, setUpsellLoading] = useState(false)
+  // Upsell catalog picker (Q1=C — no free-form upsells)
+  const [showUpsellPicker, setShowUpsellPicker] = useState(false)
+  const [upsellLoading, setUpsellLoading] = useState<number | null>(null)
 
   // Add checklist item
   const [showAddChecklist, setShowAddChecklist] = useState(false)
@@ -320,34 +324,6 @@ export default function CrewJobVisitPage() {
     fetchData()
   }, [fetchData])
 
-  // ── Timer Logic ──
-
-  useEffect(() => {
-    if (!data) return
-
-    if (data.visit.status === "in_progress" && data.visit.started_at) {
-      const startMs = new Date(data.visit.started_at).getTime()
-      const tick = () => {
-        const elapsed = Math.floor((Date.now() - startMs) / 1000)
-        setTimerSeconds(elapsed)
-      }
-      tick()
-      timerRef.current = setInterval(tick, 1000)
-      return () => {
-        if (timerRef.current) clearInterval(timerRef.current)
-      }
-    }
-
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-      timerRef.current = null
-    }
-
-    if (data.visit.elapsed_seconds != null) {
-      setTimerSeconds(data.visit.elapsed_seconds)
-    }
-  }, [data])
-
   // ── POST Actions ──
 
   async function postAction(body: Record<string, unknown>): Promise<boolean> {
@@ -377,20 +353,15 @@ export default function CrewJobVisitPage() {
     await postAction({ action: "transition", target_status: targetStatus })
   }
 
-  async function handleUpsell() {
-    if (!upsellName.trim() || !upsellPrice) return
-    setUpsellLoading(true)
+  async function handleUpsellFromCatalog(catalogItemId: number) {
+    setUpsellLoading(catalogItemId)
     const ok = await postAction({
       action: "upsell",
-      service_name: upsellName.trim(),
-      price: parseFloat(upsellPrice),
+      catalog_item_id: catalogItemId,
+      quantity: 1,
     })
-    if (ok) {
-      setUpsellName("")
-      setUpsellPrice("")
-      setShowUpsellForm(false)
-    }
-    setUpsellLoading(false)
+    if (ok) setShowUpsellPicker(false)
+    setUpsellLoading(null)
   }
 
   async function handleToggleChecklist(itemId: number | string, completed: boolean) {
@@ -468,7 +439,8 @@ export default function CrewJobVisitPage() {
     )
   }
 
-  const { visit, checklist, line_items, job, customer, tenant } = data
+  const { visit, checklist, line_items, catalog, job, customer, tenant } = data
+  const canAddUpsell = visit.status !== "not_started" && visit.status !== "closed"
   const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || "Customer"
   const completedStepIdx = currentStepIndex(visit)
   const isClosed = visit.status === "closed"
@@ -665,34 +637,6 @@ export default function CrewJobVisitPage() {
             </div>
           )}
 
-          {/* Timer display — shown during in_progress or after stop */}
-          {(visit.status === "in_progress" || (stepIndex(visit.status) > stepIndex("in_progress") && visit.elapsed_seconds != null)) && (
-            <div className="mb-5">
-              <div
-                className={`rounded-xl px-4 py-3 flex items-center gap-3 ${
-                  visit.status === "in_progress"
-                    ? "bg-green-500/10 border border-green-500/30"
-                    : "bg-zinc-800 border border-zinc-700"
-                }`}
-                style={visit.status === "in_progress" ? { animation: "timerPulse 2s ease-in-out infinite" } : {}}
-              >
-                <Timer
-                  className={`size-5 ${visit.status === "in_progress" ? "text-green-400" : "text-zinc-400"}`}
-                />
-                <div>
-                  <p className={`text-2xl font-mono font-bold ${
-                    visit.status === "in_progress" ? "text-green-400" : "text-zinc-300"
-                  }`}>
-                    {formatElapsed(timerSeconds)}
-                  </p>
-                  <p className="text-[10px] uppercase tracking-wider text-zinc-500">
-                    {visit.status === "in_progress" ? "Timer Running" : "Elapsed Time"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Next action button — THE big button */}
           {nextStep && !isClosed && (() => {
             // Special handling for different steps
@@ -860,61 +804,77 @@ export default function CrewJobVisitPage() {
               <p className="text-xs text-zinc-600 mb-3">No upsells added</p>
             )}
 
-            {/* Upsell form — only during in_progress */}
-            {visit.status === "in_progress" && (
-              <>
-                {!showUpsellForm ? (
-                  <button
-                    onClick={() => setShowUpsellForm(true)}
-                    className="flex items-center gap-1.5 text-sm font-medium text-blue-400 active:text-blue-300 transition-colors"
-                  >
-                    <Plus className="size-4" /> Add Upsell
-                  </button>
-                ) : (
-                  <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-3 space-y-2.5">
-                    <input
-                      type="text"
-                      value={upsellName}
-                      onChange={(e) => setUpsellName(e.target.value)}
-                      placeholder="Service name"
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-blue-500"
-                    />
-                    <div className="relative">
-                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-500" />
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={upsellPrice}
-                        onChange={(e) => setUpsellPrice(e.target.value)}
-                        placeholder="0.00"
-                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handleUpsell}
-                        disabled={upsellLoading || !upsellName.trim() || !upsellPrice}
-                        className="flex-1 py-2 rounded-lg text-sm font-semibold bg-blue-500 text-white active:scale-[0.97] transition-all disabled:opacity-40"
-                      >
-                        {upsellLoading ? <Loader2 className="size-4 animate-spin mx-auto" /> : "Add"}
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowUpsellForm(false)
-                          setUpsellName("")
-                          setUpsellPrice("")
-                        }}
-                        className="px-3 py-2 rounded-lg text-sm text-zinc-400 bg-zinc-700 active:scale-[0.97]"
-                      >
-                        <X className="size-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </>
+            {/* Add Upsell — picker from pre-approved catalog (Q1=C) */}
+            {canAddUpsell && (
+              <button
+                onClick={() => setShowUpsellPicker(true)}
+                className="flex items-center gap-1.5 text-sm font-medium text-blue-400 active:text-blue-300 transition-colors"
+              >
+                <Plus className="size-4" /> Add Upsell
+              </button>
             )}
           </div>
+
+          {/* Upsell Picker Modal */}
+          {showUpsellPicker && (
+            <div
+              className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center"
+              onClick={() => upsellLoading === null && setShowUpsellPicker(false)}
+            >
+              <div
+                className="w-full sm:max-w-md max-h-[85vh] bg-zinc-900 border border-zinc-700 rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+                  <h3 className="text-base font-semibold text-white">Add Upsell</h3>
+                  <button
+                    onClick={() => upsellLoading === null && setShowUpsellPicker(false)}
+                    disabled={upsellLoading !== null}
+                    className="size-8 rounded-full flex items-center justify-center hover:bg-zinc-800 disabled:opacity-40"
+                  >
+                    <X className="size-4 text-zinc-400" />
+                  </button>
+                </div>
+                <div className="overflow-y-auto flex-1 p-3 space-y-2">
+                  {catalog.length === 0 ? (
+                    <p className="text-center text-sm text-zinc-500 py-8">
+                      No upsell items available for this tenant yet.
+                    </p>
+                  ) : (
+                    catalog.map((item) => {
+                      const isLoading = upsellLoading === item.id
+                      const disabled = upsellLoading !== null
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => handleUpsellFromCatalog(item.id)}
+                          disabled={disabled}
+                          className="w-full text-left bg-zinc-800 border border-zinc-700 rounded-xl p-3 active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-white truncate">{item.name}</p>
+                            {item.description && (
+                              <p className="text-xs text-zinc-400 mt-0.5 line-clamp-2">{item.description}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-sm font-semibold text-emerald-400">
+                              {formatCurrency(item.price, job.currency)}
+                            </span>
+                            {isLoading ? (
+                              <Loader2 className="size-4 animate-spin text-blue-400" />
+                            ) : (
+                              <Plus className="size-4 text-blue-400" />
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Total */}
           <div className="border-t border-zinc-800 mt-4 pt-3 flex justify-between items-center">

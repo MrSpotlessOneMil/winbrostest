@@ -110,20 +110,23 @@ describe('getNextStatus', () => {
 })
 
 describe('canAddUpsell', () => {
-  it('allows upsells only during in_progress', () => {
+  // Round 2 (2026-04-23): timer gating removed. Upsells allowed any time the visit is active
+  // (not before start, not after close). Commission attribution comes from the catalog picker,
+  // not the visit state.
+  it('variant 1: allows upsells during active visit states', () => {
+    expect(canAddUpsell('on_my_way')).toBe(true)
     expect(canAddUpsell('in_progress')).toBe(true)
+    expect(canAddUpsell('stopped')).toBe(true)
+    expect(canAddUpsell('completed')).toBe(true)
+    expect(canAddUpsell('checklist_done')).toBe(true)
+    expect(canAddUpsell('payment_collected')).toBe(true)
   })
 
-  it('blocks upsells before start', () => {
+  it('variant 2: blocks upsells before start', () => {
     expect(canAddUpsell('not_started')).toBe(false)
-    expect(canAddUpsell('on_my_way')).toBe(false)
   })
 
-  it('blocks upsells after stop', () => {
-    expect(canAddUpsell('stopped')).toBe(false)
-    expect(canAddUpsell('completed')).toBe(false)
-    expect(canAddUpsell('checklist_done')).toBe(false)
-    expect(canAddUpsell('payment_collected')).toBe(false)
+  it('variant 3: blocks upsells after close', () => {
     expect(canAddUpsell('closed')).toBe(false)
   })
 })
@@ -177,21 +180,39 @@ describe('transitionVisit', () => {
 })
 
 describe('addUpsell', () => {
-  it('rejects upsell when visit is not in_progress', async () => {
+  // Round 2: rejects only when visit is not yet active or already closed.
+  it('variant 1: rejects upsell when visit is not_started', async () => {
     const client = createMockClient()
     client._mockSingle.mockResolvedValue({
-      data: { id: 1, job_id: 1, tenant_id: 'test', status: 'stopped' },
+      data: { id: 1, job_id: 1, tenant_id: 'test', status: 'not_started' },
       error: null,
     })
 
     const result = await addUpsell(client as any, 1, {
-      service_name: 'Screen Cleaning',
-      price: 50,
+      service_name: 'Screen Rewash',
+      price: 15,
       added_by_cleaner_id: 1,
     })
 
     expect(result.success).toBe(false)
-    expect(result.error).toContain('in_progress')
+    expect(result.error).toBeDefined()
+  })
+
+  it('variant 2: rejects upsell when visit is closed', async () => {
+    const client = createMockClient()
+    client._mockSingle.mockResolvedValue({
+      data: { id: 1, job_id: 1, tenant_id: 'test', status: 'closed' },
+      error: null,
+    })
+
+    const result = await addUpsell(client as any, 1, {
+      service_name: 'Screen Rewash',
+      price: 15,
+      added_by_cleaner_id: 1,
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBeDefined()
   })
 })
 

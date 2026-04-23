@@ -70,6 +70,32 @@ export default function PayrollPage() {
     }).catch(() => {})
   }
 
+  const handlePayModeChange = (cleanerId: number, mode: 'hourly' | 'percentage') => {
+    // When flipping modes, zero out the field that becomes inactive so payroll is unambiguous.
+    setTechnicians(prev =>
+      prev.map(t =>
+        t.cleaner_id === cleanerId
+          ? {
+              ...t,
+              pay_mode: mode,
+              hourly_rate: mode === 'hourly' ? t.hourly_rate : 0,
+              pay_percentage: mode === 'percentage' ? t.pay_percentage : 0,
+            }
+          : t
+      )
+    )
+    fetch('/api/actions/payroll', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cleaner_id: cleanerId,
+        pay_mode: mode,
+        // Defensive zero so the inactive field can't silently contribute to pay
+        ...(mode === 'hourly' ? { pay_percentage: 0 } : { hourly_rate: 0 }),
+      }),
+    }).catch(() => {})
+  }
+
   const handleSalesCommissionChange = (cleanerId: number, field: 'commission_1time_pct' | 'commission_triannual_pct' | 'commission_quarterly_pct', value: number) => {
     setSalesmen(prev =>
       prev.map(s => s.cleaner_id === cleanerId ? { ...s, [field]: value } : s)
@@ -130,6 +156,7 @@ export default function PayrollPage() {
         }}
         onReviewCountChange={handleReviewCountChange}
         onPayRateChange={handlePayRateChange}
+        onPayModeChange={handlePayModeChange}
         onSalesCommissionChange={handleSalesCommissionChange}
       />
     </div>

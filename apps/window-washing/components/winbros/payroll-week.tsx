@@ -17,6 +17,8 @@
 import { Badge } from '@/components/ui/badge'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
+type PayMode = 'hourly' | 'percentage'
+
 interface TechEntry {
   cleaner_id: number
   name: string
@@ -24,6 +26,7 @@ interface TechEntry {
   revenue_completed: number
   revenue_sold: number
   revenue_upsell: number
+  pay_mode: PayMode
   pay_percentage: number
   hours_worked: number
   overtime_hours: number
@@ -54,6 +57,7 @@ interface PayrollWeekProps {
   onEmployeeClick: (cleanerId: number) => void
   onReviewCountChange?: (cleanerId: number, count: number) => void
   onPayRateChange?: (cleanerId: number, field: 'hourly_rate' | 'pay_percentage', value: number) => void
+  onPayModeChange?: (cleanerId: number, mode: PayMode) => void
   onSalesCommissionChange?: (cleanerId: number, field: 'commission_1time_pct' | 'commission_triannual_pct' | 'commission_quarterly_pct', value: number) => void
 }
 
@@ -89,6 +93,7 @@ export function PayrollWeek({
   onEmployeeClick,
   onReviewCountChange,
   onPayRateChange,
+  onPayModeChange,
   onSalesCommissionChange,
 }: PayrollWeekProps) {
   const REVIEW_BONUS = 10
@@ -188,8 +193,8 @@ export function PayrollWeek({
               ) : (
                 <>
                   {technicians.map(tech => {
-                    const isHourly = tech.hourly_rate > 0
-                    const isCommission = tech.pay_percentage > 0
+                    const mode: PayMode = tech.pay_mode || 'hourly'
+                    const isHourly = mode === 'hourly'
                     const reviewBonus = (tech.review_count || 0) * REVIEW_BONUS
 
                     return (
@@ -219,24 +224,27 @@ export function PayrollWeek({
                           )}
                         </td>
                         <td className="px-4 py-3 text-right text-zinc-400" onClick={e => e.stopPropagation()}>
-                          <div className="flex items-center justify-end gap-1.5">
-                            {(isCommission || (!isHourly && !isCommission)) && (
-                              <div className="flex items-center gap-0.5">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={tech.pay_percentage || 0}
-                                  onChange={e => onPayRateChange?.(tech.cleaner_id, 'pay_percentage', Math.max(0, parseFloat(e.target.value) || 0))}
-                                  className="w-12 text-right bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-sm text-white focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                />
-                                <span className="text-[10px] text-zinc-500">%</span>
-                              </div>
-                            )}
-                            {(isCommission && isHourly) && (
-                              <span className="text-zinc-600 text-xs">+</span>
-                            )}
-                            {(isHourly || (!isHourly && !isCommission)) && (
+                          <div className="flex items-center justify-end gap-2">
+                            {/* Mode toggle — hourly XOR percentage */}
+                            <div className="inline-flex rounded-md bg-zinc-800 border border-zinc-700 p-0.5" role="group">
+                              <button
+                                type="button"
+                                onClick={() => onPayModeChange?.(tech.cleaner_id, 'hourly')}
+                                className={`px-2 py-0.5 text-[10px] font-medium rounded cursor-pointer transition-colors ${isHourly ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                              >
+                                Hourly
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onPayModeChange?.(tech.cleaner_id, 'percentage')}
+                                className={`px-2 py-0.5 text-[10px] font-medium rounded cursor-pointer transition-colors ${!isHourly ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                              >
+                                %
+                              </button>
+                            </div>
+
+                            {/* Active field only (greyed other) */}
+                            {isHourly ? (
                               <div className="flex items-center gap-0.5">
                                 <span className="text-[10px] text-zinc-500">$</span>
                                 <input
@@ -248,6 +256,18 @@ export function PayrollWeek({
                                   className="w-14 text-right bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-sm text-white focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
                                 <span className="text-[10px] text-zinc-500">/hr</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-0.5">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={tech.pay_percentage || 0}
+                                  onChange={e => onPayRateChange?.(tech.cleaner_id, 'pay_percentage', Math.max(0, parseFloat(e.target.value) || 0))}
+                                  className="w-12 text-right bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-sm text-white focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                                <span className="text-[10px] text-zinc-500">%</span>
                               </div>
                             )}
                           </div>

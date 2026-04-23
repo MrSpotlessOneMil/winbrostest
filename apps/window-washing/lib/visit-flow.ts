@@ -5,7 +5,8 @@
  * not_started → on_my_way → in_progress → stopped → completed → checklist_done → payment_collected → closed
  *
  * Rules:
- * - Upsells ONLY allowed during in_progress (between Start Visit and Stop Visit)
+ * - Upsells allowed any time the visit is active (not in not_started / closed). No timer gating.
+ *   Commission attribution comes from the tech_upsell_catalog picker (Q1=C), not from when it was added.
  * - Close Job BLOCKED unless checklist is complete AND payment is recorded
  * - Each step must be completed in order — no skipping
  */
@@ -190,10 +191,12 @@ function validatePreTransition(visit: Record<string, unknown>, target: VisitStat
 
 /**
  * Check if upsells can be added to a visit.
- * Only allowed when status is "in_progress" (between Start and Stop).
+ * Allowed any time the visit is active (i.e. not `not_started` and not `closed`).
+ * Timer gating was removed in Round 2 — upsell commission is determined by the catalog
+ * item picked (tech_upsell_catalog), not by WHEN it was added during the visit.
  */
 export function canAddUpsell(visitStatus: VisitStatus): boolean {
-  return visitStatus === 'in_progress'
+  return visitStatus !== 'not_started' && visitStatus !== 'closed'
 }
 
 /**
@@ -224,7 +227,7 @@ export async function addUpsell(
   if (!canAddUpsell(visit.status as VisitStatus)) {
     return {
       success: false,
-      error: `Upsells can only be added during an active visit (status: in_progress). Current status: ${visit.status}`,
+      error: `Upsells can only be added while the visit is active (not before it starts or after it closes). Current status: ${visit.status}`,
     }
   }
 
