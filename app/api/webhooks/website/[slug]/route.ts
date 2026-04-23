@@ -5,6 +5,8 @@ import { sendSMS } from "@/lib/openphone"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getTenantBySlug, getTenantServiceDescription } from "@/lib/tenant"
+import { buildFirstTouchSMS } from "@/lib/website-lead-sms"
+import { transitionState } from "@/lib/lifecycle-state"
 
 // CORS headers for embed-friendly response (any domain can POST)
 const corsHeaders = {
@@ -207,71 +209,49 @@ export async function POST(
     ? serviceType.replace(/[-_]/g, " ")
     : serviceDesc
 
-  // Build a context-aware first message that drives the conversation forward.
-  // The SMS bot picks up from here — ask for what's still missing so it can
-  // reach [BOOKING_COMPLETE] (needs address + bed/bath) and send the 3-tier quote link.
   const sdrName = tenant.sdr_persona || "Mary"
-  const isSpecializedService = ['commercial', 'post_construction', 'airbnb', 'airbnb-cleaning'].includes(serviceType)
 
   // Check for promo campaign (shared config — single source of truth)
   const { getPromoConfig } = await import('@/lib/promo-config')
   const promoConfig = getPromoConfig({ utm_campaign: body.utm_campaign, source_detail: sourceDetail, service_type: serviceType })
 
-  let smsMessage: string
-  if (promoConfig) {
-    // Promo campaign — use template from config
-    const tpl = promoConfig.firstSms.replace('{name}', firstName).replace('{businessName}', businessName)
-    if (bedrooms && bathrooms && address) {
-      smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your $${promoConfig.price} clean request — ${bedrooms} bed, ${bathrooms} bath at ${address}. I'm getting your booking set up right now!`
-    } else if (bedrooms && bathrooms) {
-      smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your $${promoConfig.price} clean request — ${bedrooms} bed, ${bathrooms} bath! What's the address? I'll get your booking confirmed right away!`
-    } else {
-      smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. ${tpl.split('. ').slice(1).join('. ')}`
-    }
-  } else if (isSpecializedService) {
-    // Specialized services — don't ask for bedrooms/bathrooms, collect project details instead
-    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for reaching out about ${friendlyService}! We'd love to learn more about the job — what's the address and roughly how big is the space? We'll get you a custom quote fast.`
-  } else if (bedrooms && bathrooms && estimatedPrice && address) {
-    // Everything we need — tell them quote is on the way (bot will fire [BOOKING_COMPLETE])
-    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for your quote request — ${bedrooms} bed, ${bathrooms} bath at ${address}. I'm sending over your cleaning options right now!`
-  } else if (bedrooms && bathrooms && estimatedPrice) {
-    // Have sizing + price, just need address to send the quote link
-    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your quote request — ${bedrooms} bed, ${bathrooms} bath, looks like around $${estimatedPrice} for a standard clean. What's the address? I'll send over your options right away!`
-  } else if (bedrooms && bathrooms) {
-    // Have sizing but no price — ask for address
-    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your request — ${bedrooms} bed, ${bathrooms} bath. What's the address? I'll send over pricing options right away!`
-  } else if (estimatedPrice) {
-    // Have a price estimate but no sizing details
-    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for checking out our pricing for ${friendlyService}! To get you exact options, what's your address and how many bedrooms and bathrooms?`
-  } else {
-    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for reaching out about ${friendlyService}! What's your address and how many bedrooms and bathrooms? I'll get you a quote right away!`
-  }
+  const smsMessage = buildFirstTouchSMS({
+    firstName,
+    sdrName,
+    businessName,
+    serviceType,
+    friendlyService,
+    bedrooms,
+    bathrooms,
+    address,
+    estimatedPrice,
+    promo: promoConfig ? { price: promoConfig.price, firstSms: promoConfig.firstSms } : null,
+  })
 
-  // Pre-insert message record so outbound webhook dedup finds it
-  const { data: msgRecord } = await client.from("messages").insert({
-    tenant_id: tenant.id,
-    customer_id: customer?.id ?? null,
-    phone_number: phone,
-    role: "assistant",
-    content: smsMessage,
-    direction: "outbound",
-    message_type: "sms",
-    ai_generated: false,
-    timestamp: new Date().toISOString(),
-    source: "website_lead_auto",
-  }).select("id").single()
-
+  // sendSMS pre-inserts the messages row (via the `source` option) and cleans
+  // it up on failure. No manual insert — the old double-insert bug created two
+  // rows per send and broke customer_id linkage on the sendSMS row.
   const smsResult = await sendSMS(tenant, phone, smsMessage, {
     skipDedup: true,
     source: 'website_lead_auto',
+    customerId: customer?.id ?? null,
   })
 
   if (!smsResult.success) {
-    // Clean up pre-inserted record since send failed
-    if (msgRecord?.id) {
-      await client.from("messages").delete().eq("id", msgRecord.id)
-    }
     console.error(`[Website Webhook] SMS send failed for ${phone}:`, smsResult.error)
+  }
+
+  // Railway: new_lead -> engaged on first outbound. Fail-closed; a bad
+  // transition is logged but doesn't block the webhook response.
+  if (smsResult.success && customer?.id) {
+    try {
+      await transitionState(client, tenant.id, customer.id, 'engaged', {
+        event: 'website_first_touch_sent',
+        metadata: { lead_id: lead?.id, source_detail: sourceDetail },
+      })
+    } catch (stateErr) {
+      console.error('[Website Webhook] transitionState failed (non-blocking):', stateErr)
+    }
   }
 
   // ── Log system event ────────────────────────────────────────────
