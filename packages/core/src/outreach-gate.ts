@@ -24,7 +24,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { LifecycleState, OutreachKind } from './lifecycle-state'
 import { allowedOutreachForState } from './lifecycle-state'
-import { customerHasConfirmedBooking } from './has-confirmed-booking'
+import { customerHasActiveJob } from './has-confirmed-booking'
 import { isRetargetingPaused } from './retargeting-paused'
 import { isCleanerPhone, getCleanerPhoneSet } from './tenant'
 
@@ -181,7 +181,7 @@ export async function isEligibleForOutreach(input: OutreachGateInput): Promise<O
 
   // 12. Active job — never message customers with pending/quoted/scheduled/in_progress
   // (expanded in Section 15 checklist from the 2026-04-22 bug)
-  const hasActiveJob = await customerHasConfirmedBooking(client, tenantId, customerId)
+  const hasActiveJob = await customerHasActiveJob(client, tenantId, customerId)
   if (hasActiveJob) {
     return { ok: false, reason: 'active_job', state }
   }
