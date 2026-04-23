@@ -6,6 +6,7 @@ import { logSystemEvent } from '@/lib/system-events'
 import { getAllActiveTenants, getTenantServiceDescription, tenantUsesFeature, getCleanerPhoneSet, isCleanerPhone } from '@/lib/tenant'
 import { canSendToCustomer, recordMessageSent } from '@/lib/lifecycle-engine'
 import { isRetargetingExcluded, isInPersonalHours } from '@/lib/cron-hours-guard'
+import { isRetargetingPaused } from '@/lib/retargeting-paused'
 
 /**
  * Lifecycle Re-engagement Cron
@@ -26,6 +27,11 @@ import { isRetargetingExcluded, isInPersonalHours } from '@/lib/cron-hours-guard
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  if (isRetargetingPaused()) {
+    console.log('[Lifecycle Reengagement] RETARGETING_DISABLED=true — skipping run')
+    return NextResponse.json({ success: true, paused: true, summary: [], totalSent: 0 })
   }
 
   console.log('[Lifecycle Reengagement] Starting...')

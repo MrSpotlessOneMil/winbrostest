@@ -18,12 +18,18 @@ import { logSystemEvent } from '@/lib/system-events'
 import type { SeasonalCampaign } from '@/lib/tenant'
 import { isRetargetingExcluded, isInPersonalHours } from '@/lib/cron-hours-guard'
 import { customersWithConfirmedBookings } from '@/lib/has-confirmed-booking'
+import { isRetargetingPaused } from '@/lib/retargeting-paused'
 
 const BATCH_LIMIT = 50 // Max customers per campaign per run
 
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
     return NextResponse.json(unauthorizedResponse(), { status: 401 })
+  }
+
+  if (isRetargetingPaused()) {
+    console.log('[Seasonal Reminders] RETARGETING_DISABLED=true — skipping run')
+    return NextResponse.json({ success: true, paused: true, totalSent: 0, totalErrors: 0, results: [] })
   }
 
   console.log('[Seasonal Reminders] Starting cron job...')

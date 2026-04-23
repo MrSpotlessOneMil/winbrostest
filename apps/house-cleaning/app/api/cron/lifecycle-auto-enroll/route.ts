@@ -6,6 +6,7 @@ import { sendSMS } from '@/lib/openphone'
 import { scheduleRetargetingSequence, type RetargetingSequenceType } from '@/lib/scheduler'
 import { isRetargetingExcluded, isInPersonalHours } from '@/lib/cron-hours-guard'
 import { customersWithConfirmedBookings } from '@/lib/has-confirmed-booking'
+import { isRetargetingPaused } from '@/lib/retargeting-paused'
 
 /**
  * Lifecycle Auto-Enrollment Cron
@@ -37,6 +38,11 @@ const MAX_ENROLLMENTS_PER_TENANT = 400
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  if (isRetargetingPaused()) {
+    console.log('[Lifecycle Auto-Enroll] RETARGETING_DISABLED=true — skipping enrollments; quote-expiry phase also skipped')
+    return NextResponse.json({ success: true, paused: true, summary: [], totalEnrolled: 0, staleLeadsMarked: 0, quotesExpired: 0 })
   }
 
   console.log('[Lifecycle Auto-Enroll] Starting...')

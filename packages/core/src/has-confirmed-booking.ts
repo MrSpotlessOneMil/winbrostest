@@ -1,22 +1,21 @@
 /**
- * Customer-level confirmed-booking check.
+ * Customer-level active-job check.
  *
- * A "confirmed booking" is a `jobs` row with status IN ('scheduled','in_progress').
- * 'quoted' does NOT count — a quote is not a confirmation.
- *
- * Use this before sending ANY follow-up / retargeting / cold-outreach SMS to
- * prevent the "cold nurture to already-booked customer" bug (W2, Paige
- * Elizabeth, West Niagara, 2026-04-20). Dominic's AI followed up with "did you
- * get a chance to look at your quote?" AFTER the customer was already booked —
- * because the cron query only filtered on the quote row, not the customer's
- * overall booking state.
+ * Per OUTREACH-SPEC v1.0 Hard Rule #2 (updated 2026-04-22): an "active job"
+ * for the purpose of blocking outreach is ANY job with status in
+ * ('pending', 'quoted', 'scheduled', 'in_progress'). Previously this only
+ * covered scheduled + in_progress, which caused the OH Nass / Paul bug
+ * (West Niagara, 2026-04-22): customers with pending jobs were cold-nurtured
+ * because the skip list was too narrow.
  *
  * Rule: if this returns true for (tenantId, customerId), do NOT send any
- * outreach template. Transactional replies to inbound messages are still fine
- * and should go through the intake/booking flow.
+ * outreach template (Pipeline A / B / C). Transactional replies to inbound
+ * messages are still fine and should go through the intake/booking flow.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+
+export const ACTIVE_JOB_STATUSES = ['pending', 'quoted', 'scheduled', 'in_progress'] as const
 
 export async function customerHasConfirmedBooking(
   client: SupabaseClient,
@@ -30,7 +29,7 @@ export async function customerHasConfirmedBooking(
     .select('id')
     .eq('tenant_id', tenantId)
     .eq('customer_id', customerId)
-    .in('status', ['scheduled', 'in_progress'])
+    .in('status', ACTIVE_JOB_STATUSES as unknown as string[])
     .limit(1)
     .maybeSingle()
 
@@ -45,7 +44,7 @@ export async function customerHasConfirmedBooking(
 
 /**
  * Batch variant for crons that already loaded customer IDs.
- * Returns a Set of customerIds that have confirmed bookings — use as a skip-list.
+ * Returns a Set of customerIds that have active jobs — use as a skip-list.
  */
 export async function customersWithConfirmedBookings(
   client: SupabaseClient,
@@ -59,7 +58,7 @@ export async function customersWithConfirmedBookings(
     .select('customer_id')
     .eq('tenant_id', tenantId)
     .in('customer_id', customerIds)
-    .in('status', ['scheduled', 'in_progress'])
+    .in('status', ACTIVE_JOB_STATUSES as unknown as string[])
 
   if (error || !data) {
     // Fail closed — return the whole input set as "booked" so callers skip everyone.

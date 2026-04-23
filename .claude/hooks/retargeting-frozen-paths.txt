@@ -1,0 +1,38 @@
+# Retargeting Freeze — protected paths.
+# OUTREACH-SPEC v1.0 Section 14. This file is consulted by retargeting-freeze.sh.
+# Any path listed here blocks Edit/Write unless RETARGETING_UNFROZEN=1.
+#
+# Trailing `*` = prefix wildcard. Otherwise exact match.
+#
+# Activate by adding to .claude/settings.json under hooks.PreToolUse at Stage 5.
+
+# Spec document itself — edits require Change Log update
+docs/OUTREACH-SPEC.md
+
+# Eligibility gate — single source of truth
+packages/core/src/outreach-gate.ts
+
+# State machine
+packages/core/src/lifecycle-state.ts
+
+# Humanity engine
+packages/core/src/message-generator.ts
+packages/core/src/message-linter.ts
+packages/core/src/customer-memory.ts
+packages/core/src/ab-testing.ts
+
+# The 4 new cron routes
+apps/house-cleaning/app/api/cron/followup-pre-quote/route.ts
+apps/house-cleaning/app/api/cron/followup-post-quote/route.ts
+apps/house-cleaning/app/api/cron/retargeting-drip/route.ts
+apps/house-cleaning/app/api/cron/outreach-audit/route.ts
+
+# Kill switch + active-job helpers
+packages/core/src/retargeting-paused.ts
+packages/core/src/has-confirmed-booking.ts
+
+# Migrations
+scripts/41-lifecycle-state-railway.sql
+scripts/42-voice-profile-customer-memory.sql
+scripts/43-message-templates-ab.sql
+scripts/44-outreach-audit.sql

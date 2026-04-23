@@ -6,6 +6,7 @@ import { getAllActiveTenants } from '@/lib/tenant'
 import { logSystemEvent } from '@/lib/system-events'
 import { isRetargetingExcluded, isInPersonalHours } from '@/lib/cron-hours-guard'
 import { canSendOutreach } from '@/lib/can-send-outreach'
+import { isRetargetingPaused } from '@/lib/retargeting-paused'
 import { templateForStage, COLD_FOLLOWUP_MIN_HOURS, type ColdFollowupStage } from '@/lib/cold-followup-templates'
 
 /**
@@ -28,6 +29,11 @@ const PER_TENANT_CAP = 50
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
     return NextResponse.json(unauthorizedResponse(), { status: 401 })
+  }
+
+  if (isRetargetingPaused()) {
+    console.log('[cold-followup] RETARGETING_DISABLED=true — skipping run')
+    return NextResponse.json({ ok: true, paused: true, summary: [] })
   }
 
   const client = getSupabaseServiceClient()

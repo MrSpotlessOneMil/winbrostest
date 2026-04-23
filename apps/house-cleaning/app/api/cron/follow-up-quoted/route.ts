@@ -6,6 +6,7 @@ import { logSystemEvent } from '@/lib/system-events'
 import { getAllActiveTenants, getCleanerPhoneSet } from '@/lib/tenant'
 import { isInPersonalHours } from '@/lib/cron-hours-guard'
 import { customerHasConfirmedBooking } from '@/lib/has-confirmed-booking'
+import { isRetargetingPaused } from '@/lib/retargeting-paused'
 
 // route-check:no-vercel-cron
 
@@ -21,6 +22,11 @@ import { customerHasConfirmedBooking } from '@/lib/has-confirmed-booking'
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  if (isRetargetingPaused()) {
+    console.log('[Follow-Up Quoted] RETARGETING_DISABLED=true — skipping run')
+    return NextResponse.json({ success: true, paused: true, summary: [] })
   }
 
   const tag = '[Follow-Up Quoted]'

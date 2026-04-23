@@ -29,6 +29,7 @@ import { getSupabaseServiceClient } from '@/lib/supabase'
 import { parseFormData } from '@/lib/utils'
 import { canSendToCustomer, recordMessageSent } from '@/lib/lifecycle-engine'
 import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
+import { isRetargetingPaused } from '@/lib/retargeting-paused'
 
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
@@ -134,6 +135,19 @@ export async function GET(request: NextRequest) {
 // Task types that should only send during personal hours (9am-9pm local time)
 // These are marketing/outreach messages — not operational reminders
 const PERSONAL_HOURS_TASKS = new Set(['retargeting', 'post_job_review', 'post_job_recurring_push'])
+
+// Task types gated by the RETARGETING_DISABLED kill switch — if the env flag is on,
+// these get cancelled in-flight so queued work stops firing. Operational task types
+// (job_broadcast, day_before_reminder, ranked_cascade, sms_retry, etc.) are NOT
+// gated; those are transactional, not outreach.
+const RETARGETING_GATED_TASKS = new Set([
+  'retargeting',
+  'lead_followup',
+  'quote_followup_urgent',
+  'mid_convo_nudge',
+  'post_job_recurring_push',
+  'hot_lead_followup',
+])
 const PERSONAL_HOUR_START = 9  // 9 AM
 const PERSONAL_HOUR_END = 21   // 9 PM
 
@@ -183,6 +197,18 @@ async function processTask(task: ScheduledTask): Promise<void> {
 
   // Get tenant if specified
   const tenant = tenant_id ? await getTenantById(tenant_id) : null
+
+  // Global kill switch: if retargeting is paused, cancel outreach-type tasks so
+  // queued work does not fire during the pause. Operational tasks still run.
+  if (RETARGETING_GATED_TASKS.has(task_type) && isRetargetingPaused()) {
+    console.log(`[process-scheduled-tasks] RETARGETING_DISABLED=true — cancelling ${task_type} task ${task.id}`)
+    const supabase = getSupabaseServiceClient()
+    await supabase
+      .from('scheduled_tasks')
+      .update({ status: 'cancelled' })
+      .eq('id', task.id)
+    return
+  }
 
   // Gate marketing/outreach messages to personal hours (9am-9pm local time)
   if (PERSONAL_HOURS_TASKS.has(task_type) && tenant) {

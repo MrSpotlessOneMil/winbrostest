@@ -100,6 +100,13 @@ export interface WorkflowConfig {
   business_hours_end?: number        // Minutes since midnight (e.g. 1020 = 5:00 PM). Default: 1020
   salesman_buffer_minutes?: number   // Gap between salesman estimate appointments (e.g. 60). Default: 30
   technician_buffer_minutes?: number // Gap between technician cleaning appointments (e.g. 60). Default: 30
+
+  // Outreach Spec v1.0 (frozen 2026-04-22) — per-tenant enable + config.
+  // See winbrostest/docs/OUTREACH-SPEC.md.
+  outreach_enabled?: boolean                 // Master per-tenant enable for Pipelines A/B/C
+  post_quote_max_discount?: number           // Cap on Pipeline B stage 3 discount (percent)
+  high_value_ltv_threshold?: number          // LTV threshold for voice-note drip slot (default 400)
+  max_daily_outreach?: number                // Circuit breaker: per-tenant daily send cap (default 100)
 }
 
 export interface SeasonalCampaign {
@@ -206,6 +213,19 @@ export interface Tenant {
   active: boolean
   created_at: string
   updated_at: string
+
+  // Outreach Spec v1.0 (frozen 2026-04-22) — Humanity Engine voice profile.
+  // See winbrostest/docs/OUTREACH-SPEC.md Section 8.1.
+  voice_profile?: {
+    owner_name?: string
+    owner_age?: number
+    owner_vibe?: string
+    emoji_set?: string[]
+    never_says?: string[]
+    always_says?: string[]
+    signature?: string
+    voice_samples?: string[]
+  } | null
 }
 
 // Minimal tenant info for listing

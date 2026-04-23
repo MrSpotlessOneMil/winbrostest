@@ -194,6 +194,13 @@ export type SystemEventType =
   // Customer dedup (AJ incident 2026-04-17)
   | 'CUSTOMER_MERGED_ON_LEAD'
   | 'DUPLICATE_FIRST_NAME_WARNING'
+  // Outreach v1.0 (frozen 2026-04-22) — Pipelines A/B/C + audit + state machine
+  | 'OUTREACH_GATE_REFUSAL'
+  | 'OUTREACH_LINT_FAILED'
+  | 'OUTREACH_DRY_RUN'
+  | 'OUTREACH_AUDIT_CRITICAL'
+  | 'RETARGETING_VOICE_NOTE_QUEUED'
+  | 'RETARGETING_EMAIL_DEFERRED'
 
 export interface SystemEventInput {
   tenant_id?: string
