@@ -394,4 +394,58 @@ describe('isEligibleForOutreach — active conversation (live back-and-forth)', 
     })
     expect(res.ok).toBe(true)
   })
+
+  it('negative window falls back to 30-min default (fail-closed)', async () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const client = buildClient({
+      customers: { 7: BASE_CUSTOMER },
+      messages: [{ customer_id: 7, direction: 'inbound', timestamp: fiveMinAgo }],
+    })
+    const res = await isEligibleForOutreach({
+      client, tenantId: 't1', tenantSlug: 'spotless-scrubbers', customerId: 7, kind: 'pre_quote',
+      activeConversationWindowMinutes: -10,
+    })
+    // Bad config must NOT silently disable the check.
+    expect(res.reason).toBe('active_conversation')
+  })
+
+  it('NaN window falls back to 30-min default (fail-closed)', async () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const client = buildClient({
+      customers: { 7: BASE_CUSTOMER },
+      messages: [{ customer_id: 7, direction: 'inbound', timestamp: fiveMinAgo }],
+    })
+    const res = await isEligibleForOutreach({
+      client, tenantId: 't1', tenantSlug: 'spotless-scrubbers', customerId: 7, kind: 'pre_quote',
+      activeConversationWindowMinutes: Number.NaN,
+    })
+    expect(res.reason).toBe('active_conversation')
+  })
+
+  it('string window (config stored as string) falls back to 30-min default', async () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const client = buildClient({
+      customers: { 7: BASE_CUSTOMER },
+      messages: [{ customer_id: 7, direction: 'inbound', timestamp: fiveMinAgo }],
+    })
+    const res = await isEligibleForOutreach({
+      client, tenantId: 't1', tenantSlug: 'spotless-scrubbers', customerId: 7, kind: 'pre_quote',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      activeConversationWindowMinutes: '60' as any,
+    })
+    expect(res.reason).toBe('active_conversation')
+  })
+
+  it('retargeting + recent inbound returns active_conversation (not recent_inbound) — ordering', async () => {
+    // 5 min ago: should hit the 30-min active check BEFORE the 14-day retargeting check
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const client = buildClient({
+      customers: { 7: { ...BASE_CUSTOMER, lifecycle_state: 'retargeting' } },
+      messages: [{ customer_id: 7, direction: 'inbound', timestamp: fiveMinAgo }],
+    })
+    const res = await isEligibleForOutreach({
+      client, tenantId: 't1', tenantSlug: 'spotless-scrubbers', customerId: 7, kind: 'retargeting',
+    })
+    expect(res.reason).toBe('active_conversation')
+  })
 })

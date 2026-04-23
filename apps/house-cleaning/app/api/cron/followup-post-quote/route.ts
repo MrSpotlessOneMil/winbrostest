@@ -35,26 +35,6 @@ function dryRun(): boolean {
   return (process.env.OUTREACH_DRY_RUN || '').toLowerCase() === 'true'
 }
 
-async function liveConvoHappening(
-  client: ReturnType<typeof getSupabaseServiceClient>,
-  tenantId: string,
-  customerId: number,
-): Promise<boolean> {
-  const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString()
-  const { data } = await client
-    .from('messages')
-    .select('direction, timestamp')
-    .eq('tenant_id', tenantId)
-    .eq('customer_id', customerId)
-    .gte('timestamp', cutoff)
-    .order('timestamp', { ascending: false })
-    .limit(6)
-  if (!data || data.length < 2) return false
-  const hasOutbound = data.some(m => m.direction === 'outbound')
-  const hasInbound = data.some(m => m.direction === 'inbound')
-  return hasOutbound && hasInbound
-}
-
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
     return NextResponse.json(unauthorizedResponse(), { status: 401 })
@@ -139,12 +119,8 @@ export async function GET(request: NextRequest) {
         continue
       }
 
-      // Stage 1: skip if live convo
-      if (nextStage === 1 && await liveConvoHappening(client, tenant.id, cust.id)) {
-        // don't advance stage — recheck next run
-        skipped++
-        continue
-      }
+      // Live-convo skip now handled by the universal active_conversation
+      // check inside isEligibleForOutreach — runs for every stage, not just 1.
 
       const gate = await isEligibleForOutreach({
         client,

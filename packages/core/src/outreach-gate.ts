@@ -104,8 +104,15 @@ function normalizePhone(raw: string | null | undefined): string[] {
 export async function isEligibleForOutreach(input: OutreachGateInput): Promise<OutreachGateResult> {
   const { client, tenantId, tenantSlug, customerId, kind, channel = 'sms' } = input
   const now = input.now ?? new Date()
+  // Sanitize the window. Accept a non-negative finite number; anything else
+  // (undefined / null / NaN / string / negative) falls back to the 30-min default.
+  // Negative or NaN silently disabling the check is exactly the fail-open we
+  // never want, so this guard is intentionally strict.
+  const rawWindow = input.activeConversationWindowMinutes
   const activeWindowMinutes =
-    input.activeConversationWindowMinutes ?? 30
+    typeof rawWindow === 'number' && Number.isFinite(rawWindow) && rawWindow >= 0
+      ? rawWindow
+      : 30
 
   // 1. Global kill switch (already live from Phase 1)
   if (isRetargetingPaused()) {
@@ -247,7 +254,7 @@ export async function isEligibleForOutreach(input: OutreachGateInput): Promise<O
     }
   }
 
-  // 15. Email-specific: not previously bounced
+  // 16. Email-specific: not previously bounced
   if (channel === 'email' && customer.email_bounced_at) {
     return { ok: false, reason: 'email_bounced', state }
   }
