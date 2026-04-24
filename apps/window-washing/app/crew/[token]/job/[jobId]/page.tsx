@@ -324,6 +324,16 @@ export default function CrewJobVisitPage() {
     fetchData()
   }, [fetchData])
 
+  // Pre-fill payment amount with total once data arrives.
+  // Must sit above any early return so hook order stays stable.
+  useEffect(() => {
+    if (!data) return
+    const total = data.line_items.reduce((sum, li) => sum + li.price, 0)
+    if (total > 0 && !paymentAmount) {
+      setPaymentAmount(total.toFixed(2))
+    }
+  }, [data, paymentAmount])
+
   // ── POST Actions ──
 
   async function postAction(body: Record<string, unknown>): Promise<boolean> {
@@ -454,13 +464,6 @@ export default function CrewJobVisitPage() {
   const checklistCompleted = checklist.filter((c) => c.is_completed).length
   const checklistTotal = checklist.length
   const allChecklistDone = checklistTotal > 0 && checklistCompleted === checklistTotal
-
-  // Pre-fill payment amount with total
-  useEffect(() => {
-    if (totalAmount > 0 && !paymentAmount) {
-      setPaymentAmount(totalAmount.toFixed(2))
-    }
-  }, [totalAmount, paymentAmount])
 
   // ── Closed State ──
 
