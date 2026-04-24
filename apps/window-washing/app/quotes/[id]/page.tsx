@@ -432,7 +432,7 @@ export default function QuoteBuilderPage() {
       <div className="mx-auto max-w-5xl p-4 sm:p-6 lg:p-8 pb-24">
 
         {/* Hero header */}
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <Link
               href={backHref}
@@ -449,36 +449,26 @@ export default function QuoteBuilderPage() {
                 {quote.status || 'draft'}
               </span>
             </div>
-            {quote.token && (
-              <a
-                className="mt-1 inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 hover:underline"
-                href={`/quote/${quote.token}/v2`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Customer URL → /quote/{quote.token}/v2
-              </a>
-            )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={save}
               disabled={saving}
-              className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+              className="text-sm text-zinc-400 hover:text-zinc-100 disabled:opacity-50"
             >
-              <Save className="h-4 w-4" /> {saving ? 'Saving…' : 'Save'}
+              {saving ? 'Saving…' : 'Save'}
             </button>
             <button
               onClick={sendToCustomer}
               disabled={saving || sending}
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white shadow-md shadow-blue-500/20 hover:bg-blue-500 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-zinc-200 disabled:opacity-50"
             >
               <Send className="h-4 w-4" /> {sending ? 'Sending…' : 'Send to Customer'}
             </button>
             <button
               onClick={approve}
               disabled={saving || approving || quote.status === 'converted'}
-              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white shadow-md shadow-emerald-500/20 hover:bg-emerald-500 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
             >
               <Check className="h-4 w-4" /> {approving ? 'Approving…' : 'Approve'}
             </button>
@@ -491,7 +481,7 @@ export default function QuoteBuilderPage() {
           </div>
         )}
 
-        <section className="mb-5 rounded-xl border border-zinc-800 bg-zinc-900 p-5 shadow-lg shadow-black/20">
+        <section className="mb-12 rounded-xl border border-zinc-800 bg-zinc-900 p-6">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">Client</h2>
             <div className="flex gap-2">
@@ -538,7 +528,7 @@ export default function QuoteBuilderPage() {
               </div>
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed border-zinc-700 bg-zinc-900/40 p-6 text-center text-sm text-zinc-500">
+            <div className="rounded-lg border border-dashed border-zinc-700 bg-zinc-900/40 p-6 text-center text-sm text-zinc-400">
               No client selected. Use{' '}
               <span className="font-medium text-zinc-300">Select Client</span>{' '}
               or{' '}
@@ -548,7 +538,7 @@ export default function QuoteBuilderPage() {
           )}
         </section>
 
-        <section className="mb-5 rounded-xl border border-zinc-800 bg-zinc-900 p-5 shadow-lg shadow-black/20">
+        <section className="mb-12 rounded-xl border border-zinc-800 bg-zinc-900 p-6">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">Line items</h2>
             <div className="flex gap-2">
@@ -571,7 +561,7 @@ export default function QuoteBuilderPage() {
 
           <div className="space-y-2">
             {lineItems.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-zinc-700 bg-zinc-900/40 p-8 text-center text-sm text-zinc-500">
+              <div className="rounded-lg border border-dashed border-zinc-700 bg-zinc-900/40 p-8 text-center text-sm text-zinc-400">
                 No line items yet. Pull from the{' '}
                 <span className="font-medium text-zinc-300">Service book</span>{' '}
                 or click{' '}
@@ -700,7 +690,7 @@ export default function QuoteBuilderPage() {
           </div>
         </section>
 
-        <section className="mb-5 rounded-xl border border-zinc-800 bg-zinc-900 p-5 shadow-lg shadow-black/20">
+        <section className="mb-12 rounded-xl border border-zinc-800 bg-zinc-900 p-6">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">Service plans</h2>
@@ -744,7 +734,7 @@ export default function QuoteBuilderPage() {
                   key={i}
                   className={`rounded-lg border p-4 transition ${
                     p.offered_to_customer
-                      ? 'border-blue-500/50 bg-blue-500/5 shadow-md shadow-blue-500/10'
+                      ? 'border-blue-500/50 bg-blue-500/5'
                       : 'border-zinc-800 bg-zinc-800/40'
                   }`}
                   data-testid="plan-card"
@@ -842,7 +832,7 @@ export default function QuoteBuilderPage() {
               </button>
             </div>
             {catalog.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-zinc-700 bg-zinc-900/40 p-6 text-center text-sm text-zinc-500">
+              <div className="rounded-lg border border-dashed border-zinc-700 bg-zinc-900/40 p-6 text-center text-sm text-zinc-400">
                 Catalog is empty. Seed defaults in the admin &gt; Service Book.
               </div>
             ) : (
