@@ -135,8 +135,55 @@ export async function GET(request: NextRequest) {
 }
 
 // Task types that should only send during personal hours (9am-9pm local time)
-// These are marketing/outreach messages — not operational reminders
-const PERSONAL_HOURS_TASKS = new Set(['retargeting', 'post_job_review', 'post_job_recurring_push'])
+// unless the customer is in an active conversation (inbound within 30m).
+// These are marketing/outreach/follow-up messages — NOT operational reminders
+// (job_broadcast, day_before_reminder, job_reminder, sms_retry, manual_call,
+// send_sms, post_cleaning_followup all fire anytime — they're transactional).
+const PERSONAL_HOURS_TASKS = new Set([
+  'retargeting',
+  'post_job_review',
+  'post_job_recurring_push',
+  'post_job_tip',
+  'lead_followup',
+  'quote_followup_urgent',
+  'mid_convo_nudge',
+  'hot_lead_followup',
+  'ranked_cascade',
+  'overnight_catchup',
+])
+
+const ACTIVE_CONVO_WINDOW_MIN = 30
+
+/**
+ * Check if the customer behind this task has sent an inbound message within
+ * the active-conversation window. If so, we should continue sending — even
+ * outside personal hours — because they're mid-chat.
+ *
+ * Best-effort: if we can't extract a phone, return false (don't bypass).
+ */
+async function isCustomerInActiveConvo(
+  task: ScheduledTask,
+  tenantId: string,
+): Promise<boolean> {
+  const payload = task.payload as Record<string, unknown>
+  const phone =
+    (payload.phone as string | undefined) ||
+    (payload.leadPhone as string | undefined) ||
+    (payload.customerPhone as string | undefined)
+  if (!phone || !tenantId) return false
+  const supabase = getSupabaseServiceClient()
+  const cutoff = new Date(Date.now() - ACTIVE_CONVO_WINDOW_MIN * 60_000).toISOString()
+  const { data } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('phone_number', phone)
+    .eq('direction', 'inbound')
+    .gte('timestamp', cutoff)
+    .limit(1)
+    .maybeSingle()
+  return !!data
+}
 
 // Task types gated by the RETARGETING_DISABLED kill switch — if the env flag is on,
 // these get cancelled in-flight so queued work stops firing. Operational task types
@@ -212,18 +259,27 @@ async function processTask(task: ScheduledTask): Promise<void> {
     return
   }
 
-  // Gate marketing/outreach messages to personal hours (9am-9pm local time)
+  // Gate marketing/outreach messages to personal hours (9am-9pm local time).
+  // Active-convo bypass: if the customer has sent an inbound within the last
+  // 30 minutes, the follow-up sends anyway — we're mid-chat and deferring would
+  // read as a ghost. Matches the "never message after hours UNLESS in active
+  // convo" rule.
   if (PERSONAL_HOURS_TASKS.has(task_type) && tenant) {
     const hours = checkPersonalHours(tenant)
     if (!hours.ok && hours.nextWindowUtc) {
-      // Reschedule to next 9am window — don't process now
-      console.log(`[process-scheduled-tasks] ${task_type} outside personal hours for ${tenant.slug}, rescheduling to ${hours.nextWindowUtc.toISOString()}`)
-      const supabase = getSupabaseServiceClient()
-      await supabase
-        .from('scheduled_tasks')
-        .update({ status: 'pending', scheduled_for: hours.nextWindowUtc.toISOString() })
-        .eq('id', task.id)
-      return
+      const activeConvo = await isCustomerInActiveConvo(task, tenant.id)
+      if (activeConvo) {
+        console.log(`[process-scheduled-tasks] ${task_type} out of hours for ${tenant.slug} but customer in active convo — sending anyway`)
+      } else {
+        // Reschedule to next 9am window — don't process now
+        console.log(`[process-scheduled-tasks] ${task_type} outside personal hours for ${tenant.slug}, rescheduling to ${hours.nextWindowUtc.toISOString()}`)
+        const supabase = getSupabaseServiceClient()
+        await supabase
+          .from('scheduled_tasks')
+          .update({ status: 'pending', scheduled_for: hours.nextWindowUtc.toISOString() })
+          .eq('id', task.id)
+        return
+      }
     }
   }
 
