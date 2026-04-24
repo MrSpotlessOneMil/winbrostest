@@ -22,6 +22,8 @@ import {
 } from '@/lib/scheduler'
 import { getTenantById, getTenantServiceDescription, tenantUsesFeature, getCleanerPhoneSet, isCleanerPhone } from '@/lib/tenant'
 import { processFollowUp, getPendingFollowups } from '@/integrations/ghl/follow-up-scheduler'
+import { buildOvernightNudge } from '@/lib/website-lead-sms'
+import { isEligibleForOutreach, logGateRefusal } from '@/lib/outreach-gate'
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { sendSMS } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
@@ -276,6 +278,10 @@ async function processTask(task: ScheduledTask): Promise<void> {
 
     case 'ranked_cascade':
       await processRankedCascade(payload, tenant)
+      break
+
+    case 'overnight_catchup':
+      await processOvernightCatchup(payload, tenant, tenant_id || null)
       break
 
     case 'send_sms':
@@ -576,6 +582,88 @@ async function processLeadFollowup(
     message: `Lead follow-up stage ${stage} (text) executed for lead ${leadId}`,
     phone_number: leadPhone,
     metadata: { leadId, stage, action: 'text' },
+  })
+}
+
+/**
+ * Process overnight-catchup nudge.
+ *
+ * Runs ~2h after a website webhook fires (or at 9 AM next morning for
+ * overnight leads). Sends a short, warm "still want that quote?" text to leads
+ * that haven't replied yet. Passes through the universal outreach gate so it
+ * respects every hard rule (active job, opt-out, live-conversation window,
+ * etc). Fail-closed: any gate refusal skips silently.
+ */
+async function processOvernightCatchup(
+  payload: Record<string, unknown>,
+  tenant: Awaited<ReturnType<typeof getTenantById>>,
+  tenantId: string | null,
+): Promise<void> {
+  const { customerId, phone, firstName, sdrName } = payload as {
+    customerId: number
+    phone: string
+    firstName: string
+    sdrName: string
+  }
+  if (!tenant || !customerId || !phone) return
+
+  const client = getSupabaseServiceClient()
+  const effectiveTenantId = tenantId || tenant.id
+
+  const gate = await isEligibleForOutreach({
+    client,
+    tenantId: effectiveTenantId,
+    tenantSlug: tenant.slug,
+    customerId,
+    kind: 'pre_quote',
+    channel: 'sms',
+    activeConversationWindowMinutes:
+      (tenant.workflow_config as { active_conversation_window_minutes?: number } | null)
+        ?.active_conversation_window_minutes,
+  })
+
+  if (!gate.ok) {
+    await logGateRefusal(client, effectiveTenantId, customerId, 'overnight_catchup', gate)
+    console.log(`[overnight-catchup] Gate refused for customer ${customerId}: ${gate.reason}`)
+    return
+  }
+
+  const message = buildOvernightNudge(firstName || 'there', sdrName || 'Mary')
+
+  // Pre-insert so the outbound webhook dedup treats this as a system send,
+  // not a manual owner send (would trigger auto_response_paused).
+  const { data: preInsert } = await client
+    .from('messages')
+    .insert({
+      tenant_id: effectiveTenantId,
+      customer_id: customerId,
+      phone_number: phone,
+      role: 'assistant',
+      content: message,
+      direction: 'outbound',
+      message_type: 'sms',
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: 'overnight_catchup',
+    })
+    .select('id')
+    .single()
+
+  const result = await sendSMS(tenant, phone, message, { skipDedup: true })
+  if (!result.success) {
+    if (preInsert?.id) {
+      await client.from('messages').delete().eq('id', preInsert.id)
+    }
+    throw new Error(`overnight_catchup SMS failed: ${result.error}`)
+  }
+
+  await logSystemEvent({
+    tenant_id: effectiveTenantId,
+    source: 'scheduler',
+    event_type: 'OVERNIGHT_CATCHUP_SENT',
+    message: `Overnight catchup nudge sent to customer ${customerId}`,
+    phone_number: phone,
+    metadata: { customer_id: customerId },
   })
 }
 

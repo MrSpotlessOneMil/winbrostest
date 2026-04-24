@@ -7,6 +7,8 @@ import { logSystemEvent } from "@/lib/system-events"
 import { getTenantBySlug, getTenantServiceDescription } from "@/lib/tenant"
 import { buildFirstTouchSMS } from "@/lib/website-lead-sms"
 import { transitionState } from "@/lib/lifecycle-state"
+import { computeNudgeSendTime } from "@/lib/nudge-timing"
+import { scheduleTask } from "@/lib/scheduler"
 
 // CORS headers for embed-friendly response (any domain can POST)
 const corsHeaders = {
@@ -251,6 +253,27 @@ export async function POST(
       })
     } catch (stateErr) {
       console.error('[Website Webhook] transitionState failed (non-blocking):', stateErr)
+    }
+
+    // Schedule +2h overnight-catchup nudge (next-morning 9 AM tenant-local
+    // if now+2h lands in quiet hours). Handler re-checks the outreach gate
+    // at send time, so a reply between now and then cancels it cleanly.
+    try {
+      const nudgeAt = computeNudgeSendTime({ now: new Date(), timezone: tenant.timezone || 'America/Los_Angeles' })
+      await scheduleTask({
+        tenantId: tenant.id,
+        taskType: 'overnight_catchup',
+        taskKey: `overnight-catchup-${customer.id}-${Date.now()}`,
+        scheduledFor: nudgeAt,
+        payload: {
+          customerId: customer.id,
+          phone,
+          firstName: firstName || 'there',
+          sdrName,
+        },
+      })
+    } catch (nudgeErr) {
+      console.error('[Website Webhook] scheduling overnight nudge failed (non-blocking):', nudgeErr)
     }
   }
 

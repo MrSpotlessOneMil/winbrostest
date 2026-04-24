@@ -35,6 +35,17 @@ export function isSpecializedServiceType(serviceType: string): boolean {
   return SPECIALIZED_SERVICE_TYPES.has(serviceType)
 }
 
+/**
+ * Short, friendly catchup nudge for leads that haven't replied after the first
+ * auto-SMS. Fired ~2 hours later (or at next-morning 9 AM if overnight).
+ *
+ * Intentionally brief and non-sales. If the lead truly ghosted, stage-2 of the
+ * existing follow-up cadence handles the next touch 24h later.
+ */
+export function buildOvernightNudge(firstName: string, sdrName: string): string {
+  return `Hey ${firstName}, it's ${sdrName} again — still want that quote? Send me the address + bed/bath and I'll pull pricing together real quick.`
+}
+
 export function buildFirstTouchSMS(input: FirstTouchSMSInput): string {
   const {
     firstName,

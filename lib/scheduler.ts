@@ -34,6 +34,7 @@ export type TaskType =
   | 'send_sms'
   | 'hot_lead_followup'
   | 'ranked_cascade'
+  | 'overnight_catchup'
 
 export interface ScheduledTask {
   id: string
