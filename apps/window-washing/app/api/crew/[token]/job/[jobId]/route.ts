@@ -81,7 +81,7 @@ async function resolveContext(token: string, jobId: string) {
       id, date, scheduled_at, address, service_type, status, notes, cleaner_notes, cleaner_pay_override, cleaners, addons,
       bedrooms, bathrooms, sqft, hours, price, paid, payment_status,
       cleaner_omw_at, cleaner_arrived_at, payment_method,
-      customer_id, phone_number,
+      customer_id, phone_number, quote_id,
       customers(id, first_name, last_name, address, phone_number, stripe_customer_id, card_on_file_at)
     `)
     .eq('id', parseInt(jobId))
@@ -246,6 +246,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       address: job.address,
       service_type: job.service_type,
       status: job.status,
+      quote_id: (job as any).quote_id || null,
       notes: job.cleaner_notes || cleanedNotes,
       bedrooms: job.bedrooms,
       bathrooms: job.bathrooms,

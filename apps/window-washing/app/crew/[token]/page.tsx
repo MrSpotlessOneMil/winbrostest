@@ -24,7 +24,7 @@ interface TimeOffEntry { id: number; date: string; reason: string | null }
 interface WeeklyDay { available: boolean; start?: string; end?: string }
 interface WeeklySchedule { [day: string]: WeeklyDay }
 interface PortalData {
-  cleaner: { id: number; name: string; phone: string; availability: { weekly?: WeeklySchedule } | null; employee_type?: string }
+  cleaner: { id: number; name: string; phone: string; availability: { weekly?: WeeklySchedule } | null; employee_type?: string; is_team_lead?: boolean }
   tenant: { name: string; slug: string }
   jobs: Job[]; pendingJobs: Job[]
   dateRange: { start: string; end: string }
@@ -404,14 +404,28 @@ export default function CrewPortalPage() {
         <span className="text-sm font-bold text-slate-700">
           {(viewMode === "day" ? (jobsByDate[currentDate] || []) : jobs).length} <span className="text-xs font-normal text-slate-400">jobs scheduled</span>
         </span>
-        {cleaner?.employee_type === "salesman" && (
-          <button
-            onClick={() => router.push(`/crew/${token}/new-quote`)}
-            className="size-10 rounded-full flex items-center justify-center shadow-lg"
-            style={{ background: theme.accent }}
-          >
-            <PlusCircle className="size-5 text-white" />
-          </button>
+        {(cleaner?.employee_type === "salesman" || cleaner?.is_team_lead) && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch(`/api/crew/${token}/quote-draft`, { method: "POST" })
+                  const body = await res.json()
+                  if (body.success && body.quoteId) {
+                    router.push(`/quotes/${body.quoteId}`)
+                  } else {
+                    router.push("/quotes")
+                  }
+                } catch {
+                  router.push("/quotes")
+                }
+              }}
+              className="h-10 px-4 rounded-full flex items-center gap-1.5 text-sm font-semibold shadow-lg text-white"
+              style={{ background: theme.accent }}
+            >
+              <PlusCircle className="size-4" /> New Quote
+            </button>
+          </div>
         )}
       </div>
 

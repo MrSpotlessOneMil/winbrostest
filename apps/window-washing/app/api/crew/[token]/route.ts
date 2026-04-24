@@ -252,6 +252,7 @@ export async function GET(
       phone: cleaner.phone,
       availability: cleaner.availability,
       employee_type: (cleaner as any).employee_type || 'technician',
+      is_team_lead: !!(cleaner as any).is_team_lead,
     },
     tenant: {
       name: tenant.business_name_short || tenant.business_name || tenant.name,

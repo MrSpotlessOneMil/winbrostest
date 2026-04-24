@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import {
-  ArrowLeft, Calendar, Clock, MapPin, Phone,
+  ArrowLeft, Calendar, Clock, FileText, MapPin, Phone,
   CheckCircle2, Loader2, AlertCircle, Lock,
   Navigation, CreditCard, DollarSign, Banknote,
   Plus, X, Check, CircleDot,
@@ -66,6 +66,7 @@ interface JobDetail {
   status: string
   notes: string | null
   currency: string
+  quote_id?: string | null
 }
 
 interface CustomerInfo {
@@ -566,12 +567,27 @@ export default function CrewJobVisitPage() {
 
         {/* ═══════════ 1. HEADER BAR ═══════════ */}
         <div>
-          <button
-            onClick={() => router.push(`/crew/${token}`)}
-            className="flex items-center gap-1.5 text-zinc-500 text-sm mb-4 active:text-zinc-300 transition-colors"
-          >
-            <ArrowLeft className="size-4" /> Back to Jobs
-          </button>
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={() => router.push(`/crew/${token}`)}
+              className="flex items-center gap-1.5 text-zinc-500 text-sm active:text-zinc-300 transition-colors"
+            >
+              <ArrowLeft className="size-4" /> Back to Jobs
+            </button>
+            {job.quote_id && (
+              <button
+                onClick={async () => {
+                  try {
+                    await fetch(`/api/crew/${token}/quote-session`, { method: "POST" })
+                  } catch {}
+                  router.push(`/quotes/${job.quote_id}`)
+                }}
+                className="flex items-center gap-1.5 rounded-full bg-blue-500/20 px-3 py-1 text-xs font-semibold text-blue-300 active:bg-blue-500/30"
+              >
+                <FileText className="size-3.5" /> View / Edit Quote
+              </button>
+            )}
+          </div>
 
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0">
