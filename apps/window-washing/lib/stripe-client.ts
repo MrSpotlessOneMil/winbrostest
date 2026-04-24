@@ -419,7 +419,11 @@ export async function createCardOnFileLink(
   customer: Customer,
   jobId: string,
   tenantId: string,
-  stripeSecretKey: string
+  stripeSecretKey: string,
+  /** Optional fully-qualified URL to return to after Stripe Checkout.
+   *  Used by the public quote page so the customer comes back to the same
+   *  quote (with `?card=saved`) instead of the tenant's marketing domain. */
+  returnToOverride?: string
 ): Promise<{ success: boolean; url?: string; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
@@ -432,8 +436,10 @@ export async function createCardOnFileLink(
     const stripeCustomer = await findOrCreateStripeCustomer(customer, stripeSecretKey)
 
     // Create checkout session in setup mode (card on file)
-    // Redirect to tenant's website after card is saved
-    const cardOnFileRedirect = await getTenantRedirectDomain(tenantId)
+    // Redirect to tenant's website after card is saved unless an override is
+    // supplied (public quote page uses this to come back to /quote/[token]/v2).
+    const cardOnFileRedirect =
+      returnToOverride || (await getTenantRedirectDomain(tenantId))
     const sessionMetadata = {
       job_id: jobId,
       phone_number: customer.phone_number,

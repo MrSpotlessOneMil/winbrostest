@@ -51,18 +51,31 @@ export async function POST(request: NextRequest) {
   if (!token || token.length < 20) {
     return NextResponse.json({ error: 'token is required' }, { status: 400 })
   }
-  if (body.agreement_read !== true) {
-    return NextResponse.json(
-      { error: 'You must read and agree to the service agreement' },
-      { status: 400 }
-    )
-  }
-  const signature = typeof body.signature_data === 'string' ? body.signature_data : ''
-  if (!signature || signature.length < 200) {
-    return NextResponse.json(
-      { error: 'A drawn signature is required' },
-      { status: 400 }
-    )
+
+  // Wave 3f — signature + agreement are only required when the customer is
+  // signing up for a recurring service plan (that's what they're agreeing to).
+  // One-time quotes approve with just a card on file — the captured card is
+  // the commitment signal and the service_plans row won't be created.
+  const hasPlanSelection =
+    body.selected_plan_id != null &&
+    Number.isFinite(Number(body.selected_plan_id)) &&
+    Number(body.selected_plan_id) > 0
+
+  const signature =
+    typeof body.signature_data === 'string' ? body.signature_data : ''
+  if (hasPlanSelection) {
+    if (body.agreement_read !== true) {
+      return NextResponse.json(
+        { error: 'You must read and agree to the service agreement' },
+        { status: 400 }
+      )
+    }
+    if (!signature || signature.length < 200) {
+      return NextResponse.json(
+        { error: 'A drawn signature is required' },
+        { status: 400 }
+      )
+    }
   }
 
   const client = getSupabaseServiceClient()
@@ -75,7 +88,11 @@ export async function POST(request: NextRequest) {
 
   if (quoteErr) return NextResponse.json({ error: quoteErr.message }, { status: 500 })
   if (!quote) return NextResponse.json({ error: 'Quote not found' }, { status: 404 })
-  if (!['draft', 'sent'].includes(quote.status)) {
+  // Wave 3f — legacy /api/actions/quotes POST creates quotes with status
+  // 'pending' (not 'draft' or 'sent'), so the prior list was too narrow and
+  // rejected every real salesman-sent quote. Treat converted/declined as
+  // the only hard stops.
+  if (['converted', 'declined', 'expired'].includes(quote.status)) {
     return NextResponse.json(
       { error: `Quote already ${quote.status}, cannot approve` },
       { status: 409 }

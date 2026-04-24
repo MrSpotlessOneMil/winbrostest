@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-import { createCardOnFileLink } from '@/lib/stripe-client'
+import { createCardOnFileLink, getTenantRedirectDomain } from '@/lib/stripe-client'
 import { getTenantById } from '@/lib/tenant'
 
 /**
@@ -91,6 +91,11 @@ export async function POST(
     )
   }
 
+  // Wave 3f — return the customer to the same quote page with `?card=saved`
+  // so the client can re-fetch customer.card_on_file_at and unlock Approve.
+  const domain = await getTenantRedirectDomain(quote.tenant_id)
+  const returnTo = `${domain.replace(/\/$/, '')}/quote/${token}/v2?card=saved`
+
   const result = await createCardOnFileLink(
     {
       ...customer,
@@ -98,7 +103,8 @@ export async function POST(
     } as Parameters<typeof createCardOnFileLink>[0],
     String(quote.id),
     quote.tenant_id,
-    stripeKey
+    stripeKey,
+    returnTo
   )
 
   if (!result.success || !result.url) {

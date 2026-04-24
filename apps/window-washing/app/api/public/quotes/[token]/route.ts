@@ -33,13 +33,28 @@ export async function GET(
   const { data: quote, error: quoteErr } = await client
     .from('quotes')
     .select(
-      'id, token, status, customer_name, customer_phone, customer_email, customer_address, notes, description, total_price, original_price, valid_until, approved_at, tenant_id'
+      'id, token, status, customer_id, customer_name, customer_phone, customer_email, customer_address, notes, description, total_price, original_price, valid_until, approved_at, tenant_id'
     )
     .eq('token', token)
     .maybeSingle()
 
   if (quoteErr) return NextResponse.json({ error: quoteErr.message }, { status: 500 })
   if (!quote) return NextResponse.json({ error: 'Quote not found' }, { status: 404 })
+
+  // Wave 3f — the customer page needs to know whether a card is already saved
+  // so it can gate the Approve CTA. The webhook `setup_intent.succeeded`
+  // stamps customers.card_on_file_at once Stripe confirms the PM, so a
+  // non-null value is the source of truth for "card captured for this
+  // customer". Fetch it alongside the quote in the same round-trip.
+  let cardOnFileAt: string | null = null
+  if (quote.customer_id) {
+    const { data: cust } = await client
+      .from('customers')
+      .select('card_on_file_at')
+      .eq('id', quote.customer_id)
+      .maybeSingle()
+    cardOnFileAt = cust?.card_on_file_at ?? null
+  }
 
   const [{ data: lineItems }, { data: plans }, { data: tenant }] = await Promise.all([
     client
@@ -77,6 +92,7 @@ export async function GET(
       original_price: quote.original_price,
       valid_until: quote.valid_until,
       approved_at: quote.approved_at,
+      card_on_file_at: cardOnFileAt,
     },
     line_items: lineItems ?? [],
     plans: plans ?? [],

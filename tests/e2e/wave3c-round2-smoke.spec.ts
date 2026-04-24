@@ -89,18 +89,26 @@ test.describe('Public approve endpoint — validation', () => {
     expect(res.status()).toBe(400)
   })
 
-  test('rejects missing signature', async ({ request }) => {
+  test('rejects missing signature (when a plan is selected)', async ({ request }) => {
+    // Wave 3f: signature is only gated when selected_plan_id is present.
+    // Include selected_plan_id so this still exercises the signature gate.
     const res = await request.post(`${BASE_URL}/api/public/quotes/approve`, {
-      data: { token: 'x'.repeat(40), agreement_read: true, signature_data: '' },
+      data: {
+        token: 'x'.repeat(40),
+        selected_plan_id: 1,
+        agreement_read: true,
+        signature_data: '',
+      },
       headers: { cookie: '' },
     })
     expect(res.status()).toBe(400)
   })
 
-  test('rejects agreement_read=false', async ({ request }) => {
+  test('rejects agreement_read=false (when a plan is selected)', async ({ request }) => {
     const res = await request.post(`${BASE_URL}/api/public/quotes/approve`, {
       data: {
         token: 'x'.repeat(40),
+        selected_plan_id: 1,
         agreement_read: false,
         signature_data: 'data:image/png;base64,' + 'A'.repeat(400),
       },

@@ -56,8 +56,11 @@ export async function approveAndConvertQuote(
     return { success: false, error: `Quote not found: ${quoteError?.message}` }
   }
 
-  // Guard: only draft or sent quotes can be approved
-  if (!['draft', 'sent'].includes(quote.status)) {
+  // Guard: approve any quote that hasn't already been finalized. Wave 3f —
+  // legacy /api/actions/quotes POST creates with status='pending', and any
+  // salesman-sent quote may sit in that state. Only converted/declined/
+  // expired are hard stops.
+  if (['converted', 'declined', 'expired'].includes(quote.status)) {
     return { success: false, error: `Quote already ${quote.status}, cannot approve` }
   }
 

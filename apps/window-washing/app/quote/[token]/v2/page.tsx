@@ -62,6 +62,7 @@ interface Quote {
   original_price: number | null
   valid_until: string | null
   approved_at: string | null
+  card_on_file_at: string | null
 }
 
 interface Tenant {
@@ -225,6 +226,26 @@ export default function CustomerQuoteV2Page() {
     load()
   }, [load])
 
+  // Wave 3f — when Stripe Checkout redirects back with ?card=saved we re-
+  // poll the quote once the setup_intent.succeeded webhook has had a moment
+  // to run. Three tries at 1s intervals is enough in practice; longer tails
+  // can just refresh the page.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const url = new URL(window.location.href)
+    if (url.searchParams.get("card") !== "saved") return
+    let tries = 0
+    const id = setInterval(() => {
+      tries += 1
+      load()
+      if (tries >= 3) clearInterval(id)
+    }, 1000)
+    // Clean the param so a manual refresh doesn't re-trigger.
+    url.searchParams.delete("card")
+    window.history.replaceState({}, "", url.toString())
+    return () => clearInterval(id)
+  }, [load])
+
   const selectedPlan = useMemo(
     () => (selectedPlanId != null ? plans.find(p => p.id === selectedPlanId) ?? null : null),
     [selectedPlanId, plans]
@@ -298,17 +319,22 @@ export default function CustomerQuoteV2Page() {
   async function approve() {
     if (!token) return
     setError(null)
-    if (plans.length > 0 && !selectedPlan) {
-      setError("Please pick a plan before approving")
+    // Wave 3f — card on file is ALWAYS required. Agreement + signature are
+    // only required when the customer is actually signing up for a recurring
+    // service plan. One-time quotes can be approved with just the card.
+    if (!quote?.card_on_file_at) {
+      setError("Please save your card on file before approving")
       return
     }
-    if (!agreementRead) {
-      setError("Please read and agree to the service agreement")
-      return
-    }
-    if (!signature) {
-      setError("Please sign above")
-      return
+    if (selectedPlan) {
+      if (!agreementRead) {
+        setError("Please read and agree to the service agreement")
+        return
+      }
+      if (!signature) {
+        setError("Please sign above")
+        return
+      }
     }
     setSubmitting(true)
     try {
@@ -318,8 +344,8 @@ export default function CustomerQuoteV2Page() {
         body: JSON.stringify({
           token,
           selected_plan_id: selectedPlan?.id ?? null,
-          agreement_read: true,
-          signature_data: signature,
+          agreement_read: selectedPlan ? true : false,
+          signature_data: signature ?? "",
           opted_in_optional_ids: Array.from(optedIn),
           opted_out_recommended_ids: Array.from(optedOut),
         }),
@@ -390,8 +416,8 @@ export default function CustomerQuoteV2Page() {
         </div>
       )}
 
-      <section className="mb-5 rounded border bg-white p-4">
-        <h2 className="mb-3 text-sm font-medium text-gray-700">Services</h2>
+      <section className="mb-5 rounded border bg-white p-4" data-testid="line-items-section">
+        <h2 className="mb-3 text-sm font-medium text-gray-700">Line items</h2>
 
         {required.length > 0 && (
           <ul className="mb-3">
@@ -525,18 +551,34 @@ export default function CustomerQuoteV2Page() {
             })}
           </div>
           {selectedPlan && (
-            <div className="mt-3 rounded bg-blue-50 p-2 text-sm text-blue-900">
-              First visit charge will be{" "}
-              <span className="font-semibold">
-                {fmtCurrency(firstVisitCharge, currency)}
-              </span>
-              .
+            <div
+              className="mt-3 rounded bg-blue-50 p-3 text-sm text-blue-900"
+              data-testid="plan-disclosure"
+            >
+              <div>
+                New total:{" "}
+                <span className="font-semibold">
+                  {fmtCurrency(firstVisitCharge, currency)}
+                </span>
+              </div>
+              <div className="mt-1 text-xs">
+                Next visits will auto-charge your card upon completion for{" "}
+                <span className="font-semibold">
+                  {fmtCurrency(Number(selectedPlan.recurring_price), currency)}
+                </span>
+                .
+              </div>
             </div>
           )}
         </section>
       )}
 
-      <section className="mb-5 rounded border bg-white p-4">
+      {/* Wave 3f — per PRD §2.5 the agreement + signature only appear once a
+          plan is selected, since that's what the customer is actually
+          agreeing to. When no plans are offered at all, one-time quotes
+          approve with just a card on file (our Wave 3f decision). */}
+      {(plans.length === 0 || selectedPlan) && (
+      <section className="mb-5 rounded border bg-white p-4" data-testid="agreement-section">
         <h2 className="mb-2 text-sm font-medium text-gray-700 flex items-center gap-2">
           <ShieldCheck className="h-4 w-4" /> Service agreement
         </h2>
@@ -561,37 +603,75 @@ export default function CustomerQuoteV2Page() {
           I have read and agree to the service agreement.
         </label>
       </section>
+      )}
 
-      <section className="mb-5 rounded border bg-white p-4">
+      {(plans.length === 0 || selectedPlan) && (
+      <section className="mb-5 rounded border bg-white p-4" data-testid="signature-section">
         <h2 className="mb-2 text-sm font-medium text-gray-700 flex items-center gap-2">
           <PenLine className="h-4 w-4" /> Signature
         </h2>
         <SignaturePad onChange={setSignature} />
       </section>
+      )}
 
-      <section className="mb-5 rounded border bg-white p-4">
-        <h2 className="mb-2 text-sm font-medium text-gray-700">Save card on file</h2>
+      <section className="mb-24 rounded border bg-white p-4 sm:mb-5" data-testid="card-section">
+        <h2 className="mb-2 text-sm font-medium text-gray-700">Card info</h2>
         <p className="mb-2 text-sm text-gray-600">
           We keep your card on file and charge{" "}
           <span className="font-semibold">{fmtCurrency(firstVisitCharge, currency)}</span> the
           day the work is done. You&apos;ll get a receipt by text.
         </p>
-        <button
-          type="button"
-          onClick={startCardSetup}
-          disabled={cardSetupStarted}
-          className="rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-60"
-        >
-          {cardSetupStarted ? "Redirecting to Stripe…" : "Save card on file"}
-        </button>
+        {quote.card_on_file_at ? (
+          <div
+            className="inline-flex items-center gap-2 rounded bg-green-50 px-3 py-2 text-sm text-green-800"
+            data-testid="card-saved-badge"
+          >
+            <CheckCircle className="h-4 w-4" /> Card on file
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={startCardSetup}
+            disabled={cardSetupStarted}
+            className="rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-60"
+          >
+            {cardSetupStarted ? "Redirecting to Stripe…" : "Save card on file"}
+          </button>
+        )}
       </section>
 
-      <div className="flex justify-end">
+      {/* Desktop: inline CTA. Mobile: sticky bar at bottom so the customer
+          can always tap Approve without scrolling (PRD §2.7). */}
+      <div className="hidden sm:flex sm:justify-end">
         <button
           type="button"
           onClick={approve}
-          disabled={submitting || !signature || !agreementRead}
+          disabled={
+            submitting ||
+            !quote.card_on_file_at ||
+            (!!selectedPlan && (!signature || !agreementRead))
+          }
           className="rounded bg-green-600 px-5 py-2 text-white hover:bg-green-700 disabled:opacity-60"
+          data-testid="approve-cta"
+        >
+          {submitting ? "Approving…" : "Approve quote"}
+        </button>
+      </div>
+
+      <div
+        className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-white p-3 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] sm:hidden"
+        data-testid="approve-sticky-bar"
+      >
+        <button
+          type="button"
+          onClick={approve}
+          disabled={
+            submitting ||
+            !quote.card_on_file_at ||
+            (!!selectedPlan && (!signature || !agreementRead))
+          }
+          className="flex-1 rounded bg-green-600 px-5 py-3 text-base font-semibold text-white disabled:opacity-60"
+          data-testid="approve-cta-mobile"
         >
           {submitting ? "Approving…" : "Approve quote"}
         </button>
