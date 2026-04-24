@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { parseFormData } from "@/lib/utils"
@@ -263,6 +263,7 @@ function getLeadSourceConfig(source: string) {
 }
 
 export default function CustomersPage() {
+  const router = useRouter()
   const { user, isAdmin, isSalesman, cleanerId: authCleanerId } = useAuth()
   const urlParams = useSearchParams()
   const isHouseCleaning = user?.tenantSlug !== "winbros"
@@ -2324,12 +2325,44 @@ export default function CustomersPage() {
                                   { key: "enter_card", label: "Enter Card", desc: "Type in card details", icon: KeyRound },
                                   { key: "payment", label: "Payment Link", desc: "Custom amount", icon: DollarSign },
                                   { key: "invoice", label: "Invoice", desc: "Email invoice", icon: FileText },
-                                  { key: "create_quote", label: "Create Quote", desc: "Send pricing quote", icon: FileText },
+                                  { key: "create_quote", label: "Create Quote", desc: "Opens the Round 2 builder", icon: FileText },
+                                  { key: "create_quote_legacy", label: "Legacy Quote (tier)", desc: "Old beds/baths form", icon: FileText },
                                 ].map((opt) => (
                                   <button
                                     key={opt.key}
                                     onClick={() => {
                                       if (opt.key === "create_quote") {
+                                        // Create a draft quote pre-attached to this customer, route to
+                                        // the Round 2 builder at /quotes/:id.
+                                        ;(async () => {
+                                          try {
+                                            const res = await fetch("/api/actions/quotes", {
+                                              method: "POST",
+                                              headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({
+                                                customer_id: selectedCustomer.id,
+                                                customer_name:
+                                                  `${selectedCustomer.first_name || ""} ${selectedCustomer.last_name || ""}`.trim() ||
+                                                  selectedCustomer.phone_number ||
+                                                  "New Quote (draft)",
+                                                customer_phone: selectedCustomer.phone_number,
+                                                customer_email: selectedCustomer.email,
+                                                customer_address: selectedCustomer.address,
+                                              }),
+                                            })
+                                            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                                            const body = await res.json()
+                                            const qid: string | undefined = body?.quote?.id
+                                            if (qid) router.push(`/quotes/${qid}`)
+                                          } catch (err) {
+                                            console.error("[customers/new-quote] failed:", err)
+                                            alert("Failed to open builder. Falling back to legacy form.")
+                                            setPaymentType("create_quote")
+                                          }
+                                        })()
+                                        return
+                                      }
+                                      if (opt.key === "create_quote_legacy") {
                                         setPaymentType("create_quote")
                                       } else if (opt.key === "enter_card") {
                                         setPaymentType("enter_card")

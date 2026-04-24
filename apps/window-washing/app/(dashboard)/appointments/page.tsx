@@ -17,8 +17,14 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core"
-import { Loader2, Plus, X } from "lucide-react"
+import { Loader2, MapPin, Plus, User, UserPlus, X } from "lucide-react"
 import { APPOINTMENT_GRID, buildTimeSlots, slotForTime } from "@/lib/appointment-grid-config"
+import {
+  CustomerPickerModal,
+  customerDisplayName,
+  mapsDirectionsUrl,
+  type PickerCustomer,
+} from "@/components/winbros/customer-picker"
 
 interface Appointment {
   id: number
@@ -128,6 +134,8 @@ interface CreateFormState {
   date: string
   scheduled_at: string
   duration_minutes: number
+  customer_id: number | null
+  customer_name: string
   address: string
   phone_number: string
   service_type: string
@@ -140,6 +148,8 @@ function defaultCreateForm(weekStart: string): CreateFormState {
     date: weekStart,
     scheduled_at: "09:00",
     duration_minutes: 120,
+    customer_id: null,
+    customer_name: "",
     address: "",
     phone_number: "",
     service_type: "Window Cleaning",
@@ -156,6 +166,7 @@ export default function AppointmentsPage() {
   const [error, setError] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false)
   const [form, setForm] = useState<CreateFormState>(() => defaultCreateForm(mondayOf(new Date())))
 
   const slots = useMemo(() => buildTimeSlots(), [])
@@ -261,6 +272,7 @@ export default function AppointmentsPage() {
           date: form.date,
           scheduled_at: form.scheduled_at,
           end_time: end.toISOString(),
+          customer_id: form.customer_id || undefined,
           address: form.address || undefined,
           phone_number: form.phone_number || undefined,
           service_type: form.service_type || undefined,
@@ -419,6 +431,21 @@ export default function AppointmentsPage() {
         </DndContext>
       )}
 
+      <CustomerPickerModal
+        open={showCustomerPicker}
+        onClose={() => setShowCustomerPicker(false)}
+        onSelect={(c: PickerCustomer) => {
+          setForm(f => ({
+            ...f,
+            customer_id: c.id,
+            customer_name: customerDisplayName(c),
+            phone_number: c.phone_number ?? f.phone_number,
+            address: c.address ?? f.address,
+          }))
+        }}
+        initialQuery={form.customer_name}
+      />
+
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <form
@@ -431,85 +458,131 @@ export default function AppointmentsPage() {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <label className="col-span-1">
-                <span className="block text-gray-600">Date</span>
-                <input
-                  type="date"
-                  required
-                  value={form.date}
-                  onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-              <label className="col-span-1">
-                <span className="block text-gray-600">Start time</span>
-                <input
-                  type="time"
-                  required
-                  value={form.scheduled_at}
-                  onChange={e => setForm(f => ({ ...f, scheduled_at: e.target.value }))}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-              <label className="col-span-1">
-                <span className="block text-gray-600">Duration (min)</span>
-                <input
-                  type="number"
-                  min={15}
-                  step={15}
-                  required
-                  value={form.duration_minutes}
-                  onChange={e =>
-                    setForm(f => ({ ...f, duration_minutes: Number(e.target.value) }))
-                  }
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-              <label className="col-span-1">
-                <span className="block text-gray-600">Price</span>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={form.price}
-                  onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-              <label className="col-span-2">
-                <span className="block text-gray-600">Address</span>
-                <input
-                  value={form.address}
-                  onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-              <label className="col-span-1">
-                <span className="block text-gray-600">Phone</span>
-                <input
-                  value={form.phone_number}
-                  onChange={e => setForm(f => ({ ...f, phone_number: e.target.value }))}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-              <label className="col-span-1">
-                <span className="block text-gray-600">Service</span>
-                <input
-                  value={form.service_type}
-                  onChange={e => setForm(f => ({ ...f, service_type: e.target.value }))}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                />
-              </label>
-              <label className="col-span-2">
-                <span className="block text-gray-600">Notes</span>
-                <textarea
-                  value={form.notes}
-                  onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                  className="mt-1 w-full rounded border px-2 py-1"
-                  rows={2}
-                />
-              </label>
+            <div className="space-y-3 text-sm">
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-gray-600">Client</span>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomerPicker(true)}
+                      className="flex items-center gap-1 rounded border px-2 py-0.5 text-xs"
+                    >
+                      <User className="h-3 w-3" /> Select
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomerPicker(true)}
+                      className="flex items-center gap-1 rounded border bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+                    >
+                      <UserPlus className="h-3 w-3" /> Add
+                    </button>
+                    {form.customer_id && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCustomerPicker(true)}
+                        className="rounded border px-2 py-0.5 text-xs"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {form.customer_id ? (
+                  <div className="rounded border bg-gray-50 p-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-medium">{form.customer_name}</div>
+                        <div className="text-xs text-gray-600">
+                          {form.phone_number || "—"}
+                        </div>
+                        {form.address && (
+                          <div className="text-xs text-gray-600">{form.address}</div>
+                        )}
+                      </div>
+                      {form.address && mapsDirectionsUrl(form.address) && (
+                        <a
+                          href={mapsDirectionsUrl(form.address) as string}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 rounded border bg-white px-2 py-1 text-xs text-blue-700 hover:bg-blue-50"
+                        >
+                          <MapPin className="h-3 w-3" /> Click for directions
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded border border-dashed p-2 text-center text-xs text-gray-500">
+                    No client selected
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label>
+                  <span className="block text-gray-600">Date</span>
+                  <input
+                    type="date"
+                    required
+                    value={form.date}
+                    onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                    className="mt-1 w-full rounded border px-2 py-1"
+                  />
+                </label>
+                <label>
+                  <span className="block text-gray-600">Start time</span>
+                  <input
+                    type="time"
+                    required
+                    value={form.scheduled_at}
+                    onChange={e => setForm(f => ({ ...f, scheduled_at: e.target.value }))}
+                    className="mt-1 w-full rounded border px-2 py-1"
+                  />
+                </label>
+                <label>
+                  <span className="block text-gray-600">Duration (min, sets end time)</span>
+                  <input
+                    type="number"
+                    min={15}
+                    step={15}
+                    required
+                    value={form.duration_minutes}
+                    onChange={e =>
+                      setForm(f => ({ ...f, duration_minutes: Number(e.target.value) }))
+                    }
+                    className="mt-1 w-full rounded border px-2 py-1"
+                  />
+                </label>
+                <label>
+                  <span className="block text-gray-600">Price</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={form.price}
+                    onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
+                    className="mt-1 w-full rounded border px-2 py-1"
+                  />
+                </label>
+                <label className="col-span-2">
+                  <span className="block text-gray-600">Service</span>
+                  <input
+                    value={form.service_type}
+                    onChange={e => setForm(f => ({ ...f, service_type: e.target.value }))}
+                    className="mt-1 w-full rounded border px-2 py-1"
+                  />
+                </label>
+                <label className="col-span-2">
+                  <span className="block text-gray-600">Notes</span>
+                  <textarea
+                    value={form.notes}
+                    onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                    className="mt-1 w-full rounded border px-2 py-1"
+                    rows={2}
+                  />
+                </label>
+              </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button

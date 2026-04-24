@@ -113,6 +113,61 @@ export function calculateSalesmanPay(
 }
 
 /**
+ * Shape of a visit row as fetched by generatePayrollWeek. Exported so unit
+ * tests can pin the revenue-attribution logic without a Supabase mock.
+ */
+export interface VisitForPayroll {
+  technicians?: number[] | null
+  jobs?: { crew_salesman_id?: number | null; cleaner_id?: number | null } | null
+  visit_line_items?: Array<{
+    price: number
+    revenue_type?: 'original_quote' | 'technician_upsell' | null
+    added_by_cleaner_id?: number | null
+  }> | null
+}
+
+/**
+ * Mutates `techSold` and `techUpsell` aggregates with revenue from one visit.
+ *
+ * Round 2 attribution rules:
+ *   - original_quote lines → split evenly across visit.technicians (base pay)
+ *   - technician_upsell lines → credit to added_by_cleaner_id; if that's null
+ *     (quote-level is_upsell set in the builder), fall back to the visit's
+ *     team-lead id: job.crew_salesman_id → job.cleaner_id → visit.technicians[0].
+ *
+ * Pulled out of generatePayrollWeek so unit tests can exercise it without a
+ * Supabase stub.
+ */
+export function accumulateVisitRevenue(
+  visit: VisitForPayroll,
+  techSold: Record<number, number>,
+  techUpsell: Record<number, number>
+): void {
+  const techs = visit.technicians ?? []
+  const visitTeamLeadId: number | null =
+    (visit.jobs?.crew_salesman_id ?? null) ||
+    (visit.jobs?.cleaner_id ?? null) ||
+    techs[0] ||
+    null
+
+  for (const item of visit.visit_line_items ?? []) {
+    if (item.revenue_type === 'original_quote') {
+      const count = techs.length || 1
+      for (const techId of techs) {
+        techSold[techId] = (techSold[techId] || 0) + Number(item.price) / count
+      }
+    }
+    if (item.revenue_type === 'technician_upsell') {
+      const attributedTo = item.added_by_cleaner_id ?? visitTeamLeadId
+      if (attributedTo) {
+        techUpsell[attributedTo] =
+          (techUpsell[attributedTo] || 0) + Number(item.price)
+      }
+    }
+  }
+}
+
+/**
  * Generate a payroll week snapshot.
  * Fetches all completed visits in the date range, current pay rates,
  * and freezes them into payroll_entries.
@@ -161,11 +216,15 @@ export async function generatePayrollWeek(
     return { success: true, week_id: week.id, entries: 0 }
   }
 
-  // Fetch completed visits in the date range
+  // Fetch completed visits in the date range. We also pull the parent job's
+  // team-lead attribution (crew_salesman_id — WinBros salesmen typically run
+  // their own crews — with a fallback to cleaner_id) so the upsell credit
+  // branch below can route null-attribution quote-level upsells correctly.
   const { data: visits } = await client
     .from('visits')
     .select(`
       id, technicians, started_at, stopped_at,
+      jobs(crew_salesman_id, cleaner_id),
       visit_line_items(price, revenue_type, added_by_cleaner_id)
     `)
     .eq('tenant_id', tenantId)
@@ -190,20 +249,7 @@ export async function generatePayrollWeek(
       }
     }
 
-    // Aggregate revenue by type — sold vs upsell tracked separately
-    for (const item of (visit as any).visit_line_items || []) {
-      if (item.revenue_type === 'original_quote') {
-        // Credit to assigned technicians (split evenly if multiple)
-        const techCount = ((visit.technicians as number[]) || []).length || 1
-        for (const techId of (visit.technicians as number[]) || []) {
-          techSold[techId] = (techSold[techId] || 0) + Number(item.price) / techCount
-        }
-      }
-      // Upsells credited to the tech who added them
-      if (item.revenue_type === 'technician_upsell' && item.added_by_cleaner_id) {
-        techUpsell[item.added_by_cleaner_id] = (techUpsell[item.added_by_cleaner_id] || 0) + Number(item.price)
-      }
-    }
+    accumulateVisitRevenue(visit as VisitForPayroll, techSold, techUpsell)
   }
 
   // Create payroll entries with FROZEN rates

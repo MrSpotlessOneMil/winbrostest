@@ -107,6 +107,7 @@ export async function PATCH(
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
   let body: {
+    customer_id?: number | null
     customer_name?: string
     customer_phone?: string | null
     customer_email?: string | null
@@ -147,6 +148,8 @@ export async function PATCH(
 
   // Update top-level quote fields if provided.
   const quoteUpdates: Record<string, unknown> = {}
+  if (typeof body.customer_id === 'number') quoteUpdates.customer_id = body.customer_id
+  if (body.customer_id === null) quoteUpdates.customer_id = null
   if (typeof body.customer_name === 'string') quoteUpdates.customer_name = body.customer_name
   if (typeof body.customer_phone === 'string') quoteUpdates.customer_phone = body.customer_phone
   if (body.customer_phone === null) quoteUpdates.customer_phone = null

@@ -19,12 +19,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Plus, Trash2, Save, Send, BookOpen, X } from "lucide-react"
+import { Plus, Trash2, Save, Send, BookOpen, X, UserPlus, User } from "lucide-react"
 import {
   computeQuoteTotals,
   type Optionality,
   type QuoteLineItemLike,
 } from "@/lib/quote-totals"
+import {
+  CustomerPickerModal,
+  customerDisplayName,
+  type PickerCustomer,
+} from "@/components/winbros/customer-picker"
 
 interface LineItem {
   id?: number | string
@@ -50,6 +55,7 @@ interface Plan {
 interface Quote {
   id: string
   token?: string | null
+  customer_id: number | null
   customer_name: string | null
   customer_phone: string | null
   customer_email: string | null
@@ -118,6 +124,7 @@ export default function QuoteBuilderPage() {
   const [plans, setPlans] = useState<Plan[]>([])
   const [catalog, setCatalog] = useState<ServiceBookItem[]>([])
   const [showPicker, setShowPicker] = useState(false)
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false)
 
   const load = useCallback(async () => {
     if (!quoteId) return
@@ -240,6 +247,19 @@ export default function QuoteBuilderPage() {
     ])
   }
 
+  function applyPickedCustomer(c: PickerCustomer) {
+    if (!quote) return
+    const displayName = customerDisplayName(c)
+    setQuote({
+      ...quote,
+      customer_id: c.id,
+      customer_name: displayName,
+      customer_phone: c.phone_number ?? quote.customer_phone,
+      customer_email: c.email ?? quote.customer_email,
+      customer_address: c.address ?? quote.customer_address,
+    })
+  }
+
   async function save(): Promise<Quote | null> {
     if (!quoteId) return null
     setSaving(true)
@@ -249,6 +269,7 @@ export default function QuoteBuilderPage() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          customer_id: quote?.customer_id,
           customer_name: quote?.customer_name,
           customer_phone: quote?.customer_phone,
           customer_email: quote?.customer_email,
@@ -396,41 +417,56 @@ export default function QuoteBuilderPage() {
       )}
 
       <section className="mb-6 rounded border bg-white p-4">
-        <h2 className="mb-3 text-sm font-medium text-gray-700">Client</h2>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <label>
-            <span className="block text-xs text-gray-500">Name</span>
-            <input
-              className="mt-1 w-full rounded border px-2 py-1"
-              value={quote.customer_name ?? ''}
-              onChange={e => setQuote({ ...quote, customer_name: e.target.value })}
-            />
-          </label>
-          <label>
-            <span className="block text-xs text-gray-500">Phone</span>
-            <input
-              className="mt-1 w-full rounded border px-2 py-1"
-              value={quote.customer_phone ?? ''}
-              onChange={e => setQuote({ ...quote, customer_phone: e.target.value })}
-            />
-          </label>
-          <label>
-            <span className="block text-xs text-gray-500">Email</span>
-            <input
-              className="mt-1 w-full rounded border px-2 py-1"
-              value={quote.customer_email ?? ''}
-              onChange={e => setQuote({ ...quote, customer_email: e.target.value })}
-            />
-          </label>
-          <label>
-            <span className="block text-xs text-gray-500">Address</span>
-            <input
-              className="mt-1 w-full rounded border px-2 py-1"
-              value={quote.customer_address ?? ''}
-              onChange={e => setQuote({ ...quote, customer_address: e.target.value })}
-            />
-          </label>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-medium text-gray-700">Client</h2>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setShowCustomerPicker(true)}
+              className="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-gray-50"
+            >
+              <User className="h-3.5 w-3.5" /> Select Client
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCustomerPicker(true)}
+              className="flex items-center gap-1 rounded border bg-blue-50 px-2 py-1 text-xs text-blue-700 hover:bg-blue-100"
+            >
+              <UserPlus className="h-3.5 w-3.5" /> Create Client
+            </button>
+          </div>
         </div>
+        {quote.customer_id ? (
+          <div className="rounded border bg-gray-50 p-3">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="font-medium text-gray-900">
+                  {quote.customer_name || `Customer #${quote.customer_id}`}
+                </div>
+                <div className="mt-0.5 text-sm text-gray-700">
+                  {quote.customer_phone || "—"}
+                </div>
+                {quote.customer_address && (
+                  <div className="text-sm text-gray-600">{quote.customer_address}</div>
+                )}
+                {quote.customer_email && (
+                  <div className="text-sm text-gray-500">{quote.customer_email}</div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCustomerPicker(true)}
+                className="text-xs text-blue-600 hover:underline"
+              >
+                Change
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded border border-dashed p-3 text-center text-sm text-gray-500">
+            No client selected. Pick one above to fill in name, phone, and address.
+          </div>
+        )}
       </section>
 
       <section className="mb-6 rounded border bg-white p-4">
@@ -645,6 +681,13 @@ export default function QuoteBuilderPage() {
           </div>
         )}
       </section>
+
+      <CustomerPickerModal
+        open={showCustomerPicker}
+        onClose={() => setShowCustomerPicker(false)}
+        onSelect={applyPickedCustomer}
+        initialQuery={quote.customer_name ?? ""}
+      />
 
       {showPicker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
