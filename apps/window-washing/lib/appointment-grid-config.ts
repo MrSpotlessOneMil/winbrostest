@@ -12,6 +12,20 @@ export const APPOINTMENT_GRID = {
   slotMinutes: 60,
 } as const
 
+/**
+ * Door-knock availability thresholds for the salesman portal strip.
+ * A day with <= GREEN_MAX appointments renders green, <= YELLOW_MAX yellow,
+ * else red. Tune with Max after the first week of use.
+ */
+export const AVAILABILITY_GREEN_MAX = 2
+export const AVAILABILITY_YELLOW_MAX = 4
+
+export function availabilityLevel(count: number): 'green' | 'yellow' | 'red' {
+  if (count <= AVAILABILITY_GREEN_MAX) return 'green'
+  if (count <= AVAILABILITY_YELLOW_MAX) return 'yellow'
+  return 'red'
+}
+
 export function buildTimeSlots(): string[] {
   const slots: string[] = []
   const { startHour, endHour, slotMinutes } = APPOINTMENT_GRID

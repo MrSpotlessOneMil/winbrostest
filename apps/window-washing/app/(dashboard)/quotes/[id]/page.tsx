@@ -19,9 +19,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Plus, Trash2, Save, Send, BookOpen, X, UserPlus, User } from "lucide-react"
+import { Plus, Trash2, Save, Send, BookOpen, X, UserPlus, User, Check } from "lucide-react"
 import {
   computeQuoteTotals,
+  formatTotalEquation,
   type Optionality,
   type QuoteLineItemLike,
 } from "@/lib/quote-totals"
@@ -86,24 +87,39 @@ const OPTION_LABELS: Record<Optionality, string> = {
   optional: 'Optional',
 }
 
-function OptionalityToggle({
+/**
+ * Single-state-per-row pill matching Max's sketch:
+ *   - required    → solid filled pill with a check, "locked in total"
+ *   - recommended → outlined pill with a check, "pre-checked for customer, in total"
+ *   - optional    → outlined empty pill, "unchecked for customer, not in total"
+ * Clicking cycles the state.
+ */
+function OptionalityPill({
   value,
   onChange,
 }: {
   value: Optionality
   onChange: (next: Optionality) => void
 }) {
-  const color: Record<Optionality, string> = {
-    required: 'bg-slate-700 text-white',
-    recommended: 'bg-blue-600 text-white',
-    optional: 'bg-gray-200 text-gray-700',
+  const style: Record<Optionality, string> = {
+    required: 'bg-slate-800 text-white border-slate-800',
+    recommended: 'bg-white text-slate-800 border-slate-400',
+    optional: 'bg-white text-slate-500 border-slate-300',
   }
+  const showCheck = value !== 'optional'
   return (
     <button
       type="button"
-      className={`rounded px-2 py-1 text-xs font-medium ${color[value]}`}
+      aria-label={`Line state: ${OPTION_LABELS[value]}`}
+      title="Click to cycle: Required → Recommended → Optional"
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium ${style[value]}`}
       onClick={() => onChange(OPTION_CYCLE[value])}
     >
+      {showCheck ? (
+        <Check className="h-3 w-3" />
+      ) : (
+        <span className="h-3 w-3 rounded-full border border-slate-400" />
+      )}
       {OPTION_LABELS[value]}
     </button>
   )
@@ -190,6 +206,24 @@ export default function QuoteBuilderPage() {
     }))
     return computeQuoteTotals({ lineItems: forTotals })
   }, [lineItems])
+
+  // Quote-level "first cleaning keeps original price" — defaults to true if
+  // any plan has the flag set. Toggling cascades to every plan so the sketch
+  // UX ("one checkbox near Original Price") stays in sync with the per-plan
+  // schema field we already persist.
+  const quoteLevelFirstVisitKeepsOriginal = useMemo(
+    () =>
+      plans.length > 0 &&
+      plans.some(p => p.first_visit_keeps_original_price),
+    [plans]
+  )
+  function setQuoteLevelFirstVisitKeepsOriginal(next: boolean) {
+    setPlans(prev =>
+      prev.map(p => ({ ...p, first_visit_keeps_original_price: next }))
+    )
+  }
+  const [showPerPlanFirstVisit, setShowPerPlanFirstVisit] = useState(false)
+  const offeredPlansCount = plans.filter(p => p.offered_to_customer).length
 
   function updateLine(index: number, patch: Partial<LineItem>) {
     setLineItems(prev => prev.map((li, i) => (i === index ? { ...li, ...patch } : li)))
@@ -278,6 +312,9 @@ export default function QuoteBuilderPage() {
           notes: quote?.notes,
           total_price: totals.total,
           original_price: quote?.original_price,
+          // is_upsell is derived server-side from optionality (Wave 3e collapse
+          // rule: is_upsell = optionality !== 'required'). We still send the
+          // current value so nothing breaks if the derivation is ever removed.
           line_items: lineItems,
           plans: plans.filter(p => p.name.trim()),
         }),
@@ -490,128 +527,158 @@ export default function QuoteBuilderPage() {
           </div>
         </div>
 
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-left text-xs text-gray-500">
-              <th className="p-1">Optionality</th>
-              <th className="p-1">Name / Description</th>
-              <th className="p-1 text-right">Qty</th>
-              <th className="p-1 text-right">Price</th>
-              <th className="p-1 text-center">Upsell</th>
-              <th className="p-1"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {lineItems.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="p-3 text-center text-sm text-gray-500">
-                  No line items yet. Click &ldquo;Add line&rdquo; or &ldquo;Service book&rdquo;.
-                </td>
-              </tr>
-            ) : (
-              lineItems.map((li, i) => (
-                <tr key={i} className="border-b align-top">
-                  <td className="p-1">
-                    <OptionalityToggle
-                      value={li.optionality}
-                      onChange={next => updateLine(i, { optionality: next })}
-                    />
-                  </td>
-                  <td className="p-1">
-                    <input
-                      className="w-full rounded border px-2 py-1"
-                      placeholder="Service name"
-                      value={li.service_name}
-                      onChange={e => updateLine(i, { service_name: e.target.value })}
-                    />
-                    <input
-                      className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-600"
-                      placeholder="Description (shown on customer view)"
-                      value={li.description ?? ''}
-                      onChange={e => updateLine(i, { description: e.target.value })}
-                    />
-                  </td>
-                  <td className="p-1 text-right">
+        <div className="space-y-2">
+          {lineItems.length === 0 ? (
+            <div className="rounded border border-dashed p-3 text-center text-sm text-gray-500">
+              No line items yet. Click &ldquo;Add line&rdquo; or &ldquo;Service book&rdquo;.
+            </div>
+          ) : (
+            lineItems.map((li, i) => (
+              <div
+                key={i}
+                className="flex flex-col gap-2 rounded border p-2 sm:flex-row sm:items-start sm:gap-3"
+                data-testid="line-item-row"
+              >
+                <div className="flex items-center justify-between gap-2 sm:block sm:w-[7.5rem] sm:shrink-0">
+                  <OptionalityPill
+                    value={li.optionality}
+                    onChange={next => updateLine(i, { optionality: next })}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeLine(i)}
+                    className="text-gray-400 hover:text-red-600 sm:hidden"
+                    aria-label="Remove line"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex-1 space-y-1">
+                  <input
+                    className="w-full rounded border px-2 py-1 text-sm"
+                    placeholder="Service name"
+                    value={li.service_name}
+                    onChange={e => updateLine(i, { service_name: e.target.value })}
+                  />
+                  <input
+                    className="w-full rounded border px-2 py-1 text-xs text-gray-600"
+                    placeholder="Description (shown on customer view)"
+                    value={li.description ?? ''}
+                    onChange={e => updateLine(i, { description: e.target.value })}
+                  />
+                </div>
+                <div className="flex items-center gap-2 sm:items-start">
+                  <label className="flex items-center gap-1 text-xs text-gray-500">
+                    Qty
                     <input
                       type="number"
                       min={1}
-                      className="w-14 rounded border px-1 py-1 text-right"
+                      className="w-14 rounded border px-1 py-1 text-right text-sm"
                       value={li.quantity}
                       onChange={e =>
                         updateLine(i, { quantity: Number(e.target.value) || 1 })
                       }
                     />
-                  </td>
-                  <td className="p-1 text-right">
+                  </label>
+                  <label className="flex items-center gap-1 text-xs text-gray-500">
+                    $
                     <input
                       type="number"
                       step="0.01"
-                      className="w-24 rounded border px-1 py-1 text-right"
+                      className="w-24 rounded border px-1 py-1 text-right text-sm"
                       value={li.price}
                       onChange={e =>
                         updateLine(i, { price: Number(e.target.value) || 0 })
                       }
                     />
-                  </td>
-                  <td className="p-1 text-center">
-                    <input
-                      type="checkbox"
-                      checked={li.is_upsell}
-                      onChange={e => updateLine(i, { is_upsell: e.target.checked })}
-                    />
-                  </td>
-                  <td className="p-1">
-                    <button
-                      type="button"
-                      onClick={() => removeLine(i)}
-                      className="text-gray-400 hover:text-red-600"
-                      aria-label="Remove line"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeLine(i)}
+                    className="hidden text-gray-400 hover:text-red-600 sm:inline-flex"
+                    aria-label="Remove line"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
 
-        <div className="mt-4 flex items-center justify-end gap-6 text-sm">
-          <div className="text-gray-600">
-            Required only: <span className="font-medium">${totals.requiredTotal.toFixed(2)}</span>
+        <div className="mt-4 border-t pt-3">
+          <div
+            className="text-right text-xs text-gray-500"
+            data-testid="total-equation"
+          >
+            {formatTotalEquation(lineItems as unknown as QuoteLineItemLike[])}
           </div>
-          <div>
-            Total: <span className="text-lg font-semibold">${totals.total.toFixed(2)}</span>
+          <div className="mt-1 flex flex-wrap items-center justify-end gap-x-6 gap-y-2 text-sm">
+            <div className="text-gray-600">
+              Required only: <span className="font-medium">${totals.requiredTotal.toFixed(2)}</span>
+            </div>
+            <div>
+              Total: <span className="text-lg font-semibold">${totals.total.toFixed(2)}</span>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-gray-600">
+              Original Price
+              <input
+                type="number"
+                step="0.01"
+                className="w-28 rounded border px-2 py-1 text-right"
+                value={quote.original_price ?? ''}
+                onChange={e =>
+                  setQuote({
+                    ...quote,
+                    original_price: e.target.value === '' ? null : Number(e.target.value) || 0,
+                  })
+                }
+                placeholder="anchor"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-gray-700">
+              <input
+                type="checkbox"
+                checked={quoteLevelFirstVisitKeepsOriginal}
+                onChange={e => setQuoteLevelFirstVisitKeepsOriginal(e.target.checked)}
+              />
+              First cleaning keeps original price (applies to all plans)
+            </label>
           </div>
-          <label className="flex items-center gap-2 text-xs text-gray-600">
-            Original Price
-            <input
-              type="number"
-              step="0.01"
-              className="w-28 rounded border px-2 py-1 text-right"
-              value={quote.original_price ?? ''}
-              onChange={e =>
-                setQuote({
-                  ...quote,
-                  original_price: e.target.value === '' ? null : Number(e.target.value) || 0,
-                })
-              }
-              placeholder="anchor"
-            />
-          </label>
         </div>
       </section>
 
       <section className="mb-6 rounded border bg-white p-4">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-gray-700">Service plans</h2>
-          <button
-            type="button"
-            onClick={addPlan}
-            className="flex items-center gap-1 rounded border px-2 py-1 text-xs"
-          >
-            <Plus className="h-3.5 w-3.5" /> Add plan
-          </button>
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-medium text-gray-700">Service plans</h2>
+            {plans.length > 0 && (
+              <span
+                className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700"
+                data-testid="offered-plans-count"
+              >
+                {offeredPlansCount} of {plans.length} offered
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {plans.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowPerPlanFirstVisit(v => !v)}
+                className="text-xs text-gray-500 hover:underline"
+              >
+                {showPerPlanFirstVisit ? 'Hide per-plan override' : 'Customize per plan'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={addPlan}
+              className="flex items-center gap-1 rounded border px-2 py-1 text-xs"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add plan
+            </button>
+          </div>
         </div>
 
         {plans.length === 0 ? (
@@ -619,25 +686,41 @@ export default function QuoteBuilderPage() {
             No service plans. Add one to offer recurring pricing to the customer.
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
             {plans.map((p, i) => (
-              <div key={i} className="rounded border p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <input
-                    className="flex-1 rounded border px-2 py-1 text-sm font-medium"
-                    placeholder="Plan name (e.g. Monthly)"
-                    value={p.name}
-                    onChange={e => updatePlan(i, { name: e.target.value })}
-                  />
+              <div
+                key={i}
+                className={`rounded border p-3 ${
+                  p.offered_to_customer ? 'border-blue-400 bg-blue-50/40' : 'border-gray-200'
+                }`}
+                data-testid="plan-card"
+              >
+                <label className="mb-2 flex items-center justify-between gap-2 rounded bg-white px-2 py-1 text-xs font-medium text-gray-700">
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={p.offered_to_customer}
+                      onChange={e =>
+                        updatePlan(i, { offered_to_customer: e.target.checked })
+                      }
+                    />
+                    Offer to customer
+                  </span>
                   <button
                     type="button"
                     onClick={() => removePlan(i)}
-                    className="ml-2 text-gray-400 hover:text-red-600"
+                    className="text-gray-400 hover:text-red-600"
                     aria-label="Remove plan"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
-                </div>
+                </label>
+                <input
+                  className="mb-2 w-full rounded border px-2 py-1 text-sm font-medium"
+                  placeholder="Plan name (e.g. Monthly)"
+                  value={p.name}
+                  onChange={e => updatePlan(i, { name: e.target.value })}
+                />
                 <label className="mb-2 block text-xs text-gray-600">
                   Discount label (e.g. &ldquo;20% off recurring&rdquo;)
                   <input
@@ -658,24 +741,20 @@ export default function QuoteBuilderPage() {
                     }
                   />
                 </label>
-                <label className="mb-1 flex items-center gap-2 text-xs text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={p.first_visit_keeps_original_price}
-                    onChange={e =>
-                      updatePlan(i, { first_visit_keeps_original_price: e.target.checked })
-                    }
-                  />
-                  First visit bills at original price
-                </label>
-                <label className="flex items-center gap-2 text-xs text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={p.offered_to_customer}
-                    onChange={e => updatePlan(i, { offered_to_customer: e.target.checked })}
-                  />
-                  Offer to customer
-                </label>
+                {showPerPlanFirstVisit && (
+                  <label className="flex items-center gap-2 text-xs text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={p.first_visit_keeps_original_price}
+                      onChange={e =>
+                        updatePlan(i, {
+                          first_visit_keeps_original_price: e.target.checked,
+                        })
+                      }
+                    />
+                    First visit keeps original price
+                  </label>
+                )}
               </div>
             ))}
           </div>

@@ -104,3 +104,35 @@ export function firstVisitChargeForPlan(
   if (planKeepsOriginalPrice) return Math.round(baseTotal * 100) / 100
   return Math.round(planRecurringPrice * 100) / 100
 }
+
+/**
+ * Build the human-readable equation shown in the builder totals row,
+ * per Max's sketch: "$100 + $300 − $50 = $350". Only lines currently
+ * counted toward the total appear. Negative prices render as
+ * " − $X" so discounts read naturally.
+ */
+export function formatTotalEquation(lineItems: QuoteLineItemLike[]): string {
+  const counted = lineItems.filter(li => {
+    const opt = li.optionality ?? 'required'
+    if (opt === 'required') return true
+    if (opt === 'recommended') return true
+    return false
+  })
+  if (counted.length === 0) return '$0.00'
+
+  const parts: string[] = []
+  let running = 0
+  for (const item of counted) {
+    const qty = typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1
+    const sub = Math.round((Number(item.price) || 0) * qty * 100) / 100
+    running += sub
+    const abs = Math.abs(sub).toFixed(2)
+    if (parts.length === 0) {
+      parts.push(sub < 0 ? `− $${abs}` : `$${abs}`)
+    } else {
+      parts.push(sub < 0 ? `− $${abs}` : `+ $${abs}`)
+    }
+  }
+  const total = (Math.round(running * 100) / 100).toFixed(2)
+  return `${parts.join(' ')} = $${total}`
+}

@@ -154,6 +154,13 @@ export default function CrewPortalPage() {
   const [savingWeekly, setSavingWeekly] = useState(false)
   const [weeklyDirty, setWeeklyDirty] = useState(false)
 
+  // Wave 3e — door-knock salesman widgets
+  const [doorKnockDays, setDoorKnockDays] = useState<Array<{ date: string; count: number }>>([])
+  const [commissionSummary, setCommissionSummary] = useState<{
+    total_pay: number
+    range: { start: string; end: string }
+  } | null>(null)
+
   const theme = data?.tenant?.slug ? (THEMES[data.tenant.slug] || DEFAULT_THEME) : DEFAULT_THEME
 
   // Fetch jobs for the current date range
@@ -178,6 +185,26 @@ export default function CrewPortalPage() {
   useEffect(() => {
     fetch(`/api/crew/${token}/auto-session`, { method: "POST" }).catch(() => {})
   }, [token])
+
+  // Wave 3e — pull availability + commission once the cleaner is resolved.
+  // Only salesmen need these; other roles skip the fetch.
+  useEffect(() => {
+    if (!data?.cleaner) return
+    const isSalesman = data.cleaner.employee_type === "salesman"
+    if (!isSalesman) return
+    fetch(`/api/crew/${token}/availability?days=14`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(b => {
+        if (b?.success) setDoorKnockDays(b.data as Array<{ date: string; count: number }>)
+      })
+      .catch(() => {})
+    fetch(`/api/crew/${token}/commission-summary`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(b => {
+        if (b?.success) setCommissionSummary(b.data)
+      })
+      .catch(() => {})
+  }, [token, data?.cleaner])
 
   // Nav handlers
   const navigate = (dir: -1 | 1) => {
@@ -309,13 +336,64 @@ export default function CrewPortalPage() {
             <div className="size-11 rounded-xl flex items-center justify-center text-lg font-black shadow-md" style={{ background: theme.avatarGradient, color: theme.avatarText }}>
               {firstName.charAt(0)}
             </div>
-            <div>
+            <div className="flex-1">
               <p className="text-white/60 text-xs">{greeting}</p>
               <h1 className="text-xl font-black text-white">{firstName}</h1>
             </div>
+            {cleaner?.employee_type === "salesman" && commissionSummary && (
+              <div
+                data-testid="commission-chip"
+                className="rounded-full bg-white/15 backdrop-blur px-3 py-1.5 text-right"
+              >
+                <div className="text-[9px] text-white/70 uppercase">Pending commission</div>
+                <div className="text-sm font-bold text-white">
+                  ${commissionSummary.total_pay.toFixed(2)}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Wave 3e — 14-day door-knock availability strip (salesman only) */}
+      {cleaner?.employee_type === "salesman" && doorKnockDays.length > 0 && (
+        <div
+          data-testid="availability-strip"
+          className="shrink-0 overflow-x-auto border-b bg-white px-3 py-2"
+          style={{ borderColor: "#e8e5de" }}
+        >
+          <div className="flex gap-1.5">
+            {doorKnockDays.map(d => {
+              const level =
+                d.count <= 2 ? "green" : d.count <= 4 ? "yellow" : "red"
+              const dotColor =
+                level === "green" ? "#22c55e" : level === "yellow" ? "#f59e0b" : "#ef4444"
+              const date = new Date(d.date + "T12:00:00")
+              const label = date.toLocaleDateString("en-US", { weekday: "short" })
+              const num = date.getDate()
+              const isToday = d.date === todayStr
+              return (
+                <button
+                  key={d.date}
+                  type="button"
+                  onClick={() => setCurrentDate(d.date)}
+                  className={`flex flex-col items-center rounded-lg border px-2 py-1.5 text-xs shrink-0 ${
+                    isToday ? "border-slate-700" : "border-slate-200"
+                  }`}
+                  aria-label={`${label} ${num}, ${d.count} jobs booked`}
+                >
+                  <span className="text-[9px] uppercase text-slate-400">{label}</span>
+                  <span className="font-bold text-slate-800">{num}</span>
+                  <span
+                    className="mt-0.5 h-1.5 w-1.5 rounded-full"
+                    style={{ background: dotColor }}
+                  />
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ═══ TOOLBAR ═══ */}
       <div className="px-4 py-2.5 flex items-center gap-2 border-b shrink-0" style={{ borderColor: "#e8e5de", background: "#fff" }}>

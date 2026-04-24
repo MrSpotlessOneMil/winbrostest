@@ -14,7 +14,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   accumulateVisitRevenue,
+  accumulateSalesmanRevenue,
+  classifyPlanBucket,
   type VisitForPayroll,
+  type VisitForSalesmanPayroll,
 } from '@/apps/window-washing/lib/payroll'
 
 function collect(visits: VisitForPayroll[]) {
@@ -22,6 +25,15 @@ function collect(visits: VisitForPayroll[]) {
   const upsell: Record<number, number> = {}
   for (const v of visits) accumulateVisitRevenue(v, sold, upsell)
   return { sold, upsell }
+}
+
+function collectSalesman(visits: VisitForSalesmanPayroll[]) {
+  const salesmanRevenue: Record<
+    number,
+    { onetime: number; triannual: number; quarterly: number }
+  > = {}
+  for (const v of visits) accumulateSalesmanRevenue(v, salesmanRevenue)
+  return salesmanRevenue
 }
 
 describe('original_quote lines split across technicians', () => {
@@ -147,5 +159,107 @@ describe('technician_upsell attribution — deepest fallback', () => {
     ])
     expect(upsell[99]).toBe(130)
     expect(upsell[42]).toBe(30)
+  })
+})
+
+describe('classifyPlanBucket', () => {
+  it('variant 1 (happy): interval_months=4 → triannual', () => {
+    expect(classifyPlanBucket({ interval_months: 4 })).toBe('triannual')
+  })
+
+  it('variant 2: interval_months=3 → quarterly', () => {
+    expect(classifyPlanBucket({ interval_months: 3 })).toBe('quarterly')
+  })
+
+  it('variant 3 (no plan): null/unknown → onetime', () => {
+    expect(classifyPlanBucket(null)).toBe('onetime')
+    expect(classifyPlanBucket({})).toBe('onetime')
+    expect(classifyPlanBucket({ interval_months: 99 })).toBe('onetime')
+  })
+})
+
+describe('accumulateSalesmanRevenue (Wave 3e)', () => {
+  it('variant 1 (happy): one-time job credits quote.salesman_id', () => {
+    const r = collectSalesman([
+      {
+        jobs: { id: 1, salesman_id: 5, credited_salesman_id: null },
+        visit_line_items: [
+          { price: 450, revenue_type: 'original_quote' },
+          { price: 80, revenue_type: 'technician_upsell' }, // excluded
+        ],
+      },
+    ])
+    expect(r[5].onetime).toBe(450)
+    expect(r[5].triannual).toBe(0)
+    expect(r[5].quarterly).toBe(0)
+  })
+
+  it('variant 2 (triannual plan): recurrence.interval_months=4 routes to triannual', () => {
+    const r = collectSalesman([
+      {
+        jobs: {
+          id: 2,
+          salesman_id: 5,
+          credited_salesman_id: null,
+          service_plan_jobs: [
+            { service_plans: { recurrence: { interval_months: 4 } } },
+          ],
+        },
+        visit_line_items: [{ price: 200, revenue_type: 'original_quote' }],
+      },
+    ])
+    expect(r[5].triannual).toBe(200)
+    expect(r[5].onetime).toBe(0)
+  })
+
+  it('variant 3 (admin override): credited_salesman_id beats salesman_id', () => {
+    const r = collectSalesman([
+      {
+        jobs: { id: 3, salesman_id: 5, credited_salesman_id: 7 },
+        visit_line_items: [{ price: 300, revenue_type: 'original_quote' }],
+      },
+    ])
+    expect(r[7].onetime).toBe(300)
+    expect(r[5]).toBeUndefined()
+  })
+
+  it('variant 4 (no attribution): null ids drop the line silently', () => {
+    const r = collectSalesman([
+      {
+        jobs: { id: 4, salesman_id: null, credited_salesman_id: null },
+        visit_line_items: [{ price: 500, revenue_type: 'original_quote' }],
+      },
+    ])
+    expect(Object.keys(r).length).toBe(0)
+  })
+
+  it('variant 5 (upsells excluded): only original_quote lines count', () => {
+    const r = collectSalesman([
+      {
+        jobs: { id: 5, salesman_id: 5, credited_salesman_id: null },
+        visit_line_items: [
+          { price: 80, revenue_type: 'technician_upsell' },
+          { price: 40, revenue_type: 'technician_upsell' },
+        ],
+      },
+    ])
+    expect(r[5]).toBeUndefined()
+  })
+
+  it('variant 6 (quarterly plan): recurrence.interval_months=3 routes to quarterly', () => {
+    const r = collectSalesman([
+      {
+        jobs: {
+          id: 6,
+          salesman_id: 5,
+          credited_salesman_id: null,
+          service_plan_jobs: [
+            { service_plans: { recurrence: { interval_months: 3 } } },
+          ],
+        },
+        visit_line_items: [{ price: 150, revenue_type: 'original_quote' }],
+      },
+    ])
+    expect(r[5].quarterly).toBe(150)
   })
 })

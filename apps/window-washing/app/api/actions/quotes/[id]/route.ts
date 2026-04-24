@@ -37,9 +37,13 @@ interface BodyPlan {
 }
 
 function ensureWriter(authResult: { user: { id: number } }): NextResponse | null {
-  if (authResult.user.id <= 0) {
-    return NextResponse.json({ error: 'Admin/salesman access required' }, { status: 403 })
-  }
+  // Wave 3e: salesmen, technicians, and team leads all need write access to
+  // quotes in their tenant (builder in the field, upsells on-site, team-lead
+  // adjustments). requireAuthWithTenant already enforces tenant scope, and
+  // the update query is pinned with `.eq('tenant_id', authResult.tenant.id)`,
+  // so cross-tenant writes can't happen. The old `user.id <= 0` ban blocked
+  // the synthetic employee user id and locked out every field user.
+  void authResult
   return null
 }
 
@@ -119,6 +123,7 @@ export async function PATCH(
     line_items?: BodyLineItem[]
     plans?: BodyPlan[]
     status?: string
+    salesman_id?: number | null
   }
   try {
     body = await request.json()
@@ -164,6 +169,11 @@ export async function PATCH(
     quoteUpdates.original_price = body.original_price
   if (body.original_price === null) quoteUpdates.original_price = null
   if (typeof body.status === 'string') quoteUpdates.status = body.status
+  // Wave 3e: admin can re-attribute the quote to a different salesman for
+  // commission routing. Salesman attribution flows quote → jobs.salesman_id
+  // at conversion time; admin can also override per-job via credited_salesman_id.
+  if (typeof body.salesman_id === 'number') quoteUpdates.salesman_id = body.salesman_id
+  if (body.salesman_id === null) quoteUpdates.salesman_id = null
 
   if (Object.keys(quoteUpdates).length > 0) {
     quoteUpdates.updated_at = new Date().toISOString()
@@ -197,7 +207,11 @@ export async function PATCH(
           item.optionality === 'recommended' || item.optionality === 'optional'
             ? item.optionality
             : 'required',
-        is_upsell: item.is_upsell === true,
+        // Wave 3e: is_upsell is derived from optionality so the UI's single
+        // pill stays the source of truth. Recommended + Optional lines are
+        // upsells; Required lines are not.
+        is_upsell:
+          item.optionality === 'recommended' || item.optionality === 'optional',
         sort_order: typeof item.sort_order === 'number' ? item.sort_order : index,
       }))
 

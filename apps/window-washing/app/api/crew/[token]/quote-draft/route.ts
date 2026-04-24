@@ -46,6 +46,12 @@ export async function POST(
     )
   }
 
+  // Wave 3e: attribute the quote to the salesman who started it so payroll
+  // can credit commission later. Team leads can still create quotes but we
+  // leave salesman_id null — they're not the sales channel of record.
+  const salesmanId =
+    cleaner.employee_type === "salesman" ? cleaner.id : null
+
   const { data: quote, error: insertErr } = await client
     .from("quotes")
     .insert({
@@ -53,6 +59,7 @@ export async function POST(
       status: "pending",
       customer_name: "New Quote",
       total_price: 0,
+      salesman_id: salesmanId,
     })
     .select("id")
     .single()

@@ -127,6 +127,80 @@ export interface VisitForPayroll {
 }
 
 /**
+ * Plan type bucket for salesman commission attribution (Wave 3e).
+ * Derived from service_plans.recurrence.interval_months — 1=monthly,
+ * 3=quarterly, 4=triannual. Anything else (or a non-plan visit) is
+ * classified as one-time.
+ */
+export type SalesmanPlanType = 'onetime' | 'triannual' | 'quarterly'
+
+export interface VisitForSalesmanPayroll {
+  jobs?: {
+    id?: number
+    salesman_id?: number | null
+    credited_salesman_id?: number | null
+    service_plan_jobs?: Array<{
+      service_plans?: {
+        recurrence?: Record<string, unknown> | null
+      } | null
+    }> | null
+  } | null
+  visit_line_items?: Array<{
+    price: number
+    revenue_type?: 'original_quote' | 'technician_upsell' | null
+  }> | null
+}
+
+/**
+ * Map a service_plans.recurrence JSONB to a salesman-commission bucket.
+ * Admins store recurrences flexibly (per Max's "don't hardcode plan names"
+ * rule), so we only trust `interval_months` when it's a known value.
+ */
+export function classifyPlanBucket(
+  recurrence: Record<string, unknown> | null | undefined
+): SalesmanPlanType {
+  if (!recurrence) return 'onetime'
+  const months = Number((recurrence as { interval_months?: unknown }).interval_months)
+  if (months === 3) return 'quarterly'
+  if (months === 4) return 'triannual'
+  return 'onetime'
+}
+
+/**
+ * Mutates `salesmanRevenue` with the original_quote revenue from one visit,
+ * routed to the admin-override `credited_salesman_id` if set, else the
+ * quote's `salesman_id`.
+ *
+ * Pure — tests can call this directly without a Supabase stub.
+ */
+export function accumulateSalesmanRevenue(
+  visit: VisitForSalesmanPayroll,
+  salesmanRevenue: Record<number, { onetime: number; triannual: number; quarterly: number }>
+): void {
+  const job = visit.jobs
+  if (!job) return
+  const attributedTo = job.credited_salesman_id ?? job.salesman_id
+  if (!attributedTo) return
+
+  const bucket = classifyPlanBucket(
+    job.service_plan_jobs?.[0]?.service_plans?.recurrence ?? null
+  )
+
+  let originalQuoteTotal = 0
+  for (const item of visit.visit_line_items ?? []) {
+    if (item.revenue_type === 'original_quote') {
+      originalQuoteTotal += Number(item.price) || 0
+    }
+  }
+  if (originalQuoteTotal === 0) return
+
+  const existing =
+    salesmanRevenue[attributedTo] ||
+    (salesmanRevenue[attributedTo] = { onetime: 0, triannual: 0, quarterly: 0 })
+  existing[bucket] += originalQuoteTotal
+}
+
+/**
  * Mutates `techSold` and `techUpsell` aggregates with revenue from one visit.
  *
  * Round 2 attribution rules:
@@ -216,15 +290,19 @@ export async function generatePayrollWeek(
     return { success: true, week_id: week.id, entries: 0 }
   }
 
-  // Fetch completed visits in the date range. We also pull the parent job's
-  // team-lead attribution (crew_salesman_id — WinBros salesmen typically run
-  // their own crews — with a fallback to cleaner_id) so the upsell credit
-  // branch below can route null-attribution quote-level upsells correctly.
+  // Fetch completed visits in the date range. We also pull:
+  //  - job.crew_salesman_id + job.cleaner_id for team-lead upsell fallback
+  //  - job.salesman_id + job.credited_salesman_id for salesman commission
+  //    (Wave 3e — was declared but never filled)
+  //  - service_plans.recurrence for plan-type bucket classification
   const { data: visits } = await client
     .from('visits')
     .select(`
       id, technicians, started_at, stopped_at,
-      jobs(crew_salesman_id, cleaner_id),
+      jobs(
+        id, crew_salesman_id, cleaner_id, salesman_id, credited_salesman_id,
+        service_plan_jobs(service_plans(recurrence))
+      ),
       visit_line_items(price, revenue_type, added_by_cleaner_id)
     `)
     .eq('tenant_id', tenantId)
@@ -250,6 +328,10 @@ export async function generatePayrollWeek(
     }
 
     accumulateVisitRevenue(visit as VisitForPayroll, techSold, techUpsell)
+    accumulateSalesmanRevenue(
+      visit as unknown as VisitForSalesmanPayroll,
+      salesmanRevenue
+    )
   }
 
   // Create payroll entries with FROZEN rates

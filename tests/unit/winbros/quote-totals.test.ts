@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest'
 import {
   computeQuoteTotals,
   firstVisitChargeForPlan,
+  formatTotalEquation,
 } from '@/apps/window-washing/lib/quote-totals'
 
 describe('computeQuoteTotals — optionality semantics', () => {
@@ -85,5 +86,45 @@ describe('firstVisitChargeForPlan', () => {
   it('variant 3: fractional cents round correctly', () => {
     expect(firstVisitChargeForPlan(449.995, 99, true)).toBe(450)
     expect(firstVisitChargeForPlan(100, 33.333, false)).toBe(33.33)
+  })
+})
+
+describe('formatTotalEquation (Wave 3e sketch: "$100 + $300 − $50 = $350")', () => {
+  it('variant 1 (happy): two positive required lines + negative optional discount', () => {
+    // Optional lines are NOT counted by default, so the −$50 discount only
+    // shows up in the equation when it's promoted to required/recommended.
+    expect(
+      formatTotalEquation([
+        { price: 100, optionality: 'required' },
+        { price: 300, optionality: 'required' },
+        { price: -50, optionality: 'required' },
+      ])
+    ).toBe('$100.00 + $300.00 − $50.00 = $350.00')
+  })
+
+  it('variant 2: optional lines are excluded even if priced', () => {
+    expect(
+      formatTotalEquation([
+        { price: 100, optionality: 'required' },
+        { price: 175, optionality: 'recommended' },
+        { price: 40, optionality: 'optional' }, // excluded
+      ])
+    ).toBe('$100.00 + $175.00 = $275.00')
+  })
+
+  it('variant 3 (empty): no counted lines renders $0.00', () => {
+    expect(formatTotalEquation([])).toBe('$0.00')
+    expect(
+      formatTotalEquation([{ price: 999, optionality: 'optional' }])
+    ).toBe('$0.00')
+  })
+
+  it('variant 4: quantities multiply into each part', () => {
+    expect(
+      formatTotalEquation([
+        { price: 50, quantity: 3, optionality: 'required' }, // 150
+        { price: 20, quantity: 2, optionality: 'recommended' }, // 40
+      ])
+    ).toBe('$150.00 + $40.00 = $190.00')
   })
 })
