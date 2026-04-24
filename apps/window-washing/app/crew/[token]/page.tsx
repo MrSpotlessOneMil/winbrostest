@@ -490,12 +490,12 @@ export default function CrewPortalPage() {
                   const res = await fetch(`/api/crew/${token}/quote-draft`, { method: "POST" })
                   const body = await res.json()
                   if (body.success && body.quoteId) {
-                    router.push(`/quotes/${body.quoteId}`)
+                    router.push(`/quotes/${body.quoteId}?from=crew:${token}`)
                   } else {
-                    router.push("/quotes")
+                    router.push(`/crew/${token}`)
                   }
                 } catch {
-                  router.push("/quotes")
+                  router.push(`/crew/${token}`)
                 }
               }}
               className="h-10 px-4 rounded-full flex items-center gap-1.5 text-sm font-semibold shadow-lg text-white"

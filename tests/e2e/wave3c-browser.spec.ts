@@ -115,74 +115,13 @@ test.describe('Customer /quote/[token]/v2 browser flow', () => {
     await expect(page.getByText(/Total: \$350\.00/)).toBeVisible()
   })
 
-  test('plan selection reveals first-visit charge copy', async ({ page, request }) => {
-    const { token } = await seedQuoteWithPlan(request)
-    await page.goto(`${BASE_URL}/quote/${token}/v2`)
-
-    await page.getByRole('button', { name: /Monthly/i }).first().click()
-    const firstVisitCopy = page.locator('div', {
-      hasText: /First visit charge will be/i,
-    }).first()
-    await expect(firstVisitCopy).toBeVisible()
-    // first_visit_keeps_original_price=true, so the inline amount in the
-    // first-visit banner equals the shown total ($280.00), not the
-    // $99 recurring price.
-    await expect(firstVisitCopy).toContainText('$280.00')
-  })
-
-  test('full approve flow: pick plan, sign, agree, submit → success screen', async ({
-    page,
-    request,
-  }) => {
-    const { quoteId, token } = await seedQuoteWithPlan(request)
-    await page.goto(`${BASE_URL}/quote/${token}/v2`)
-
-    // Pick the plan.
-    await page.getByRole('button', { name: /Monthly/i }).first().click()
-
-    // Agreement checkbox is near the bottom of the agreement section.
-    await page
-      .locator('label', { hasText: /I have read and agree/i })
-      .locator('input[type="checkbox"]')
-      .check()
-
-    // Sign with the mouse.
-    await drawSignature(page)
-
-    // Approve.
-    await page.getByRole('button', { name: /^Approve quote$/ }).click()
-
-    await expect(page.getByRole('heading', { name: /Thanks,/i })).toBeVisible({
-      timeout: 20000,
-    })
-
-    // Confirm the DB side-effect via admin GET (admin cookie via storageState).
-    const detailRes = await request.get(`${BASE_URL}/api/actions/quotes/${quoteId}`)
-    expect(detailRes.ok()).toBe(true)
-    const detail = await detailRes.json()
-    expect(detail.quote.status).toBe('converted')
-    expect(detail.quote.approved_at).toBeTruthy()
-  })
-
-  test('approve button stays disabled until signature + agreement ready', async ({
-    page,
-    request,
-  }) => {
-    const { token } = await seedQuoteWithPlan(request)
-    await page.goto(`${BASE_URL}/quote/${token}/v2`)
-
-    const approve = page.getByRole('button', { name: /^Approve quote$/ })
-    await expect(approve).toBeDisabled()
-
-    // Tick agreement — still disabled (no signature yet).
-    await page
-      .locator('label', { hasText: /I have read and agree/i })
-      .locator('input[type="checkbox"]')
-      .check()
-    await expect(approve).toBeDisabled()
-
-    // Sign → now enabled.
-    await drawSignature(page)
-    await expect(approve).toBeEnabled()
-  })
+  // The plan-selection disclosure copy, full approve flow, and approve-CTA
+  // gating tests previously lived here against the pre-Wave-3f contract
+  // ("First visit charge will be" + signature-only enable). Wave 3f
+  // changed both: copy is now "Next visits will auto-charge for $X" and
+  // approve also requires card_on_file_at. Equivalent coverage now lives
+  // in tests/e2e/wave3f-customer-browser.spec.ts. The drawSignature helper
+  // is kept above in case future wave3c-browser tests reuse it.
 })
+
+void drawSignature
