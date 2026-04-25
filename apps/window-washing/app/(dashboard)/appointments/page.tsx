@@ -17,7 +17,7 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core"
-import { Loader2, MapPin, Plus, User, UserPlus, X } from "lucide-react"
+import { Calendar, Loader2, MapPin, Plus, User, UserPlus, X } from "lucide-react"
 import { APPOINTMENT_GRID, buildTimeSlots, slotForTime } from "@/lib/appointment-grid-config"
 import {
   CustomerPickerModal,
@@ -83,12 +83,12 @@ function DraggableAppt({ appt, label }: { appt: Appointment; label: string }) {
       style={style}
       {...listeners}
       {...attributes}
-      className="rounded border border-blue-400 bg-blue-50 px-2 py-1 text-xs shadow-sm"
+      className="rounded-md border border-teal-500/40 bg-teal-500/15 px-2 py-1 text-xs shadow-sm hover:bg-teal-500/25 hover:border-teal-400/60 transition-colors"
     >
-      <div className="font-medium text-blue-900">{label}</div>
-      {appt.address && <div className="truncate text-blue-700">{appt.address}</div>}
+      <div className="font-medium text-teal-100">{label}</div>
+      {appt.address && <div className="truncate text-teal-300/80">{appt.address}</div>}
       {appt.scheduled_at && (
-        <div className="text-blue-600">
+        <div className="text-teal-300">
           {appt.scheduled_at}
           {appt.price != null && ` · $${Number(appt.price).toFixed(0)}`}
         </div>
@@ -115,7 +115,7 @@ function DroppableCell({
   return (
     <td
       ref={setNodeRef}
-      className={`min-w-[120px] border border-gray-200 align-top p-1 ${isOver ? "bg-blue-100" : ""}`}
+      className={`min-w-[120px] border border-zinc-800 align-top p-1 transition-colors ${isOver ? "bg-teal-500/20" : "hover:bg-zinc-800/30"}`}
     >
       <div className="flex flex-col gap-1">
         {appointments.map(a => (
@@ -311,63 +311,71 @@ export default function AppointmentsPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Appointments</h1>
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-white flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-teal-400" />
+            Sales Appointments
+          </h1>
+          <p className="text-sm text-zinc-500 mt-1">
+            Drag appointments onto a salesman / time slot to assign.
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <button
-            className="rounded border px-2 py-1 text-sm"
+            className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
             onClick={() => setWeekStart(addDays(weekStart, -7))}
           >
             ← Prev week
           </button>
-          <span className="text-sm text-gray-600">
+          <span className="px-3 py-1.5 text-xs font-medium text-zinc-400 rounded-md bg-zinc-900 border border-zinc-800">
             Week of {labelDate(weekStart)}
           </span>
           <button
-            className="rounded border px-2 py-1 text-sm"
+            className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
             onClick={() => setWeekStart(addDays(weekStart, 7))}
           >
             Next week →
           </button>
           <button
-            className="ml-2 flex items-center gap-1 rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700"
+            className="ml-2 flex items-center gap-1.5 rounded-md bg-teal-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-600 transition-colors"
             onClick={() => {
               setForm(defaultCreateForm(weekStart))
               setShowCreate(true)
             }}
           >
-            <Plus className="h-4 w-4" /> New appointment
+            <Plus className="h-3.5 w-3.5" /> New appointment
           </button>
         </div>
       </div>
 
       {error && (
-        <div className="mb-3 rounded border border-red-300 bg-red-50 p-2 text-sm text-red-700">
+        <div className="mb-3 rounded-md border border-red-900/60 bg-red-950/40 p-2.5 text-sm text-red-300">
           {error}
         </div>
       )}
 
       {loading ? (
-        <div className="flex items-center gap-2 text-gray-600">
+        <div className="flex items-center gap-2 text-zinc-500 py-8 justify-center">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading…
         </div>
       ) : (
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-950">
             <table className="w-full border-collapse text-xs">
               <thead>
                 <tr>
-                  <th className="sticky left-0 z-10 border border-gray-200 bg-gray-50 p-2 text-left font-medium">
+                  <th className="sticky left-0 z-10 border border-zinc-800 bg-zinc-900 p-2 text-left font-semibold text-zinc-300 uppercase tracking-wider text-[10px]">
                     Salesman / Date
                   </th>
                   {days.map(d =>
                     slots.map(s => (
                       <th
                         key={`${d}-${s}`}
-                        className="border border-gray-200 bg-gray-50 p-1 text-center font-normal"
+                        className="border border-zinc-800 bg-zinc-900 p-1 text-center font-normal"
                       >
-                        <div className="font-medium">{labelDate(d)}</div>
-                        <div className="text-gray-500">{s}</div>
+                        <div className="font-semibold text-zinc-200">{labelDate(d)}</div>
+                        <div className="text-zinc-500">{s}</div>
                       </th>
                     ))
                   )}
@@ -376,15 +384,20 @@ export default function AppointmentsPage() {
               <tbody>
                 {salesmen.length === 0 ? (
                   <tr>
-                    <td colSpan={1 + days.length * slots.length} className="p-6 text-center text-gray-500">
-                      No salesmen found. Seed cleaners with employee_type=&apos;salesman&apos; to populate rows.
+                    <td colSpan={1 + days.length * slots.length} className="p-8 text-center text-sm text-zinc-500">
+                      No salesmen found. Seed cleaners with <code className="px-1.5 py-0.5 bg-zinc-900 rounded text-teal-300">employee_type=&apos;salesman&apos;</code> to populate rows.
                     </td>
                   </tr>
                 ) : (
                   salesmen.map(sm => (
                     <tr key={sm.id}>
-                      <th className="sticky left-0 z-10 border border-gray-200 bg-white p-2 text-left font-medium">
-                        {sm.name}
+                      <th className="sticky left-0 z-10 border border-zinc-800 bg-zinc-950 p-2 text-left font-medium text-zinc-200">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-md bg-teal-500/15 flex items-center justify-center text-xs font-semibold text-teal-300 shrink-0">
+                            {sm.name.charAt(0).toUpperCase()}
+                          </div>
+                          <span>{sm.name}</span>
+                        </div>
                       </th>
                       {days.map(d =>
                         slots.map(s => {
@@ -409,12 +422,12 @@ export default function AppointmentsPage() {
           </div>
 
           <div className="mt-6">
-            <h2 className="mb-2 text-sm font-medium text-gray-700">
+            <h2 className="mb-2 text-xs font-semibold text-zinc-400 uppercase tracking-wider">
               Unassigned ({unassigned.length})
             </h2>
-            <div className="flex flex-wrap gap-2 rounded border border-dashed border-gray-300 p-3 min-h-[64px]">
+            <div className="flex flex-wrap gap-2 rounded-xl border border-dashed border-zinc-700 bg-zinc-950 p-3 min-h-[72px]">
               {unassigned.length === 0 ? (
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-zinc-600 italic self-center">
                   Drop appointments back here to unassign.
                 </span>
               ) : (

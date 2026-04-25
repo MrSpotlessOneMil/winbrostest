@@ -84,6 +84,68 @@ const MESSAGE_FIELDS = [
   { trigger: "thank_you_tip", label: "Thank You / Tip Message", placeholder: "Text thanking the customer and requesting a tip..." },
 ] as const
 
+// ── Stable subcomponents (declared at module scope so they don't remount on
+// every parent keystroke — that was the "can only type one letter" bug).
+
+function LoadingBlock() {
+  return (
+    <div className="flex items-center justify-center py-6 text-zinc-500">
+      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+      <span className="text-xs">Loading...</span>
+    </div>
+  )
+}
+
+interface SettingsRowProps {
+  icon: React.ReactNode
+  label: string
+  badge?: string
+  isOpen: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}
+
+function SettingsRow({ icon, label, badge, isOpen, onToggle, children }: SettingsRowProps) {
+  return (
+    <div className="border-b border-zinc-800/50 last:border-b-0">
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-3">
+          <span className="text-zinc-400">{icon}</span>
+          <span className="text-sm font-medium text-zinc-200">{label}</span>
+          {badge && (
+            <Badge variant="secondary" className="text-[10px] bg-zinc-800 text-zinc-400">
+              {badge}
+            </Badge>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onToggle}
+          className="cursor-pointer text-xs text-zinc-400 hover:text-white gap-1.5"
+        >
+          {isOpen ? (
+            <>
+              Close
+              <ChevronDown className="w-3.5 h-3.5" />
+            </>
+          ) : (
+            <>
+              Edit
+              <ChevronRight className="w-3.5 h-3.5" />
+            </>
+          )}
+        </Button>
+      </div>
+      {isOpen && (
+        <div className="px-4 pb-4 pt-1 border-t border-zinc-800/30">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function ControlCenterPage() {
@@ -531,71 +593,6 @@ export default function ControlCenterPage() {
     setExpandedSection((prev) => (prev === section ? null : section))
   }
 
-  // ── Loading spinner ──
-  function LoadingBlock() {
-    return (
-      <div className="flex items-center justify-center py-6 text-zinc-500">
-        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-        <span className="text-xs">Loading...</span>
-      </div>
-    )
-  }
-
-  // ── Settings row component ──
-  function SettingsRow({
-    icon,
-    label,
-    badge,
-    sectionKey,
-    children,
-  }: {
-    icon: React.ReactNode
-    label: string
-    badge?: string
-    sectionKey: string
-    children: React.ReactNode
-  }) {
-    const isOpen = expandedSection === sectionKey
-    return (
-      <div className="border-b border-zinc-800/50 last:border-b-0">
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-3">
-            <span className="text-zinc-400">{icon}</span>
-            <span className="text-sm font-medium text-zinc-200">{label}</span>
-            {badge && (
-              <Badge variant="secondary" className="text-[10px] bg-zinc-800 text-zinc-400">
-                {badge}
-              </Badge>
-            )}
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => toggleSection(sectionKey)}
-            className="cursor-pointer text-xs text-zinc-400 hover:text-white gap-1.5"
-          >
-            {isOpen ? (
-              <>
-                Close
-                <ChevronDown className="w-3.5 h-3.5" />
-              </>
-            ) : (
-              <>
-                Edit
-                <ChevronRight className="w-3.5 h-3.5" />
-              </>
-            )}
-          </Button>
-        </div>
-        {isOpen && (
-          <div className="px-4 pb-4 pt-1 border-t border-zinc-800/30">
-            {children}
-          </div>
-        )}
-      </div>
-    )
-  }
-
   return (
     <div className="p-4 md:p-6 max-w-[900px] mx-auto space-y-6">
       {/* Toast notifications */}
@@ -641,7 +638,8 @@ export default function ControlCenterPage() {
           icon={<ClipboardList className="w-4 h-4" />}
           label="Checklists"
           badge={`${checklists.length} template${checklists.length !== 1 ? "s" : ""}`}
-          sectionKey="checklists"
+          isOpen={expandedSection === "checklists"}
+          onToggle={() => toggleSection("checklists")}
         >
           {checklistsLoading ? (
             <LoadingBlock />
@@ -797,7 +795,8 @@ export default function ControlCenterPage() {
           icon={<DollarSign className="w-4 h-4" />}
           label="Price Book"
           badge={`${pricebook.length} service${pricebook.length !== 1 ? "s" : ""}`}
-          sectionKey="pricebook"
+          isOpen={expandedSection === "pricebook"}
+          onToggle={() => toggleSection("pricebook")}
         >
           {pricebookLoading ? (
             <LoadingBlock />
@@ -917,7 +916,8 @@ export default function ControlCenterPage() {
           icon={<Wrench className="w-4 h-4" />}
           label="Services"
           badge={`${DEFAULT_SERVICES.length} offered`}
-          sectionKey="services"
+          isOpen={expandedSection === "services"}
+          onToggle={() => toggleSection("services")}
         >
           <div className="space-y-1.5">
             {DEFAULT_SERVICES.map((service) => (
@@ -937,7 +937,8 @@ export default function ControlCenterPage() {
           icon={<Tag className="w-4 h-4" />}
           label="Tag Bank"
           badge={`${tags.length} tag${tags.length !== 1 ? "s" : ""}`}
-          sectionKey="tags"
+          isOpen={expandedSection === "tags"}
+          onToggle={() => toggleSection("tags")}
         >
           {tagsLoading ? (
             <LoadingBlock />
