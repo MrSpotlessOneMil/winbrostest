@@ -685,15 +685,26 @@ export default function CrewPortalPage() {
                     const dateStr = `${calMonth.year}-${String(calMonth.month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`
                     const isOff = offDays.has(dateStr); const isRecOff = isRecurringOff(day)
                     const isToday = dateStr === todayStr; const isPast = dateStr < todayStr
+                    // Wave 3j — can't request a NEW off-day more than 14 days out.
+                    // Already-off days stay tappable so workers can cancel a long-
+                    // standing request even if it's now past the 14-day window.
+                    const daysOutFromToday = Math.round(
+                      (new Date(dateStr + "T00:00:00").getTime() -
+                        new Date(todayStr + "T00:00:00").getTime()) / 86400000
+                    )
+                    const isTooFar = daysOutFromToday > 14 && !isOff
                     const dayOff = isOff || isRecOff
+                    const disabled = isPast || isTooFar || togglingDate === dateStr
                     return (
-                      <button key={dateStr} onClick={() => !isPast && toggleDay(dateStr)} disabled={isPast || togglingDate === dateStr}
+                      <button key={dateStr} onClick={() => !disabled && toggleDay(dateStr)} disabled={disabled}
                         className="relative size-9 rounded-lg text-xs font-semibold flex items-center justify-center transition-all"
+                        title={isTooFar ? "Locked — only 2 weeks ahead" : undefined}
                         style={{
                           background: isOff ? "#ef444420" : isRecOff ? "#ef444410" : isToday ? `${theme.accent}15` : "transparent",
-                          color: isPast ? "#cbd5e1" : dayOff ? "#ef4444" : isToday ? theme.accent : "#475569",
+                          color: isPast || isTooFar ? "#cbd5e1" : dayOff ? "#ef4444" : isToday ? theme.accent : "#475569",
                           border: isToday ? `2px solid ${theme.accent}` : dayOff ? "2px solid #ef444440" : "2px solid transparent",
-                          opacity: togglingDate === dateStr ? 0.5 : 1, cursor: isPast ? "default" : "pointer",
+                          opacity: togglingDate === dateStr ? 0.5 : isTooFar ? 0.4 : 1,
+                          cursor: disabled ? "default" : "pointer",
                         }}
                       >
                         {day}
@@ -702,7 +713,7 @@ export default function CrewPortalPage() {
                     )
                   })}
                 </div>
-                <p className="text-[10px] text-slate-400 mt-3 text-center">Tap a day to request off</p>
+                <p className="text-[10px] text-slate-400 mt-3 text-center">Tap a day to request off · only 2 weeks ahead</p>
               </div>
             ) : (
               /* ── Weekly Hours ── */

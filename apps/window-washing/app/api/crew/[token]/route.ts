@@ -288,9 +288,12 @@ export async function PATCH(
   // Time-off toggle
   if (body.toggleTimeOff) {
     const { date } = body.toggleTimeOff
-    if (!date) return NextResponse.json({ error: 'date required' }, { status: 400 })
+    if (!date || typeof date !== 'string') {
+      return NextResponse.json({ error: 'date required' }, { status: 400 })
+    }
 
-    // Check if already off
+    // Check if already off — un-marking is always allowed regardless of how
+    // far out the date is (worker may need to cancel a long-standing request).
     const { data: existing } = await client
       .from('time_off')
       .select('id')
@@ -302,15 +305,37 @@ export async function PATCH(
     if (existing) {
       await client.from('time_off').delete().eq('id', existing.id)
       return NextResponse.json({ success: true, action: 'removed', date })
-    } else {
-      await client.from('time_off').insert({
-        tenant_id: tenantId,
-        cleaner_id: cleaner.id,
-        date,
-        reason: 'worker_requested',
-      })
-      return NextResponse.json({ success: true, action: 'added', date })
     }
+
+    // Wave 3j — adding a new request must land within the next 14 days.
+    // Workers can't lock out months in advance and tank scheduling.
+    const today = new Date()
+    today.setUTCHours(0, 0, 0, 0)
+    const target = new Date(`${date}T00:00:00Z`)
+    if (Number.isNaN(target.getTime())) {
+      return NextResponse.json({ error: 'invalid date' }, { status: 400 })
+    }
+    const daysOut = Math.round((target.getTime() - today.getTime()) / 86400000)
+    if (daysOut > 14) {
+      return NextResponse.json(
+        { error: 'You can only request time off up to 2 weeks in advance.' },
+        { status: 400 }
+      )
+    }
+    if (daysOut < 0) {
+      return NextResponse.json(
+        { error: 'Cannot request a past date off.' },
+        { status: 400 }
+      )
+    }
+
+    await client.from('time_off').insert({
+      tenant_id: tenantId,
+      cleaner_id: cleaner.id,
+      date,
+      reason: 'worker_requested',
+    })
+    return NextResponse.json({ success: true, action: 'added', date })
   }
 
   // Legacy availability update

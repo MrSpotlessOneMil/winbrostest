@@ -272,7 +272,11 @@ test.describe('Crew Portal — API (updated shape)', () => {
   })
 
   test('19. PATCH toggleTimeOff adds and removes days off', async ({ request }) => {
-    const testDate = '2026-12-25' // Christmas — safe to toggle
+    // Wave 3j — adds must land within 14 days of today. Pick "today + 7"
+    // so the test stays green as the calendar rolls forward.
+    const t = new Date()
+    t.setUTCDate(t.getUTCDate() + 7)
+    const testDate = t.toISOString().slice(0, 10)
     // Add day off
     const addRes = await request.patch(`${BASE}/api/crew/${WINBROS_TOKEN}`, {
       data: { toggleTimeOff: { date: testDate } },
@@ -290,6 +294,18 @@ test.describe('Crew Portal — API (updated shape)', () => {
     const removeJson = await removeRes.json()
     expect(removeJson.success).toBeTruthy()
     expect(removeJson.action).toBe('removed')
+  })
+
+  test('20. PATCH toggleTimeOff rejects dates more than 2 weeks out', async ({ request }) => {
+    const t = new Date()
+    t.setUTCDate(t.getUTCDate() + 30) // way past the 14-day window
+    const farDate = t.toISOString().slice(0, 10)
+    const res = await request.patch(`${BASE}/api/crew/${WINBROS_TOKEN}`, {
+      data: { toggleTimeOff: { date: farDate } },
+    })
+    expect(res.status()).toBe(400)
+    const body = await res.json()
+    expect(body.error).toMatch(/2 weeks/i)
   })
 
   test('20. Cross-cleaner job access is blocked', async ({ request }) => {

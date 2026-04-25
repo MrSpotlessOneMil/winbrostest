@@ -212,10 +212,14 @@ describe('Crew Portal — Time-Off Toggle', () => {
   })
 
   it('can mark a day as off', async () => {
+    // Wave 3j — adds must be within 14 days, so use today + 7.
+    const t = new Date()
+    t.setUTCDate(t.getUTCDate() + 7)
+    const targetDate = t.toISOString().slice(0, 10)
     const { PATCH } = await import('@/app/api/crew/[token]/route')
     const req = createMockRequest('/api/crew/test-portal-token-winbros', {
       method: 'PATCH',
-      body: { toggleTimeOff: { date: '2026-04-15' } },
+      body: { toggleTimeOff: { date: targetDate } },
     })
     const res = await PATCH(req, { params: Promise.resolve({ token: 'test-portal-token-winbros' }) })
     const data = await parseResponse(res)
@@ -224,7 +228,24 @@ describe('Crew Portal — Time-Off Toggle', () => {
     expect(data.body.action).toBe('added')
     // Verify time_off record was created
     const timeOff = mockClient.getTableData('time_off')
-    expect(timeOff?.some((t: any) => t.date === '2026-04-15' && t.cleaner_id === '600')).toBe(true)
+    expect(timeOff?.some((t: any) => t.date === targetDate && t.cleaner_id === '600')).toBe(true)
+  })
+
+  it('rejects requests more than 2 weeks out', async () => {
+    const t = new Date()
+    t.setUTCDate(t.getUTCDate() + 30)
+    const farDate = t.toISOString().slice(0, 10)
+    // Wave 3j gate lives in the WinBros production route (apps/window-washing/),
+    // not the root-level legacy route (CLAUDE.md: root app/ is dead code).
+    const { PATCH } = await import('@/apps/window-washing/app/api/crew/[token]/route')
+    const req = createMockRequest('/api/crew/test-portal-token-winbros', {
+      method: 'PATCH',
+      body: { toggleTimeOff: { date: farDate } },
+    })
+    const res = await PATCH(req, { params: Promise.resolve({ token: 'test-portal-token-winbros' }) })
+    const data = await parseResponse(res)
+    expect(data.status).toBe(400)
+    expect(data.body.error).toMatch(/2 weeks/i)
   })
 
   it('can remove a day off (toggle)', async () => {
