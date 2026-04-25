@@ -40,10 +40,11 @@ interface ClockResponse {
   week_range: { start: string; end: string }
 }
 
-function formatHM(totalMin: number): string {
-  const h = Math.floor(totalMin / 60)
-  const m = Math.floor(totalMin % 60)
-  return `${h}h ${m.toString().padStart(2, "0")}m`
+function formatHMS(totalSec: number): string {
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = Math.floor(totalSec % 60)
+  return `${h}h ${m.toString().padStart(2, "0")}m ${s.toString().padStart(2, "0")}s`
 }
 
 function formatTime(iso: string): string {
@@ -51,14 +52,17 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
 }
 
-function liveMinutesFromSnapshot(snap: Snapshot, nowMs: number): number {
+function liveSecondsFromSnapshot(snap: Snapshot, nowMs: number): number {
   if (snap.state === "off_clock" || !snap.clock_in_at) return 0
   const startMs = new Date(snap.clock_in_at).getTime()
-  const elapsed = Math.max(0, (nowMs - startMs) / 60000)
-  const inProgressPause = snap.pause_started_at
-    ? Math.max(0, (nowMs - new Date(snap.pause_started_at).getTime()) / 60000)
+  const elapsed = Math.max(0, (nowMs - startMs) / 1000)
+  // paused_minutes is the FROZEN paused total from past pauses.
+  const frozenPauseSec = snap.paused_minutes * 60
+  // Plus any pause currently in progress.
+  const inProgressPauseSec = snap.pause_started_at
+    ? Math.max(0, (nowMs - new Date(snap.pause_started_at).getTime()) / 1000)
     : 0
-  return Math.max(0, elapsed - snap.paused_minutes - inProgressPause)
+  return Math.max(0, elapsed - frozenPauseSec - inProgressPauseSec)
 }
 
 export function ClockWidget({
@@ -124,7 +128,7 @@ export function ClockWidget({
 
   if (!data) return null
   const snap = data.snapshot
-  const liveMin = liveMinutesFromSnapshot(snap, now)
+  const liveSec = liveSecondsFromSnapshot(snap, now)
 
   return (
     <div className="shrink-0 border-b bg-white px-4 py-3" style={{ borderColor: "#e8e5de" }}>
@@ -139,7 +143,7 @@ export function ClockWidget({
               : "On the clock"}
           </div>
           <div className="text-2xl font-black text-slate-800 tabular-nums">
-            {snap.state === "off_clock" ? "—" : formatHM(liveMin)}
+            {snap.state === "off_clock" ? "—" : formatHMS(liveSec)}
           </div>
           <div className="text-[11px] text-slate-500">
             {data.week_hours.toFixed(1)} h this week
