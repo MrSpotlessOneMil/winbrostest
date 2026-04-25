@@ -152,6 +152,12 @@ export default function CrewPortalPage() {
   const [offDays, setOffDays] = useState<Set<string>>(new Set())
   const [togglingDate, setTogglingDate] = useState<string | null>(null)
   const [availError, setAvailError] = useState<string | null>(null)
+  // Auto-dismiss the popup so it doesn't sit there forever after one tap.
+  useEffect(() => {
+    if (!availError) return
+    const t = window.setTimeout(() => setAvailError(null), 3500)
+    return () => window.clearTimeout(t)
+  }, [availError])
   const [weekly, setWeekly] = useState<WeeklySchedule>(DEFAULT_WEEKLY)
   const [savingWeekly, setSavingWeekly] = useState(false)
   const [weeklyDirty, setWeeklyDirty] = useState(false)
@@ -649,6 +655,27 @@ export default function CrewPortalPage() {
         </DrawerContent>
       </Drawer>
 
+      {/* ═══ AVAILABILITY POPUP TOAST ═══ */}
+      {availError && (
+        <div
+          className="fixed top-4 left-1/2 z-[100] -translate-x-1/2 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white shadow-xl"
+          style={{
+            animation: "wb-toast-pop 0.18s ease-out",
+            maxWidth: "calc(100vw - 32px)",
+          }}
+          role="alert"
+          onClick={() => setAvailError(null)}
+        >
+          {availError}
+        </div>
+      )}
+      <style jsx global>{`
+        @keyframes wb-toast-pop {
+          0% { transform: translate(-50%, -16px) scale(0.96); opacity: 0; }
+          100% { transform: translate(-50%, 0) scale(1); opacity: 1; }
+        }
+      `}</style>
+
       {/* ═══ AVAILABILITY DRAWER ═══ */}
       <Drawer open={showAvail} onOpenChange={setShowAvail}>
         <DrawerContent className="rounded-t-2xl" style={{ background: "#fff", maxHeight: "85vh" }}>
@@ -700,9 +727,20 @@ export default function CrewPortalPage() {
                     )
                     const isTooFar = daysOutFromToday > 14 && !isOff
                     const dayOff = isOff || isRecOff
-                    const disabled = isPast || isTooFar || togglingDate === dateStr
+                    // Past dates stay disabled (no tap fires). Too-far dates
+                    // ARE tappable so the click can fire a popup explaining
+                    // why — Blake's "make it pop up so I know it's locked".
+                    const disabled = isPast || togglingDate === dateStr
+                    const onTap = () => {
+                      if (disabled) return
+                      if (isTooFar) {
+                        setAvailError("Only 2 weeks ahead — try a closer date.")
+                        return
+                      }
+                      toggleDay(dateStr)
+                    }
                     return (
-                      <button key={dateStr} onClick={() => !disabled && toggleDay(dateStr)} disabled={disabled}
+                      <button key={dateStr} onClick={onTap} disabled={disabled}
                         className="relative size-9 rounded-lg text-xs font-semibold flex items-center justify-center transition-all"
                         title={isTooFar ? "Locked — only 2 weeks ahead" : undefined}
                         style={{
@@ -720,11 +758,6 @@ export default function CrewPortalPage() {
                   })}
                 </div>
                 <p className="text-[10px] text-slate-400 mt-3 text-center">Tap a day to request off · only 2 weeks ahead</p>
-                {availError && (
-                  <div className="mt-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700 text-center">
-                    {availError}
-                  </div>
-                )}
               </div>
             ) : (
               /* ── Weekly Hours ── */
