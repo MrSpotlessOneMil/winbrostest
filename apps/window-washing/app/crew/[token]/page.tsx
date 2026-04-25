@@ -10,6 +10,7 @@ import {
 import {
   Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose,
 } from "@/components/ui/drawer"
+import { ClockWidget } from "@/components/winbros/clock-widget"
 
 /* ─── Types ─── */
 interface Job {
@@ -393,6 +394,11 @@ export default function CrewPortalPage() {
             })}
           </div>
         </div>
+      )}
+
+      {/* Wave 3h — clock-in widget for technicians + team leads. */}
+      {(cleaner?.employee_type === "technician" || cleaner?.is_team_lead) && (
+        <ClockWidget token={token} accent={theme.accent} />
       )}
 
       {/* ═══ TOOLBAR ═══ */}

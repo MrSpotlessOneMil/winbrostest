@@ -310,10 +310,13 @@ export async function generatePayrollWeek(
     .lte('visit_date', weekEnd)
     .in('status', ['closed', 'payment_collected', 'checklist_done', 'completed'])
 
-  // Build per-person revenue (sold vs upsell) and hours
+  // Build per-person revenue (sold vs upsell) and visit-timer hours
   const techSold: Record<number, number> = {}
   const techUpsell: Record<number, number> = {}
-  const techHours: Record<number, number> = {}
+  // visitTimerHours = on-job hours from visit.started_at/stopped_at.
+  // Used by 'percentage' workers (irrelevant for their pay) and as the
+  // fallback when an 'hourly' worker has no time_entries (legacy data).
+  const visitTimerHours: Record<number, number> = {}
   const salesmanRevenue: Record<number, { onetime: number; triannual: number; quarterly: number }> = {}
 
   for (const visit of visits || []) {
@@ -323,7 +326,7 @@ export async function generatePayrollWeek(
       for (const techId of (visit.technicians as number[]) || []) {
         techSold[techId] = techSold[techId] || 0
         techUpsell[techId] = techUpsell[techId] || 0
-        techHours[techId] = (techHours[techId] || 0) + hours
+        visitTimerHours[techId] = (visitTimerHours[techId] || 0) + hours
       }
     }
 
@@ -334,6 +337,27 @@ export async function generatePayrollWeek(
     )
   }
 
+  // Wave 3h — for hourly workers, override visit-timer hours with
+  // time_entries clock spans so drive time between jobs counts as paid.
+  // Pull all closed entries that overlap the week window for this tenant.
+  const { data: timeEntries } = await client
+    .from('time_entries')
+    .select('cleaner_id, clock_in_at, clock_out_at, paused_minutes')
+    .eq('tenant_id', tenantId)
+    .gte('clock_in_at', `${weekStart}T00:00:00Z`)
+    .lte('clock_in_at', `${weekEnd}T23:59:59Z`)
+    .not('clock_out_at', 'is', null)
+
+  const clockHours: Record<number, number> = {}
+  for (const e of timeEntries || []) {
+    const span =
+      (new Date(e.clock_out_at as string).getTime() -
+        new Date(e.clock_in_at as string).getTime()) /
+      3600000
+    const paid = Math.max(0, span - (Number(e.paused_minutes) || 0) / 60)
+    clockHours[e.cleaner_id as number] = (clockHours[e.cleaner_id as number] || 0) + paid
+  }
+
   // Create payroll entries with FROZEN rates
   const entries: Array<Record<string, unknown>> = []
 
@@ -342,7 +366,15 @@ export async function generatePayrollWeek(
       const sold = techSold[rate.cleaner_id] || 0
       const upsell = techUpsell[rate.cleaner_id] || 0
       const revenue = sold + upsell
-      const hours = techHours[rate.cleaner_id] || 0
+      // Hourly workers: time_entries clock spans (drive time included).
+      // Falls back to visit-timer hours if the worker never clocked in
+      // for this week (legacy data — nobody clocked in pre-Wave-3h).
+      // Percentage workers: visit-timer hours are recorded for audit
+      // but don't affect their pay (calculateTechPay ignores hours).
+      const mode = (rate.pay_mode ?? 'hourly') as PayMode
+      const clock = clockHours[rate.cleaner_id] || 0
+      const visitTimer = visitTimerHours[rate.cleaner_id] || 0
+      const hours = mode === 'hourly' ? (clock > 0 ? clock : visitTimer) : visitTimer
       const otHours = Math.max(0, hours - 40) // 40hr work week
       const totalPay = calculateTechPay(
         revenue,
