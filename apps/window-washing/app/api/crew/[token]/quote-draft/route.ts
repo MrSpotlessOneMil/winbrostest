@@ -8,10 +8,11 @@ import { createEmployeeSession, setSessionCookie } from "@/lib/auth"
  * Token-authenticated endpoint used by the crew portal "New Quote" button.
  *
  * - Resolves the cleaner by their portal token.
- * - Only salesmen and team leads are allowed to create quotes per Max's
- *   Round 2 spec. Other employee types get 403.
+ * - Any active crew member (salesman, team lead, technician) can create a
+ *   quote — Blake's call. Salesman attribution still only fires when
+ *   employee_type='salesman' so payroll commission credits the right person.
  * - Creates an empty draft quote in the cleaner's tenant.
- * - Mints an employee session cookie on the response so the salesman can
+ * - Mints an employee session cookie on the response so the worker can
  *   follow the redirect into the admin quote builder (`/quotes/[id]`) and
  *   hit `/api/actions/quotes/*` without re-authenticating.
  * - Returns the new quote's id so the client can push the route.
@@ -37,18 +38,9 @@ export async function POST(
     )
   }
 
-  const canCreate =
-    cleaner.employee_type === "salesman" || cleaner.is_team_lead === true
-  if (!canCreate) {
-    return NextResponse.json(
-      { success: false, error: "Not authorized to create quotes" },
-      { status: 403 }
-    )
-  }
-
-  // Wave 3e: attribute the quote to the salesman who started it so payroll
-  // can credit commission later. Team leads can still create quotes but we
-  // leave salesman_id null — they're not the sales channel of record.
+  // Any active crew can create a quote (Wave 3i). Only salesman attribution
+  // stamps salesman_id — team leads and technicians create unattributed
+  // drafts so payroll commission goes to whoever the admin sets later.
   const salesmanId =
     cleaner.employee_type === "salesman" ? cleaner.id : null
 

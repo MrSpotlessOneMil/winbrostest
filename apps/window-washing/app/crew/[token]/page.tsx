@@ -488,7 +488,11 @@ export default function CrewPortalPage() {
         <span className="text-sm font-bold text-slate-700">
           {(viewMode === "day" ? (jobsByDate[currentDate] || []) : jobs).length} <span className="text-xs font-normal text-slate-400">jobs scheduled</span>
         </span>
-        {(cleaner?.employee_type === "salesman" || cleaner?.is_team_lead) && (
+        {/* Wave 3i: any active crew can start a quote. Salesman commission
+            attribution still gates on employee_type='salesman' server-side. */}
+        {(cleaner?.employee_type === "salesman" ||
+          cleaner?.employee_type === "technician" ||
+          cleaner?.is_team_lead) && (
           <div className="flex items-center gap-2">
             <button
               onClick={async () => {
