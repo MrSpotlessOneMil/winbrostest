@@ -821,7 +821,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
               : 'TBD'
             const payStr = primaryCleaner.cleaner_pay ? `\nYour pay: ${formatTenantCurrency(tenant, Number(primaryCleaner.cleaner_pay))}` : ''
             const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
-            const portalLink = cleaner.portal_token ? `\n\nDetails: ${appBaseUrl}/crew/${cleaner.portal_token}/job/${newJob.id}` : ''
+            const portalLink = cleaner.portal_token ? `\n\nDetails: ${appBaseUrl}/api/auth/portal-exchange?token=${encodeURIComponent(cleaner.portal_token)}&next=${encodeURIComponent(`/jobs/${newJob.id}`)}` : ''
             const msg = `You're confirmed! ${custName} booked for ${dateStr}.\n${serviceName} at ${quote.customer_address || 'See portal'}${payStr}${portalLink}`
             await sendSMS(tenant, cleaner.phone, msg)
           }
@@ -871,7 +871,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
           if (tech?.phone) {
             const { getClientConfig } = await import('@/lib/client-config')
             const appDomain = getClientConfig().domain.replace(/\/+$/, '')
-            const portalLink = tech.portal_token ? `\nDetails: ${appDomain}/crew/${tech.portal_token}/job/${newJob.id}` : ''
+            const portalLink = tech.portal_token ? `\nDetails: ${appDomain}/api/auth/portal-exchange?token=${encodeURIComponent(tech.portal_token)}&next=${encodeURIComponent(`/jobs/${newJob.id}`)}` : ''
             const custName = quote.customer_name?.split(' ')[0] || 'Customer'
             const dateStr = new Date(quote.service_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
             const techMsg = `New Job Assigned!\n\nCustomer: ${custName}\nAddress: ${quote.customer_address || 'See portal'}\nDate: ${dateStr}\nService: ${serviceName}${portalLink}\n\nReply ACCEPT or DECLINE.`

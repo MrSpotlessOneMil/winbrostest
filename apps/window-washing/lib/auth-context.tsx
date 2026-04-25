@@ -20,11 +20,15 @@ interface TenantStatus {
   smsEnabled: boolean
 }
 
+type EmployeeType = 'technician' | 'salesman' | 'team_lead' | null
+
 interface AuthState {
   authenticated: boolean
   loading: boolean
   isAdmin: boolean
   isSalesman: boolean
+  isTeamLead: boolean
+  employeeType: EmployeeType
   cleanerId: number | null
   user: User | null
   tenantStatus: TenantStatus | null
@@ -41,6 +45,8 @@ const AuthContext = createContext<AuthState>({
   loading: true,
   isAdmin: false,
   isSalesman: false,
+  isTeamLead: false,
+  employeeType: null,
   cleanerId: null,
   user: null,
   tenantStatus: null,
@@ -60,6 +66,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isSalesman, setIsSalesman] = useState(false)
+  const [isTeamLead, setIsTeamLead] = useState(false)
+  const [employeeType, setEmployeeType] = useState<EmployeeType>(null)
   const [cleanerId, setCleanerId] = useState<number | null>(null)
   const [tenantStatus, setTenantStatus] = useState<TenantStatus | null>(null)
   const [accounts, setAccounts] = useState<StoredAccount[]>([])
@@ -106,25 +114,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json()
 
       if (data.success && data.data?.user) {
-        // Employee sessions: salesmen access the dashboard, others redirect to portal
+        // Wave C — every role lands on the dashboard. employee_type drives
+        // sidebar (admin nav vs field nav) and per-page widgets. Techs +
+        // team-leads no longer get bumped to /crew/<token>; instead, the
+        // SMS deeplinks go through /api/auth/portal-exchange which mints a
+        // session and lands them here.
         if (data.data.type === 'employee') {
-          if (data.data.employeeType === 'salesman') {
-            // Salesmen get dashboard access
-            setIsSalesman(true)
-            setCleanerId(data.data.cleanerId || null)
-          } else if (data.data.portalToken) {
-            // Non-salesman employees go to crew portal
-            window.location.href = `/crew/${data.data.portalToken}`
-            return
-          }
+          const empType = (data.data.employeeType || 'technician') as EmployeeType
+          setEmployeeType(empType)
+          setIsSalesman(empType === 'salesman')
+          setIsTeamLead(!!data.data.isTeamLead)
+          setCleanerId(data.data.cleanerId || null)
         } else {
+          setEmployeeType(null)
           setIsSalesman(false)
+          setIsTeamLead(false)
           setCleanerId(null)
         }
 
         setAuthenticated(true)
         setUser(data.data.user)
-        setIsAdmin(data.data.user.username === 'admin' || data.data.user.username === 'winbros')
+        setIsAdmin(data.data.type === 'owner')
         setTenantStatus(data.data.tenantStatus || null)
 
         const sessionToken = data.data.sessionToken
@@ -149,6 +159,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null)
         setIsAdmin(false)
         setIsSalesman(false)
+        setIsTeamLead(false)
+        setEmployeeType(null)
         setCleanerId(null)
         setTenantStatus(null)
       }
@@ -157,6 +169,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null)
       setIsAdmin(false)
       setIsSalesman(false)
+      setIsTeamLead(false)
+      setEmployeeType(null)
       setCleanerId(null)
       setTenantStatus(null)
     } finally {
@@ -183,6 +197,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null)
     setIsAdmin(false)
     setIsSalesman(false)
+    setIsTeamLead(false)
+    setEmployeeType(null)
     setCleanerId(null)
     window.location.href = '/login'
   }
@@ -205,7 +221,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (data.success && data.data?.user) {
           // Update current user state
           setUser(data.data.user)
-          setIsAdmin(data.data.user.username === 'admin' || data.data.user.username === 'winbros')
+          setIsAdmin(data.data.type === 'owner')
+          if (data.data.type === 'employee') {
+            const empType = (data.data.employeeType || 'technician') as EmployeeType
+            setEmployeeType(empType)
+            setIsSalesman(empType === 'salesman')
+            setIsTeamLead(!!data.data.isTeamLead)
+            setCleanerId(data.data.cleanerId || null)
+          } else {
+            setEmployeeType(null)
+            setIsSalesman(false)
+            setIsTeamLead(false)
+            setCleanerId(null)
+          }
           setTenantStatus(data.data.tenantStatus || null)
           setAuthenticated(true)
 
@@ -278,6 +306,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         isAdmin,
         isSalesman,
+        isTeamLead,
+        employeeType,
         cleanerId,
         user,
         tenantStatus,

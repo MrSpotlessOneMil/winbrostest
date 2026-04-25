@@ -73,6 +73,6 @@ export async function POST(request: NextRequest) {
       name: tenant?.name,
       slug: tenant?.slug,
     },
-    portalUrl: `/crew/${match.portal_token}`,
+    portalUrl: `/api/auth/portal-exchange?token=${encodeURIComponent(match.portal_token)}&next=${encodeURIComponent('/schedule')}`,
   })
 }

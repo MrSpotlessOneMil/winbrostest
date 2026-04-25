@@ -2049,7 +2049,7 @@ export async function POST(request: NextRequest) {
                   const custName = customer?.first_name || 'Customer'
                   const { getClientConfig } = await import("@/lib/client-config")
                   const appDomain = getClientConfig().domain.replace(/\/+$/, '')
-                  const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}/estimate/${jobId}` : ''
+                  const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/api/auth/portal-exchange?token=${encodeURIComponent(salesman.portal_token)}&next=${encodeURIComponent(`/jobs/${jobId}`)}` : ''
                   const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${custName}\nService: ${job.service_type || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}${portalLink}`
                   await sendSMS(tenant, salesman.phone, salesmanMsg)
                   salesmanAssigned = true
@@ -2086,7 +2086,7 @@ export async function POST(request: NextRequest) {
               const custName = customer?.first_name || 'Customer'
               const { getClientConfig } = await import("@/lib/client-config")
               const appDomain = getClientConfig().domain.replace(/\/+$/, '')
-              const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}/estimate/${jobId}` : ''
+              const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/api/auth/portal-exchange?token=${encodeURIComponent(salesman.portal_token)}&next=${encodeURIComponent(`/jobs/${jobId}`)}` : ''
               const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${custName}\nService: ${job.service_type || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}${portalLink}`
               await sendSMS(tenant, salesman.phone, salesmanMsg)
               console.log(`[OpenPhone] Fallback: assigned salesman ${salesman.name} to estimate job ${jobId}`)
@@ -2440,7 +2440,7 @@ export async function POST(request: NextRequest) {
                 if (salesman?.phone) {
                   const { getClientConfig } = await import("@/lib/client-config")
                   const appDomain = getClientConfig().domain.replace(/\/+$/, '')
-                  const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}/estimate/${job.id}` : ''
+                  const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/api/auth/portal-exchange?token=${encodeURIComponent(salesman.portal_token)}&next=${encodeURIComponent(`/jobs/${job.id}`)}` : ''
                   await sendSMS(tenant, salesman.phone, `New Estimate Assigned - ${tenant.name || 'Team'}\n\nCustomer: ${customerFirst}\nService: ${job.service_type || 'Estimate'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}${portalLink}`)
                   salesmanAssigned = true
                 }
@@ -2459,7 +2459,7 @@ export async function POST(request: NextRequest) {
               await client.from('cleaner_assignments').insert({ job_id: Number(job.id), cleaner_id: salesman.id, tenant_id: tenant.id, status: 'pending' })
               const { getClientConfig } = await import("@/lib/client-config")
               const appDomain = getClientConfig().domain.replace(/\/+$/, '')
-              const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}/estimate/${job.id}` : ''
+              const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/api/auth/portal-exchange?token=${encodeURIComponent(salesman.portal_token)}&next=${encodeURIComponent(`/jobs/${job.id}`)}` : ''
               await sendSMS(tenant, salesman.phone, `New Estimate Assigned - ${tenant.name || 'Team'}\n\nCustomer: ${customerFirst}\nService: ${job.service_type || 'Estimate'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}${portalLink}`)
             } else if (tenant.owner_phone) {
               await sendSMS(tenant, tenant.owner_phone, `New estimate booked but NO salesman available!\n\nCustomer: ${customerFirst}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}\n\nPlease assign manually.`)
@@ -3687,7 +3687,7 @@ export async function POST(request: NextRequest) {
                         if (salesman?.phone) {
                           const { getClientConfig } = await import("@/lib/client-config")
                           const appDomain = getClientConfig().domain.replace(/\/+$/, '')
-                          const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}/estimate/${newJob.id}` : ''
+                          const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/api/auth/portal-exchange?token=${encodeURIComponent(salesman.portal_token)}&next=${encodeURIComponent(`/jobs/${newJob.id}`)}` : ''
                           const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${customerName}\nService: ${bookingData.serviceType?.replace(/_/g, ' ') || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${estimateDate} at ${timeStr}${portalLink}`
                           await sendSMS(tenant, salesman.phone, salesmanMsg)
                           salesmanAssigned = true
@@ -3725,7 +3725,7 @@ export async function POST(request: NextRequest) {
 
                     const { getClientConfig } = await import("@/lib/client-config")
                     const appDomain = getClientConfig().domain.replace(/\/+$/, '')
-                    const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}/estimate/${newJob.id}` : ''
+                    const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/api/auth/portal-exchange?token=${encodeURIComponent(salesman.portal_token)}&next=${encodeURIComponent(`/jobs/${newJob.id}`)}` : ''
                     const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${customerName}\nService: ${bookingData.serviceType?.replace(/_/g, ' ') || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${estimateDate} at ${timeStr}${portalLink}`
                     await sendSMS(tenant, salesman.phone, salesmanMsg)
                     salesmanAssigned = true

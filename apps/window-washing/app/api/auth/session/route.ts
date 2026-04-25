@@ -7,10 +7,14 @@ export async function GET(request: NextRequest) {
     // Check for employee session first
     const cleaner = await getAuthCleaner(request)
     if (cleaner) {
-      // Look up tenant slug for employee
+      // Look up tenant slug + is_team_lead flag for the cleaner row.
+      // Wave C — is_team_lead is now plumbed through to the dashboard so the
+      // sidebar / widgets can branch on it (team-leads can quote, see crews,
+      // get the clock widget alongside technicians).
       let employeeTenantSlug: string | null = null
+      let isTeamLead = false
+      const client = getSupabaseServiceClient()
       if (cleaner.tenant_id) {
-        const client = getSupabaseServiceClient()
         const { data: tenant } = await client
           .from('tenants')
           .select('slug')
@@ -18,6 +22,12 @@ export async function GET(request: NextRequest) {
           .single()
         if (tenant) employeeTenantSlug = tenant.slug
       }
+      const { data: cleanerRow } = await client
+        .from('cleaners')
+        .select('is_team_lead')
+        .eq('id', cleaner.id)
+        .single()
+      if (cleanerRow) isTeamLead = !!cleanerRow.is_team_lead
 
       return NextResponse.json({
         success: true,
@@ -25,6 +35,7 @@ export async function GET(request: NextRequest) {
           type: 'employee',
           employeeType: cleaner.employee_type || 'technician',
           cleanerId: cleaner.id,
+          isTeamLead,
           user: {
             id: -cleaner.id,
             username: cleaner.username,

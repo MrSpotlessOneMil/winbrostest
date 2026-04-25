@@ -46,17 +46,16 @@ function LoginForm() {
   const [success, setSuccess] = useState(false)
   const [checkingSession, setCheckingSession] = useState(true)
 
-  // Check for existing employee session on mount — redirect to portal if found
+  // Wave C — every authenticated session lands on the dashboard. Sidebar
+  // shows admin nav vs field nav based on user type. The legacy /crew/<token>
+  // mobile portal stays reachable as a compat shim for old SMS links, but
+  // dashboard sign-in always goes to dashboard.
   useEffect(() => {
     async function checkExistingSession() {
       try {
         const res = await fetch('/api/auth/session')
         const json = await res.json()
-        if (json.success && json.data?.type === 'employee' && json.data?.portalToken) {
-          router.replace(`/crew/${json.data.portalToken}`)
-          return
-        }
-        if (json.success && json.data?.type === 'owner') {
+        if (json.success && json.data?.user) {
           router.replace(redirect)
           return
         }
@@ -94,13 +93,11 @@ function LoginForm() {
       setSuccess(true)
       setIsLoading(false)
 
-      // Redirect based on user type
-      const dest = data.data?.type === 'employee' && data.data?.portalToken
-        ? `/crew/${data.data.portalToken}`
-        : redirect
-
+      // Wave C — owners and employees both land on the dashboard. Auth context
+      // determines sidebar/widget visibility from data.data.type +
+      // data.data.employeeType once the dashboard renders.
       setTimeout(() => {
-        router.push(dest)
+        router.push(redirect)
         router.refresh()
       }, 1000)
     } catch (err) {

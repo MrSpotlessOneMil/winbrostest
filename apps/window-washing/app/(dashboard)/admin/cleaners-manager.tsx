@@ -246,7 +246,7 @@ export function CleanersManager({ tenantId }: Props) {
                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
                   {c.phone && <span>{c.phone}</span>}
                   {!c.phone && <span className="text-orange-500">No phone number</span>}
-                  {(c as any).portal_token && <span className="text-blue-400 cursor-pointer" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/crew/${(c as any).portal_token}`)} title="Click to copy portal link">Portal link</span>}
+                  {(c as any).portal_token && <span className="text-blue-400 cursor-pointer" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/api/auth/portal-exchange?token=${encodeURIComponent((c as any).portal_token)}&next=${encodeURIComponent('/schedule')}`)} title="Click to copy dashboard auto-signin link">Portal link</span>}
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">

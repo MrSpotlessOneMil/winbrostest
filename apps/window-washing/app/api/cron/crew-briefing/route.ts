@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
           for (const job of todaysJobs) {
             const time = job.scheduled_at || 'TBD'
             const address = job.address || 'No address'
-            const portalLink = lead.portal_token ? ` ${appDomain}/crew/${lead.portal_token}/job/${job.id}` : ''
+            const portalLink = lead.portal_token ? ` ${appDomain}/api/auth/portal-exchange?token=${encodeURIComponent(lead.portal_token)}&next=${encodeURIComponent(`/jobs/${job.id}`)}` : ''
             msg += `- ${time} - ${address}${portalLink}\n`
           }
         } else {

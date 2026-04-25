@@ -63,12 +63,21 @@ function getBaseUrl(): string {
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
 }
 
-function portalUrl(portalToken: string): string {
-  return `${getBaseUrl()}/crew/${portalToken}`
+// Wave C — SMS deeplinks now route through /api/auth/portal-exchange so the
+// tap auto-signs the recipient into the dashboard instead of the mobile-only
+// /crew/<token> portal. The exchange route validates the token, mints a real
+// winbros_session, then 302s to the dashboard `next` path. Old /crew links
+// in customers' phones still work (compat shim) but new SMS sends use these.
+function portalUrl(portalToken: string, next = '/schedule'): string {
+  return `${getBaseUrl()}/api/auth/portal-exchange?token=${encodeURIComponent(portalToken)}&next=${encodeURIComponent(next)}`
 }
 
 function jobUrl(portalToken: string, jobId: string | number): string {
-  return `${getBaseUrl()}/crew/${portalToken}/job/${jobId}`
+  return portalUrl(portalToken, `/jobs/${jobId}`)
+}
+
+function estimateUrl(portalToken: string, jobId: string | number): string {
+  return portalUrl(portalToken, `/quotes/${jobId}`)
 }
 
 function formatDate(dateStr?: string | null): string {
@@ -533,8 +542,8 @@ export async function sendLoginCredentials(
   }
 
   const baseUrl = getBaseUrl()
-  const portalLink = `${baseUrl}/crew/${cleaner.portal_token}`
-  const message = `Your portal login:\n\nWebsite: ${baseUrl.replace('https://', '')}\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nOr tap here to go straight to your portal: ${portalLink}`
+  const portalLink = portalUrl(cleaner.portal_token!, '/schedule')
+  const message = `Your portal login:\n\nWebsite: ${baseUrl.replace('https://', '')}\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nOr tap here to go straight to your dashboard: ${portalLink}`
 
   return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
@@ -805,6 +814,9 @@ export async function notifyCleanerPreconfirm(
 
   let link = ''
   if (cleaner.portal_token) {
+    // Preconfirm has no dashboard equivalent yet — keep the legacy mobile-portal
+    // URL so the tap still works. Wave C-followup: build a /quotes/<id>/preconfirm
+    // dashboard page, then route this through portalUrl() too.
     link = `\n\nInterested? Tap to confirm:\n${getBaseUrl()}/crew/${cleaner.portal_token}/preconfirm/${preconfirm.id}`
   }
 
