@@ -375,7 +375,27 @@ function formatDateHuman(raw: string, tz = 'America/Chicago'): string {
   } catch { return raw }
 }
 
-export async function POST(request: NextRequest) {
+// Top-level wrapper: NEVER return 5xx to OpenPhone. OpenPhone auto-disables
+// webhooks after consecutive 5xx/timeout failures — the 2026-04-20 and
+// 2026-04-24 incidents both ended with the message webhook silently disabled
+// after a streak of unhandled exceptions. Wrap the giant inner handler so
+// every internal failure becomes a 200 ack with an error body, keeping the
+// subscription alive while the actual error is logged for triage.
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  try {
+    return await processOpenPhoneWebhook(request)
+  } catch (err) {
+    const detail = err instanceof Error ? `${err.name}: ${err.message}` : 'unknown'
+    console.error('[OpenPhone] Unhandled exception in webhook handler:', err)
+    return NextResponse.json({
+      success: false,
+      error: 'internal_error',
+      detail,
+    })
+  }
+}
+
+async function processOpenPhoneWebhook(request: NextRequest): Promise<NextResponse> {
   // Top-level log: every webhook request, before any validation
   console.log(`[OpenPhone] Webhook received at ${new Date().toISOString()}`)
 
@@ -919,7 +939,10 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (custErr) {
-    return NextResponse.json({ success: false, error: `Failed to upsert customer: ${custErr.message}` }, { status: 500 })
+    // Always 200 to OpenPhone so the webhook isn't auto-disabled after
+    // consecutive failures. The actual error is logged for triage.
+    console.error(`[OpenPhone] Customer upsert failed for ${maskPhone(phone)}: ${custErr.message}`)
+    return NextResponse.json({ success: false, error: 'customer_upsert_failed', detail: custErr.message })
   }
 
   // Backfill lead_source for customers who genuinely entered via SMS.
@@ -1617,7 +1640,9 @@ export async function POST(request: NextRequest) {
       console.log(`[OpenPhone] Duplicate insert blocked by unique index for ${maskPhone(phone)} (msgId: ${opMessageId})`)
       return NextResponse.json({ success: true, action: "duplicate_insert_blocked" })
     }
-    return NextResponse.json({ success: false, error: `Failed to insert message: ${msgErr.message}` }, { status: 500 })
+    // Always 200 so OpenPhone doesn't count this toward auto-disable.
+    console.error(`[OpenPhone] Message insert failed for ${maskPhone(phone)}: ${msgErr.message}`)
+    return NextResponse.json({ success: false, error: 'message_insert_failed', detail: msgErr.message })
   }
 
   const currentMsgId = insertedMsg?.id

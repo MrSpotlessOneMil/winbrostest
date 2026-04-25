@@ -617,6 +617,256 @@ async function checkOsirisJobs(): Promise<HealthCheck> {
   }
 }
 
+// Tenant website intake watchdog — catches the Texas Nova / Zadapt
+// failure mode where a tenant has a live website but its form silently
+// drops every submission (502 upstream, never reaches our webhook).
+//
+// Rule: if a tenant has website_url set AND zero WEBSITE_LEAD_RECEIVED
+// events in the last 14 days, flag critical. Uses system_events as the
+// ground truth — no synthetic POSTs, no fake leads created.
+async function checkTenantWebsiteIntake(): Promise<HealthCheck> {
+  try {
+    const client = getSupabaseServiceClient()
+    const tenants = await getAllActiveTenants()
+    const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
+
+    // Only check house-cleaning tenants with a live website. Window-cleaning
+    // tenants (WinBros, Crystal Clear) don't use the /api/webhooks/website
+    // form — they intake via HCP/OpenPhone/phone, so zero website leads is
+    // expected and not a bug.
+    const isWindowTenant = (t: any): boolean => {
+      const wc = (t.workflow_config || {}) as Record<string, unknown>
+      if (wc.use_hcp_mirror === true) return true
+      if (wc.use_team_routing === true) return true
+      const text = `${t.name || ''} ${t.service_description || ''}`.toLowerCase()
+      return text.includes('window')
+    }
+    const tenantsWithSite = tenants.filter((t) => {
+      if (isWindowTenant(t)) return false
+      const url = (t as { website_url?: string | null }).website_url
+      return typeof url === 'string' && url.trim().length > 0
+    })
+
+    const perTenant: Record<string, number> = {}
+    const silent: string[] = []
+
+    for (const tenant of tenantsWithSite) {
+      const { count } = await client
+        .from('system_events')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenant.id)
+        .eq('event_type', 'WEBSITE_LEAD_RECEIVED')
+        .gte('created_at', since)
+
+      const c = count ?? 0
+      perTenant[tenant.slug] = c
+      if (c === 0) silent.push(tenant.slug)
+    }
+
+    let status: HealthStatus = 'healthy'
+    if (silent.length > 0) status = 'critical'
+
+    return {
+      check_name: 'Tenant website intake (14d)',
+      component: 'tenant_websites',
+      status,
+      details: {
+        per_tenant: perTenant,
+        silent_tenants: silent,
+        message:
+          silent.length > 0
+            ? `Website form appears dead for: ${silent.join(', ')} (0 leads in 14d). Check upstream — Zadapt/vendor /api/leads may be crashing.`
+            : `All ${tenantsWithSite.length} tenant websites received at least 1 form lead in last 14d`,
+      },
+    }
+  } catch (err) {
+    return {
+      check_name: 'Tenant website intake (14d)',
+      component: 'tenant_websites',
+      status: 'unknown',
+      details: { error: err instanceof Error ? err.message : 'Unknown error' },
+    }
+  }
+}
+
+// Detect silent inbound SMS pipelines per tenant — catches the recurring
+// OpenPhone webhook auto-disable (incidents 2026-04-20 + 2026-04-24, both
+// dropped 38–46h of customer replies before manual discovery).
+//
+// Rule: tenant had inbounds in last 7d but zero in last 4h → suspicious.
+// Restricted to LA/Iowa/Ontario business hours (8am–10pm local = roughly
+// 13:00–05:00 UTC) so off-hours quiet ≠ alarm. Cron runs every 6h so 4h
+// window guarantees at least one full check inside business hours.
+async function checkInboundFlow(): Promise<HealthCheck> {
+  try {
+    const client = getSupabaseServiceClient()
+    const tenants = await getAllActiveTenants()
+    const tenantsWithPhone = tenants.filter(
+      (t) => typeof (t as { openphone_phone_number?: string }).openphone_phone_number === 'string'
+    )
+
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
+
+    // Business-hours check vs UTC: skip alert if every covered tenant TZ is
+    // currently outside 8am–10pm. Spotless=PT, Cedar=CT, Niagara=ET, Texas=CT.
+    // Anchor on PT (covers all): if PT is between 22:00–08:00, off-hours.
+    const ptHour = (() => {
+      const fmt = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Los_Angeles',
+        hour: 'numeric',
+        hour12: false,
+      })
+      return parseInt(fmt.format(new Date()), 10)
+    })()
+    const isBusinessHours = ptHour >= 8 && ptHour < 22
+
+    const perTenant: Record<string, { last_7d: number; last_4h: number }> = {}
+    const stranded: string[] = []
+
+    for (const tenant of tenantsWithPhone) {
+      const [{ count: count7d }, { count: count4h }] = await Promise.all([
+        client
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenant.id)
+          .eq('direction', 'inbound')
+          .gte('created_at', sevenDaysAgo),
+        client
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('tenant_id', tenant.id)
+          .eq('direction', 'inbound')
+          .gte('created_at', fourHoursAgo),
+      ])
+
+      const c7 = count7d ?? 0
+      const c4 = count4h ?? 0
+      perTenant[tenant.slug] = { last_7d: c7, last_4h: c4 }
+
+      // Tenant is "stranded" if it had real recent activity but went quiet.
+      // Threshold of 5/7d filters out very quiet tenants (Cedar, WinBros)
+      // where 0/4h is normal.
+      if (c7 >= 5 && c4 === 0) stranded.push(tenant.slug)
+    }
+
+    let status: HealthStatus = 'healthy'
+    if (stranded.length > 0) status = isBusinessHours ? 'critical' : 'warning'
+
+    return {
+      check_name: 'Inbound SMS flow (4h)',
+      component: 'inbound_flow',
+      status,
+      details: {
+        per_tenant: perTenant,
+        stranded_tenants: stranded,
+        is_business_hours: isBusinessHours,
+        pt_hour: ptHour,
+        message:
+          stranded.length > 0
+            ? `Possible webhook drift — ${stranded.join(', ')} had inbounds in last 7d but ZERO in last 4h${isBusinessHours ? ' (business hours)' : ' (off-hours, lower confidence)'}`
+            : `All ${tenantsWithPhone.length} tenants with phones receiving inbounds normally`,
+      },
+    }
+  } catch (err) {
+    return {
+      check_name: 'Inbound SMS flow (4h)',
+      component: 'inbound_flow',
+      status: 'unknown',
+      details: { error: err instanceof Error ? err.message : 'Unknown error' },
+    }
+  }
+}
+
+// Detect disabled OpenPhone message webhooks before they cause silent drops.
+// OpenPhone auto-disables a webhook URL after consecutive 5xx/timeout
+// responses. The call webhook stays enabled while the message webhook gets
+// disabled, so per-tenant call success ≠ message success.
+async function checkOpenPhoneWebhooks(): Promise<HealthCheck> {
+  try {
+    const tenants = await getAllActiveTenants()
+    const tenantsWithKey = tenants.filter(
+      (t) => typeof (t as { openphone_api_key?: string }).openphone_api_key === 'string'
+    )
+
+    // Some tenants share an OpenPhone workspace (Spotless/Texas Nova/West
+    // Niagara/WinBros all share one; Cedar Rapids has its own). Hitting the
+    // same workspace once per tenant is wasteful but harmless — and matters
+    // for fail-isolation (one bad key only fails its own check).
+    const disabledMessageWebhooks: Array<{
+      tenant: string
+      url: string
+      events: string[]
+    }> = []
+    const errors: Record<string, string> = {}
+
+    await Promise.all(
+      tenantsWithKey.map(async (tenant) => {
+        const apiKey = (tenant as { openphone_api_key: string }).openphone_api_key
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 8000)
+        try {
+          const res = await fetch('https://api.openphone.com/v1/webhooks', {
+            headers: { Authorization: apiKey },
+            signal: controller.signal,
+          })
+          if (!res.ok) {
+            errors[tenant.slug] = `HTTP ${res.status}`
+            return
+          }
+          const body = (await res.json()) as { data?: Array<{
+            status?: string
+            url?: string
+            events?: string[]
+          }> }
+          for (const w of body.data ?? []) {
+            const isMessage = (w.events ?? []).some((e) => e.startsWith('message.'))
+            if (isMessage && w.status === 'disabled') {
+              disabledMessageWebhooks.push({
+                tenant: tenant.slug,
+                url: w.url ?? '?',
+                events: w.events ?? [],
+              })
+            }
+          }
+        } catch (err) {
+          errors[tenant.slug] = err instanceof Error ? err.message : 'fetch_failed'
+        } finally {
+          clearTimeout(timeout)
+        }
+      })
+    )
+
+    let status: HealthStatus = 'healthy'
+    if (disabledMessageWebhooks.length > 0) status = 'critical'
+    if (Object.keys(errors).length > 0 && status === 'healthy') status = 'warning'
+
+    return {
+      check_name: 'OpenPhone webhook status',
+      component: 'openphone_webhooks',
+      status,
+      details: {
+        disabled_message_webhooks: disabledMessageWebhooks,
+        api_errors: errors,
+        checked_tenants: tenantsWithKey.length,
+        message:
+          disabledMessageWebhooks.length > 0
+            ? `${disabledMessageWebhooks.length} disabled message webhook(s): ${disabledMessageWebhooks
+                .map((w) => `${w.tenant}→${w.url}`)
+                .join('; ')}`
+            : `All ${tenantsWithKey.length} tenant message webhooks enabled`,
+      },
+    }
+  } catch (err) {
+    return {
+      check_name: 'OpenPhone webhook status',
+      component: 'openphone_webhooks',
+      status: 'unknown',
+      details: { error: err instanceof Error ? err.message : 'Unknown error' },
+    }
+  }
+}
+
 // ── Main handler ──────────────────────────────────────────────────────
 
 const STATUS_ICON: Record<HealthStatus, string> = {
@@ -644,6 +894,9 @@ export async function GET(request: NextRequest) {
     checkOsirisBrain(),
     checkOsirisPricing(),
     checkOsirisJobs(),
+    checkTenantWebsiteIntake(),
+    checkInboundFlow(),
+    checkOpenPhoneWebhooks(),
   ])
 
   // Store results in system_health table
