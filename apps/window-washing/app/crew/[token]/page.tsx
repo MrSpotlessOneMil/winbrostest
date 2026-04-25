@@ -151,6 +151,7 @@ export default function CrewPortalPage() {
   const [calMonth, setCalMonth] = useState(() => { const n = new Date(); return { year: n.getFullYear(), month: n.getMonth() } })
   const [offDays, setOffDays] = useState<Set<string>>(new Set())
   const [togglingDate, setTogglingDate] = useState<string | null>(null)
+  const [availError, setAvailError] = useState<string | null>(null)
   const [weekly, setWeekly] = useState<WeeklySchedule>(DEFAULT_WEEKLY)
   const [savingWeekly, setSavingWeekly] = useState(false)
   const [weeklyDirty, setWeeklyDirty] = useState(false)
@@ -229,6 +230,7 @@ export default function CrewPortalPage() {
   const toggleDay = useCallback(async (dateStr: string) => {
     if (togglingDate) return
     setTogglingDate(dateStr)
+    setAvailError(null)
     try {
       const res = await fetch(`/api/crew/${token}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -237,8 +239,12 @@ export default function CrewPortalPage() {
       const result = await res.json()
       if (result.success) {
         setOffDays(prev => { const next = new Set(prev); result.action === "added" ? next.add(dateStr) : next.delete(dateStr); return next })
+      } else if (result.error) {
+        setAvailError(result.error)
       }
-    } catch {}
+    } catch {
+      setAvailError("Couldn't reach the server — try again.")
+    }
     setTogglingDate(null)
   }, [token, togglingDate])
 
@@ -714,6 +720,11 @@ export default function CrewPortalPage() {
                   })}
                 </div>
                 <p className="text-[10px] text-slate-400 mt-3 text-center">Tap a day to request off · only 2 weeks ahead</p>
+                {availError && (
+                  <div className="mt-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700 text-center">
+                    {availError}
+                  </div>
+                )}
               </div>
             ) : (
               /* ── Weekly Hours ── */
