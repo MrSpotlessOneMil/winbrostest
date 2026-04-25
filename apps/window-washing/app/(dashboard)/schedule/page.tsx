@@ -12,6 +12,7 @@ import {
   PointerSensor, TouchSensor, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent,
 } from "@dnd-kit/core"
+import { JobDetailDrawer } from "@/components/winbros/job-detail-drawer"
 
 /* ─── Types ─── */
 interface ScheduleJob {
@@ -119,10 +120,12 @@ function DraggableJobCard({
   job,
   fromDate,
   fromTLId,
+  onCardClick,
 }: {
   job: ScheduleJob
   fromDate: string
   fromTLId: number | null
+  onCardClick?: (jobId: number) => void
 }) {
   const colors = getJobColor(job)
   const statusStyle = STATUS_STYLE[job.status] || STATUS_STYLE.scheduled
@@ -134,11 +137,12 @@ function DraggableJobCard({
   return (
     <div
       ref={setNodeRef}
-      className={`rounded px-1.5 py-1 border text-[10px] cursor-grab active:cursor-grabbing transition-opacity ${colors.card} ${isDragging ? "opacity-30" : ""}`}
+      onClick={() => onCardClick?.(job.id)}
+      className={`rounded px-1.5 py-1 border text-[10px] cursor-pointer hover:brightness-110 active:cursor-grabbing transition-opacity ${colors.card} ${isDragging ? "opacity-30" : ""}`}
     >
       {/* Drag handle row */}
       <div className="flex items-center gap-1" {...listeners} {...attributes}>
-        <GripVertical className="size-2.5 opacity-40 shrink-0" />
+        <GripVertical className="size-2.5 opacity-40 shrink-0 cursor-grab" />
         <span className="font-bold text-foreground truncate flex-1">
           {job.customer_name}
         </span>
@@ -174,7 +178,13 @@ function DraggableJobCard({
 }
 
 /* ─── Draggable Bank Job Card ─── */
-function DraggableBankCard({ job }: { job: UnscheduledJob }) {
+function DraggableBankCard({
+  job,
+  onCardClick,
+}: {
+  job: UnscheduledJob
+  onCardClick?: (jobId: number) => void
+}) {
   const statusStyle = STATUS_STYLE[job.status] || STATUS_STYLE.pending
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `bank-${job.id}`,
@@ -184,10 +194,11 @@ function DraggableBankCard({ job }: { job: UnscheduledJob }) {
   return (
     <div
       ref={setNodeRef}
-      className={`rounded-md px-2.5 py-2 border bg-zinc-800/80 border-zinc-700/50 text-xs cursor-grab active:cursor-grabbing transition-opacity ${isDragging ? "opacity-30" : ""}`}
+      onClick={() => onCardClick?.(job.id)}
+      className={`rounded-md px-2.5 py-2 border bg-zinc-800/80 border-zinc-700/50 text-xs cursor-pointer hover:brightness-110 active:cursor-grabbing transition-opacity ${isDragging ? "opacity-30" : ""}`}
     >
       <div className="flex items-center gap-1.5" {...listeners} {...attributes}>
-        <GripVertical className="size-3 opacity-40 shrink-0" />
+        <GripVertical className="size-3 opacity-40 shrink-0 cursor-grab" />
         <span className="font-semibold text-foreground truncate flex-1">
           {job.customer_name}
         </span>
@@ -250,6 +261,8 @@ export default function SchedulePage() {
   // UI state
   const [expandedTLs, setExpandedTLs] = useState<Set<string>>(new Set())
   const [dragItem, setDragItem] = useState<{ job: ScheduleJob | UnscheduledJob; fromDate: string | null; fromTLId: number | null; fromBank?: boolean } | null>(null)
+  const [drawerJobId, setDrawerJobId] = useState<string | null>(null)
+  const openJobDrawer = useCallback((jobId: number) => setDrawerJobId(String(jobId)), [])
 
   // DnD sensors
   const sensors = useSensors(
@@ -406,6 +419,7 @@ export default function SchedulePage() {
   const daysToShow = viewMode === "week" ? weekDays : [weekDays.find(d => toDateStr(d) === selectedDay) || weekDays[0]]
 
   return (
+    <>
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="h-full flex flex-col">
         {/* ═══ HEADER ═══ */}
@@ -472,7 +486,7 @@ export default function SchedulePage() {
                   </p>
                 ) : (
                   bankJobs.map(job => (
-                    <DraggableBankCard key={job.id} job={job} />
+                    <DraggableBankCard key={job.id} job={job} onCardClick={openJobDrawer} />
                   ))
                 )}
               </div>
@@ -564,6 +578,7 @@ export default function SchedulePage() {
                                 job={job}
                                 fromDate={dateStr}
                                 fromTLId={crew.team_lead_id}
+                                onCardClick={openJobDrawer}
                               />
                             ))}
                             {crewJobs.length === 0 && (
@@ -626,6 +641,7 @@ export default function SchedulePage() {
                                 job={job}
                                 fromDate={dateStr}
                                 fromTLId={null}
+                                onCardClick={openJobDrawer}
                               />
                             ))}
                           </div>
@@ -685,5 +701,13 @@ export default function SchedulePage() {
         </DragOverlay>
       </div>
     </DndContext>
+
+    <JobDetailDrawer
+      jobId={drawerJobId}
+      open={drawerJobId !== null}
+      onClose={() => setDrawerJobId(null)}
+      onJobUpdated={() => { fetchWeekData(); fetchBankJobs() }}
+    />
+    </>
   )
 }
