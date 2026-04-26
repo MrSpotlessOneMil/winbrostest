@@ -18,6 +18,7 @@ import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loa
 import { StripeCardForm } from "@/components/stripe-card-form"
 import { JobDetailDrawer } from "@/components/winbros/job-detail-drawer"
 import { ClockWidget } from "@/components/winbros/clock-widget"
+import { QuoteBuilderSheet } from "@/components/winbros/quote-builder-sheet"
 import "./calendar.css"
 
 type CalendarJob = {
@@ -423,6 +424,8 @@ export default function JobsPage() {
   // Field-role widget state — same data the mobile portal pulls.
   const [commissionPending, setCommissionPending] = useState<number | null>(null)
   const [creatingQuoteDraft, setCreatingQuoteDraft] = useState(false)
+  // Quote popup — kept on /jobs (no router.push). Locked by Playwright.
+  const [quoteSheetId, setQuoteSheetId] = useState<string | null>(null)
 
   // Pending commission for salesmen — mirrors /crew/<token>/commission-summary.
   useEffect(() => {
@@ -434,8 +437,7 @@ export default function JobsPage() {
   }, [portalToken, showCommissionChip])
 
   // Create a draft quote (same flow as the mobile portal "+ New Quote") and
-  // jump straight into the builder. Salesman commission attribution still
-  // gates server-side on employee_type='salesman'.
+  // open the QuoteBuilder Sheet inline. NO router.push — URL stays /jobs.
   const startNewQuote = useCallback(async () => {
     if (!portalToken || creatingQuoteDraft) return
     setCreatingQuoteDraft(true)
@@ -443,14 +445,14 @@ export default function JobsPage() {
       const res = await fetch(`/api/crew/${portalToken}/quote-draft`, { method: "POST" })
       const body = await res.json()
       if (body?.success && body.quoteId) {
-        router.push(`/quotes/${body.quoteId}?from=crew:${portalToken}`)
+        setQuoteSheetId(String(body.quoteId))
       }
     } catch {
       // surfaced via UI later if needed
     } finally {
       setCreatingQuoteDraft(false)
     }
-  }, [portalToken, creatingQuoteDraft, router])
+  }, [portalToken, creatingQuoteDraft])
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
   const [myCleanerId, setMyCleanerId] = useState<number | null>(null)
@@ -4608,6 +4610,14 @@ export default function JobsPage() {
         open={drawerJobId !== null}
         onClose={() => setDrawerJobId(null)}
         onJobUpdated={refreshJobs}
+      />
+
+      {/* Quote Builder Sheet — popup on this URL (no navigation away) */}
+      <QuoteBuilderSheet
+        quoteId={quoteSheetId}
+        open={quoteSheetId !== null}
+        onClose={() => setQuoteSheetId(null)}
+        onSaved={refreshJobs}
       />
     </>
   )
