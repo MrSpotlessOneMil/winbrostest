@@ -419,7 +419,9 @@ export default function JobsPage() {
   const isFieldRole = !isAdmin && (employeeType === 'technician' || employeeType === 'salesman' || isTeamLead)
   const showClockWidget = !!portalToken && (employeeType === 'technician' || isTeamLead)
   const showCommissionChip = !!portalToken && employeeType === 'salesman'
-  const showNewQuoteButton = !!portalToken && (employeeType === 'salesman' || employeeType === 'technician' || isTeamLead)
+  // Everyone who can edit jobs gets the popup builder — admins via the
+  // session-auth draft endpoint, crew via portal token (commission-attributed).
+  const showNewQuoteButton = isAdmin || (!!portalToken && (employeeType === 'salesman' || employeeType === 'technician' || isTeamLead))
 
   // Field-role widget state — same data the mobile portal pulls.
   const [commissionPending, setCommissionPending] = useState<number | null>(null)
@@ -436,13 +438,18 @@ export default function JobsPage() {
       .catch(() => {})
   }, [portalToken, showCommissionChip])
 
-  // Create a draft quote (same flow as the mobile portal "+ New Quote") and
-  // open the QuoteBuilder Sheet inline. NO router.push — URL stays /jobs.
+  // Create a draft quote and open the QuoteBuilder Sheet inline. NO
+  // router.push — URL stays /jobs. Crew (portal token) hits the salesman
+  // attribution endpoint; admins/owners fall back to the session-auth admin
+  // endpoint so the same Sheet flow opens for everyone.
   const startNewQuote = useCallback(async () => {
-    if (!portalToken || creatingQuoteDraft) return
+    if (creatingQuoteDraft) return
     setCreatingQuoteDraft(true)
     try {
-      const res = await fetch(`/api/crew/${portalToken}/quote-draft`, { method: "POST" })
+      const url = portalToken
+        ? `/api/crew/${portalToken}/quote-draft`
+        : `/api/actions/quotes/draft`
+      const res = await fetch(url, { method: "POST" })
       const body = await res.json()
       if (body?.success && body.quoteId) {
         setQuoteSheetId(String(body.quoteId))
@@ -1267,77 +1274,12 @@ export default function JobsPage() {
   }, [visibleJobs, handleGanttJobClick])
 
   const handleSelect = (info: DateSelectArg) => {
-    const d = info.start
-    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-    const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
-    // Calculate duration from selection range
-    const diffMs = info.end.getTime() - info.start.getTime()
-    const diffMin = Math.round(diffMs / 60000)
-    const duration = diffMin > 0 && diffMin < 1440 ? String(diffMin) : "120"
-
-    setCreateForm({
-      customer_phone: "",
-      customer_name: "",
-      email: "",
-      address: "",
-      service_type: isHouseCleaning ? "Standard cleaning" : "Window cleaning",
-      date,
-      time: time === "00:00" ? "09:00" : time,
-      duration_minutes: duration,
-      price: "",
-      notes: "",
-      bedrooms: "",
-      bathrooms: "",
-      sqft: "",
-      frequency: "one-time",
-      cleaner_ids: [],
-      cleaner_count: "1",
-      assignment_mode: "auto_broadcast",
-      is_quote: false,
-      selected_addons: [],
-      membership_id: "",
-      selected_tier_index: "",
-      lead_source: "",
-      credited_salesman_id: isSalesman && authCleanerId ? String(authCleanerId) : "",
-    })
-    setCreateError("")
-    setPhoneLookedUp("")
-    setPhoneSuggestions([])
-    setShowPhoneSuggestions(false)
-    setCustomerSearch("")
-    setCustomerSearchResults([])
-    setShowCustomerSearch(false)
-    formSnapshotRef.current = null
-    isPreviewingRef.current = false
-    basePriceSnapshotRef.current = 0
-    setIsPreviewing(false)
-    setBasePrice(0)
-    setBaseLaborMinutes(0)
-    setAddressSuggestions([])
-    setLookedUpCustomerId(null)
-    setCustomerMemberships([])
-    setQuoteSuccess(null)
-    setCreateOpen(true)
-
-    // Fetch cleaners list if not already loaded
-    if (cleanersList.length === 0) {
-      fetch("/api/teams")
-        .then((r) => r.json())
-        .then((data) => {
-          const all: { id: string; name: string }[] = []
-          for (const team of data.data || []) {
-            for (const member of team.members || []) {
-              all.push({ id: String(member.id), name: member.name })
-            }
-          }
-          for (const c of data.unassigned_cleaners || []) {
-            all.push({ id: String(c.id), name: c.name })
-          }
-          setCleanersList(all)
-        })
-        .catch(() => {})
-    }
+    // Selecting a calendar slot opens the new QuoteBuilder Sheet popup, not
+    // the legacy create-job form. Same UX as clicking "+ New Quote" up top.
+    // Date/time of the selection is informational only — the quote builder
+    // owns scheduling once it converts.
     info.view.calendar.unselect()
+    void startNewQuote()
   }
 
   const handleEventClick = (info: EventClickArg) => {
@@ -2491,7 +2433,7 @@ export default function JobsPage() {
             portal uses. Hidden for admins / salesmen / unauthenticated. */}
         {showClockWidget && portalToken && (
           <div className="mb-3 stagger-1" style={{ flexShrink: 0 }}>
-            <ClockWidget token={portalToken} accent="#14b8a6" />
+            <ClockWidget token={portalToken} accent="#14b8a6" theme="dark" />
           </div>
         )}
 
@@ -2747,88 +2689,6 @@ export default function JobsPage() {
         </div>
         </>}
       </div>
-
-      {/* Mobile FAB — Create Job */}
-      <button
-        className="md:hidden"
-        onClick={() => {
-          const now = new Date()
-          const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
-          setCreateForm({
-            customer_phone: "",
-            customer_name: "",
-            email: "",
-            address: "",
-            service_type: isHouseCleaning ? "Standard cleaning" : "Window cleaning",
-            date,
-            time: "09:00",
-            duration_minutes: "120",
-            price: "",
-            notes: "",
-            bedrooms: "",
-            bathrooms: "",
-            sqft: "",
-            frequency: "one-time",
-            cleaner_ids: [],
-            cleaner_count: "1",
-            assignment_mode: "auto_broadcast",
-            is_quote: false,
-            selected_addons: [],
-            membership_id: "",
-            selected_tier_index: "",
-            lead_source: "",
-            credited_salesman_id: isSalesman && authCleanerId ? String(authCleanerId) : "",
-          })
-          setCreateError("")
-          setPhoneLookedUp("")
-          setPhoneSuggestions([])
-          setShowPhoneSuggestions(false)
-          setCustomerSearch("")
-          setCustomerSearchResults([])
-          formSnapshotRef.current = null
-          isPreviewingRef.current = false
-          basePriceSnapshotRef.current = 0
-          setIsPreviewing(false)
-          setBasePrice(0)
-    setBaseLaborMinutes(0)
-          setAddressSuggestions([])
-          setLookedUpCustomerId(null)
-          setCustomerMemberships([])
-          setQuoteSuccess(null)
-          setCreateOpen(true)
-          if (cleanersList.length === 0) {
-            fetch("/api/teams")
-              .then((r) => r.json())
-              .then((data) => {
-                if (data.cleaners) setCleanersList(data.cleaners.map((c: any) => ({ id: c.id, name: c.name })))
-              })
-              .catch(() => {})
-          }
-        }}
-        style={{
-          position: "fixed",
-          bottom: "1.5rem",
-          right: "1.5rem",
-          zIndex: 50,
-          width: 56,
-          height: 56,
-          borderRadius: "50%",
-          background: "linear-gradient(135deg, #7c3aed, #6d28d9)",
-          border: "none",
-          boxShadow: "0 4px 16px rgba(124, 58, 237, 0.4)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-          color: "#fff",
-          fontSize: "1.75rem",
-          fontWeight: 300,
-          lineHeight: 1,
-        }}
-        aria-label="Create Job"
-      >
-        +
-      </button>
 
       {/* Event Details Modal */}
       <div

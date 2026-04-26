@@ -68,10 +68,40 @@ function liveSecondsFromSnapshot(snap: Snapshot, nowMs: number): number {
 export function ClockWidget({
   token,
   accent,
+  theme = "light",
 }: {
   token: string
   accent: string
+  /**
+   * "light" — legacy mobile portal (white card, slate text).
+   * "dark"  — /jobs Calendar dashboard (zinc-900 card, zinc-100 text).
+   */
+  theme?: "light" | "dark"
 }) {
+  const isDark = theme === "dark"
+  const cls = isDark
+    ? {
+        wrap: "shrink-0 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3",
+        eyebrow: "text-[10px] font-semibold uppercase tracking-wider text-zinc-400",
+        timer: "text-2xl font-black text-zinc-100 tabular-nums",
+        sub: "text-[11px] text-zinc-500",
+        ghost: "text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50 inline-flex items-center gap-1",
+        error: "mt-2 rounded border border-red-900/40 bg-red-950/40 px-2 py-1 text-xs text-red-300",
+        summary: "cursor-pointer list-none text-[11px] font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300",
+        list: "mt-2 space-y-1 text-xs text-zinc-400",
+        listSub: "text-zinc-500 tabular-nums",
+      }
+    : {
+        wrap: "shrink-0 border-b bg-white px-4 py-3 [border-color:#e8e5de]",
+        eyebrow: "text-[10px] font-semibold uppercase tracking-wider text-slate-400",
+        timer: "text-2xl font-black text-slate-800 tabular-nums",
+        sub: "text-[11px] text-slate-500",
+        ghost: "text-xs text-slate-500 hover:text-slate-700 disabled:opacity-50 inline-flex items-center gap-1",
+        error: "mt-2 rounded bg-red-50 px-2 py-1 text-xs text-red-700",
+        summary: "cursor-pointer list-none text-[11px] font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-600",
+        list: "mt-2 space-y-1 text-xs text-slate-600",
+        listSub: "text-slate-400 tabular-nums",
+      }
   const [data, setData] = useState<ClockResponse | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -131,21 +161,21 @@ export function ClockWidget({
   const liveSec = liveSecondsFromSnapshot(snap, now)
 
   return (
-    <div className="shrink-0 border-b bg-white px-4 py-3" style={{ borderColor: "#e8e5de" }}>
+    <div className={cls.wrap}>
       <div className="flex items-center gap-3">
         {/* Live timer */}
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          <div className={cls.eyebrow}>
             {snap.state === "off_clock"
               ? "Off the clock"
               : snap.state === "paused"
               ? "Paused"
               : "On the clock"}
           </div>
-          <div className="text-2xl font-black text-slate-800 tabular-nums">
+          <div className={cls.timer}>
             {snap.state === "off_clock" ? "—" : formatHMS(liveSec)}
           </div>
-          <div className="text-[11px] text-slate-500">
+          <div className={cls.sub}>
             {data.week_hours.toFixed(1)} h this week
           </div>
         </div>
@@ -156,7 +186,7 @@ export function ClockWidget({
             type="button"
             disabled={busy}
             onClick={() => act("in")}
-            className="h-12 rounded-full px-6 text-sm font-bold text-white shadow-sm disabled:opacity-50"
+            className="h-10 rounded-full px-5 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
             style={{ background: accent }}
           >
             Clock in
@@ -168,7 +198,7 @@ export function ClockWidget({
               type="button"
               disabled={busy}
               onClick={() => act("out")}
-              className="h-12 rounded-full px-6 text-sm font-bold text-white shadow-sm disabled:opacity-50 inline-flex items-center gap-1.5"
+              className="h-10 rounded-full px-5 text-sm font-semibold text-white shadow-sm disabled:opacity-50 inline-flex items-center gap-1.5"
               style={{ background: accent }}
             >
               <Square className="size-3.5" /> Clock out
@@ -177,7 +207,7 @@ export function ClockWidget({
               type="button"
               disabled={busy}
               onClick={() => act("pause")}
-              className="text-xs text-slate-500 hover:text-slate-700 disabled:opacity-50 inline-flex items-center gap-1"
+              className={cls.ghost}
             >
               <Pause className="size-3" /> Pause
             </button>
@@ -189,7 +219,7 @@ export function ClockWidget({
               type="button"
               disabled={busy}
               onClick={() => act("resume")}
-              className="h-12 rounded-full px-6 text-sm font-bold text-white shadow-sm disabled:opacity-50 inline-flex items-center gap-1.5"
+              className="h-10 rounded-full px-5 text-sm font-semibold text-white shadow-sm disabled:opacity-50 inline-flex items-center gap-1.5"
               style={{ background: accent }}
             >
               <Play className="size-3.5" /> Resume
@@ -198,7 +228,7 @@ export function ClockWidget({
               type="button"
               disabled={busy}
               onClick={() => act("out")}
-              className="text-xs text-slate-500 hover:text-slate-700 disabled:opacity-50 inline-flex items-center gap-1"
+              className={cls.ghost}
             >
               <Square className="size-3" /> Clock out
             </button>
@@ -206,17 +236,15 @@ export function ClockWidget({
         )}
       </div>
 
-      {error && (
-        <div className="mt-2 rounded bg-red-50 px-2 py-1 text-xs text-red-700">{error}</div>
-      )}
+      {error && <div className={cls.error}>{error}</div>}
 
       {/* Today's self-log — collapsed when empty. */}
       {data.today.length > 0 && (
         <details className="mt-2">
-          <summary className="cursor-pointer list-none text-[11px] font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-600">
+          <summary className={cls.summary}>
             Today · {data.today.length} {data.today.length === 1 ? "shift" : "shifts"}
           </summary>
-          <ul className="mt-2 space-y-1 text-xs text-slate-600">
+          <ul className={cls.list}>
             {data.today.map(e => (
               <li key={e.id} className="flex items-center justify-between">
                 <span className="tabular-nums">
@@ -224,7 +252,7 @@ export function ClockWidget({
                   {" → "}
                   {e.clock_out_at ? formatTime(e.clock_out_at) : "now"}
                 </span>
-                <span className="text-slate-400 tabular-nums">
+                <span className={cls.listSub}>
                   {e.paused_minutes > 0 ? `${e.paused_minutes}m paused` : "—"}
                 </span>
               </li>
