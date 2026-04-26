@@ -30,6 +30,7 @@ interface AuthState {
   isTeamLead: boolean
   employeeType: EmployeeType
   cleanerId: number | null
+  portalToken: string | null
   user: User | null
   tenantStatus: TenantStatus | null
   accounts: StoredAccount[]
@@ -48,6 +49,7 @@ const AuthContext = createContext<AuthState>({
   isTeamLead: false,
   employeeType: null,
   cleanerId: null,
+  portalToken: null,
   user: null,
   tenantStatus: null,
   accounts: [],
@@ -69,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isTeamLead, setIsTeamLead] = useState(false)
   const [employeeType, setEmployeeType] = useState<EmployeeType>(null)
   const [cleanerId, setCleanerId] = useState<number | null>(null)
+  const [portalToken, setPortalToken] = useState<string | null>(null)
   const [tenantStatus, setTenantStatus] = useState<TenantStatus | null>(null)
   const [accounts, setAccounts] = useState<StoredAccount[]>([])
 
@@ -125,11 +128,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsSalesman(empType === 'salesman')
           setIsTeamLead(!!data.data.isTeamLead)
           setCleanerId(data.data.cleanerId || null)
+          setPortalToken(data.data.portalToken || null)
         } else {
           setEmployeeType(null)
           setIsSalesman(false)
           setIsTeamLead(false)
           setCleanerId(null)
+          setPortalToken(null)
         }
 
         setAuthenticated(true)
@@ -162,6 +167,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsTeamLead(false)
         setEmployeeType(null)
         setCleanerId(null)
+        setPortalToken(null)
         setTenantStatus(null)
       }
     } catch {
@@ -172,6 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsTeamLead(false)
       setEmployeeType(null)
       setCleanerId(null)
+      setPortalToken(null)
       setTenantStatus(null)
     } finally {
       setLoading(false)
@@ -200,6 +207,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsTeamLead(false)
     setEmployeeType(null)
     setCleanerId(null)
+    setPortalToken(null)
     window.location.href = '/login'
   }
 
@@ -228,11 +236,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsSalesman(empType === 'salesman')
             setIsTeamLead(!!data.data.isTeamLead)
             setCleanerId(data.data.cleanerId || null)
+            setPortalToken(data.data.portalToken || null)
           } else {
             setEmployeeType(null)
             setIsSalesman(false)
             setIsTeamLead(false)
             setCleanerId(null)
+            setPortalToken(null)
           }
           setTenantStatus(data.data.tenantStatus || null)
           setAuthenticated(true)
@@ -309,6 +319,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isTeamLead,
         employeeType,
         cleanerId,
+        portalToken,
         user,
         tenantStatus,
         accounts,

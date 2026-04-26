@@ -14,9 +14,10 @@ import { formatDate } from "@fullcalendar/core"
 import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
 import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pricebook"
 import ScheduleGantt, { type GanttJob } from "@/components/dashboard/schedule-gantt"
-import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loader2 } from "lucide-react"
+import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loader2, Plus } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
 import { JobDetailDrawer } from "@/components/winbros/job-detail-drawer"
+import { ClockWidget } from "@/components/winbros/clock-widget"
 import "./calendar.css"
 
 type CalendarJob = {
@@ -412,8 +413,44 @@ function getSavedDate(): string | undefined {
 }
 
 export default function JobsPage() {
-  const { user, isAdmin, isSalesman, cleanerId: authCleanerId } = useAuth()
+  const { user, isAdmin, isSalesman, isTeamLead, employeeType, cleanerId: authCleanerId, portalToken } = useAuth()
   const router = useRouter()
+  const isFieldRole = !isAdmin && (employeeType === 'technician' || employeeType === 'salesman' || isTeamLead)
+  const showClockWidget = !!portalToken && (employeeType === 'technician' || isTeamLead)
+  const showCommissionChip = !!portalToken && employeeType === 'salesman'
+  const showNewQuoteButton = !!portalToken && (employeeType === 'salesman' || employeeType === 'technician' || isTeamLead)
+
+  // Field-role widget state — same data the mobile portal pulls.
+  const [commissionPending, setCommissionPending] = useState<number | null>(null)
+  const [creatingQuoteDraft, setCreatingQuoteDraft] = useState(false)
+
+  // Pending commission for salesmen — mirrors /crew/<token>/commission-summary.
+  useEffect(() => {
+    if (!showCommissionChip) return
+    fetch(`/api/crew/${portalToken}/commission-summary`)
+      .then(r => r.ok ? r.json() : null)
+      .then(b => { if (b?.success) setCommissionPending(Number(b.data.total_pay) || 0) })
+      .catch(() => {})
+  }, [portalToken, showCommissionChip])
+
+  // Create a draft quote (same flow as the mobile portal "+ New Quote") and
+  // jump straight into the builder. Salesman commission attribution still
+  // gates server-side on employee_type='salesman'.
+  const startNewQuote = useCallback(async () => {
+    if (!portalToken || creatingQuoteDraft) return
+    setCreatingQuoteDraft(true)
+    try {
+      const res = await fetch(`/api/crew/${portalToken}/quote-draft`, { method: "POST" })
+      const body = await res.json()
+      if (body?.success && body.quoteId) {
+        router.push(`/quotes/${body.quoteId}?from=crew:${portalToken}`)
+      }
+    } catch {
+      // surfaced via UI later if needed
+    } finally {
+      setCreatingQuoteDraft(false)
+    }
+  }, [portalToken, creatingQuoteDraft, router])
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
   const [myCleanerId, setMyCleanerId] = useState<number | null>(null)
@@ -1330,6 +1367,15 @@ export default function JobsPage() {
       customerEmail: info.event.extendedProps.customerEmail || "",
       customerId: info.event.extendedProps.customerId || "",
       salesmanName: info.event.extendedProps.salesmanName || "",
+    }
+    // Field roles get the rich JobDetailDrawer immediately on click — same
+    // full-detail UX the mobile portal had (checklist, price book, service
+    // plan, tech upsells, payment). Admins still go through the bare modal
+    // first because it has admin-only quick actions (auto-schedule, send to
+    // cleaner) the drawer doesn't surface.
+    if (isFieldRole && details.jobId) {
+      setDrawerJobId(details.jobId)
+      return
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -2409,10 +2455,43 @@ export default function JobsPage() {
               Schedule and manage appointments
             </p>
           </div>
-          <button className="rain-day-btn text-xs md:text-sm" onClick={openRainDay}>
-            Rainy Day Reschedule
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Field-role widgets — mirror the mobile portal salesman/tech UX.
+                Commission chip for salesmen, +New Quote for any field role. */}
+            {showCommissionChip && commissionPending !== null && (
+              <div
+                data-testid="dashboard-commission-chip"
+                className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-right"
+              >
+                <div className="text-[9px] uppercase text-amber-300/80">Pending commission</div>
+                <div className="text-sm font-bold text-amber-200">
+                  ${commissionPending.toFixed(2)}
+                </div>
+              </div>
+            )}
+            {showNewQuoteButton && (
+              <button
+                onClick={startNewQuote}
+                disabled={creatingQuoteDraft}
+                className="flex items-center gap-1.5 rounded-md bg-teal-500 px-3 py-1.5 text-xs md:text-sm font-semibold text-white shadow-sm hover:bg-teal-600 transition-colors disabled:opacity-60"
+              >
+                {creatingQuoteDraft ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                New Quote
+              </button>
+            )}
+            <button className="rain-day-btn text-xs md:text-sm" onClick={openRainDay}>
+              Rainy Day Reschedule
+            </button>
+          </div>
         </div>
+
+        {/* Clock widget — technicians + team leads, same component the mobile
+            portal uses. Hidden for admins / salesmen / unauthenticated. */}
+        {showClockWidget && portalToken && (
+          <div className="mb-3 stagger-1" style={{ flexShrink: 0 }}>
+            <ClockWidget token={portalToken} accent="#14b8a6" />
+          </div>
+        )}
 
         {loading ? <CubeLoader /> : <>
         {/* Schedule monitoring strip — at-a-glance daily summary */}
