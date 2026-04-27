@@ -17,8 +17,8 @@ import ScheduleGantt, { type GanttJob } from "@/components/dashboard/schedule-ga
 import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loader2, Plus } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
 import { JobDetailDrawer } from "@/components/winbros/job-detail-drawer"
-import { ClockWidget } from "@/components/winbros/clock-widget"
 import { QuoteBuilderSheet } from "@/components/winbros/quote-builder-sheet"
+import { useStartNewQuote } from "@/hooks/use-start-new-quote"
 import "./calendar.css"
 
 type CalendarJob = {
@@ -417,49 +417,24 @@ export default function JobsPage() {
   const { user, isAdmin, isSalesman, isTeamLead, employeeType, cleanerId: authCleanerId, portalToken } = useAuth()
   const router = useRouter()
   const isFieldRole = !isAdmin && (employeeType === 'technician' || employeeType === 'salesman' || isTeamLead)
-  const showClockWidget = !!portalToken && (employeeType === 'technician' || isTeamLead)
-  const showCommissionChip = !!portalToken && employeeType === 'salesman'
-  // Everyone who can edit jobs gets the popup builder — admins via the
-  // session-auth draft endpoint, crew via portal token (commission-attributed).
+  // Anyone who can mint quotes gets the + New Quote popup — admins via
+  // session auth, crew via portal token (commission-attributed). The clock
+  // widget and salesman commission chip moved to /my-day Command Center
+  // so /jobs is just the calendar.
   const showNewQuoteButton = isAdmin || (!!portalToken && (employeeType === 'salesman' || employeeType === 'technician' || isTeamLead))
 
-  // Field-role widget state — same data the mobile portal pulls.
-  const [commissionPending, setCommissionPending] = useState<number | null>(null)
-  const [creatingQuoteDraft, setCreatingQuoteDraft] = useState(false)
+  // FullCalendar drag-drop / event-drop is destructive — anyone who isn't
+  // an admin or team-lead is view-only. Stops a salesman or tech from
+  // accidentally rescheduling a job.
+  const canEditCalendar = isAdmin || isTeamLead
+
   // Quote popup — kept on /jobs (no router.push). Locked by Playwright.
   const [quoteSheetId, setQuoteSheetId] = useState<string | null>(null)
-
-  // Pending commission for salesmen — mirrors /crew/<token>/commission-summary.
-  useEffect(() => {
-    if (!showCommissionChip) return
-    fetch(`/api/crew/${portalToken}/commission-summary`)
-      .then(r => r.ok ? r.json() : null)
-      .then(b => { if (b?.success) setCommissionPending(Number(b.data.total_pay) || 0) })
-      .catch(() => {})
-  }, [portalToken, showCommissionChip])
-
-  // Create a draft quote and open the QuoteBuilder Sheet inline. NO
-  // router.push — URL stays /jobs. Crew (portal token) hits the salesman
-  // attribution endpoint; admins/owners fall back to the session-auth admin
-  // endpoint so the same Sheet flow opens for everyone.
+  const { start: startNewQuoteRaw, creating: creatingQuoteDraft } = useStartNewQuote(portalToken)
   const startNewQuote = useCallback(async () => {
-    if (creatingQuoteDraft) return
-    setCreatingQuoteDraft(true)
-    try {
-      const url = portalToken
-        ? `/api/crew/${portalToken}/quote-draft`
-        : `/api/actions/quotes/draft`
-      const res = await fetch(url, { method: "POST" })
-      const body = await res.json()
-      if (body?.success && body.quoteId) {
-        setQuoteSheetId(String(body.quoteId))
-      }
-    } catch {
-      // surfaced via UI later if needed
-    } finally {
-      setCreatingQuoteDraft(false)
-    }
-  }, [portalToken, creatingQuoteDraft])
+    const id = await startNewQuoteRaw()
+    if (id) setQuoteSheetId(id)
+  }, [startNewQuoteRaw])
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
   const [myCleanerId, setMyCleanerId] = useState<number | null>(null)
@@ -2396,23 +2371,13 @@ export default function JobsPage() {
           <div>
             <h1 className="text-xl md:text-2xl font-semibold text-foreground">Calendar</h1>
             <p className="text-xs md:text-sm text-muted-foreground">
-              Schedule and manage appointments
+              {isAdmin ? "Schedule and manage appointments" : "Your schedule at a glance"}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* Field-role widgets — mirror the mobile portal salesman/tech UX.
-                Commission chip for salesmen, +New Quote for any field role. */}
-            {showCommissionChip && commissionPending !== null && (
-              <div
-                data-testid="dashboard-commission-chip"
-                className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-right"
-              >
-                <div className="text-[9px] uppercase text-amber-300/80">Pending commission</div>
-                <div className="text-sm font-bold text-amber-200">
-                  ${commissionPending.toFixed(2)}
-                </div>
-              </div>
-            )}
+            {/* +New Quote stays on Calendar so admins / team leads can mint
+                a quote without first hopping to the Command Center. Field
+                roles still have their own +New Quote on /my-day. */}
             {showNewQuoteButton && (
               <button
                 onClick={startNewQuote}
@@ -2423,19 +2388,16 @@ export default function JobsPage() {
                 New Quote
               </button>
             )}
-            <button className="rain-day-btn text-xs md:text-sm" onClick={openRainDay}>
-              Rainy Day Reschedule
-            </button>
+            {canEditCalendar && (
+              <button className="rain-day-btn text-xs md:text-sm" onClick={openRainDay}>
+                Rainy Day Reschedule
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Clock widget — technicians + team leads, same component the mobile
-            portal uses. Hidden for admins / salesmen / unauthenticated. */}
-        {showClockWidget && portalToken && (
-          <div className="mb-3 stagger-1" style={{ flexShrink: 0 }}>
-            <ClockWidget token={portalToken} accent="#14b8a6" theme="dark" />
-          </div>
-        )}
+        {/* Clock widget moved to /my-day Command Center. Calendar is now a
+            high-level overview only (per Dominic 2026-04-26). */}
 
         {loading ? <CubeLoader /> : <>
         {/* Schedule monitoring strip — at-a-glance daily summary */}
@@ -2545,8 +2507,8 @@ export default function JobsPage() {
               slotLabelFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
               dayHeaderFormat={{ weekday: "short", month: "numeric", day: "numeric" }}
               events={hiddenCleaners.size > 0 ? baseEvents.filter(e => !hiddenCleaners.has((e.extendedProps as any)?.cleanerName || '')) : baseEvents}
-              editable
-              selectable
+              editable={canEditCalendar}
+              selectable={canEditCalendar}
               nowIndicator
               fixedWeekCount={false}
               dayMaxEvents={false}
