@@ -93,11 +93,16 @@ function LoginForm() {
       setSuccess(true)
       setIsLoading(false)
 
-      // Wave C — owners and employees both land on the dashboard. Auth context
-      // determines sidebar/widget visibility from data.data.type +
-      // data.data.employeeType once the dashboard renders.
+      // If the user came from a deep link (?redirect=/something), honor it.
+      // Otherwise route owners to /overview and field roles to /my-day so
+      // each person lands on their Command Center.
+      const dest = redirect && redirect !== '/'
+        ? redirect
+        : data.data?.type === 'employee'
+          ? '/my-day'
+          : '/overview'
       setTimeout(() => {
-        router.push(redirect)
+        router.push(dest)
         router.refresh()
       }, 1000)
     } catch (err) {

@@ -32,14 +32,16 @@ export default function AppEntryPage() {
   const [role, setRole] = useState<Role | null>(null)
   const [checkingAuth, setCheckingAuth] = useState(true)
 
-  // Auto-redirect if already logged in (any role lands on /overview;
-  // dashboard sidebar branches into admin nav vs field nav from auth context).
+  // Auto-redirect if already logged in. Owners → /overview (admin Command
+  // Center). Field roles (technician / salesman / team-lead) → /my-day so
+  // they land on their Command Center, not the owner dashboard.
   useEffect(() => {
     fetch("/api/auth/session")
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.data?.user) {
-          router.replace("/overview")
+          const dest = data.data.type === "employee" ? "/my-day" : "/overview"
+          router.replace(dest)
         } else {
           setCheckingAuth(false)
         }
@@ -79,10 +81,11 @@ export default function AppEntryPage() {
       }
 
       setLoading(false)
-      // Wave C — every role lands on the dashboard. Auth context picks the
-      // right sidebar (admin nav for owners, field nav for employees) from
-      // data.data.type + employeeType.
-      router.push("/overview")
+      // Owners land on /overview (admin Command Center). Techs / salesmen /
+      // team-leads land on /my-day (field Command Center) — that's their
+      // dashboard. Sidebar role-gating from auth-context handles the rest.
+      const dest = data.data?.type === "employee" ? "/my-day" : "/overview"
+      router.push(dest)
       router.refresh()
     } catch {
       setError("Connection error. Try again.")
