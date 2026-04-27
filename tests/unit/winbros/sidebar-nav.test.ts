@@ -19,14 +19,25 @@ import {
 import { deriveRoleLabel } from '@/apps/window-washing/lib/auth-context'
 
 describe('selectNavigation — sidebar role gating', () => {
-  it('admin sees the full 12-tab owner nav', () => {
+  it('admin sees the full owner nav with Calendar + Technician Scheduling adjacent', () => {
     const nav = selectNavigation({ isAdmin: true, isTeamLead: false })
     expect(nav).toBe(adminNav)
     const labels = nav.map(n => n.name)
     expect(labels).toContain('Command Center')
+    expect(labels).toContain('Calendar')
+    expect(labels).toContain('Technician Scheduling')
     expect(labels).toContain('Team Performance')
     expect(labels).toContain('Payroll')
     expect(labels).toContain('Insights')
+    // The legacy bare "Scheduling" label is gone — admins now see
+    // "Technician Scheduling" so it's distinct from "Sales Appointments"
+    // and "Service Plan Scheduling".
+    expect(labels).not.toContain('Scheduling')
+    // Calendar (overview) sits immediately before Technician Scheduling
+    // (Gantt detail) so navigating from high-level to detail is one step.
+    const calendarIdx = labels.indexOf('Calendar')
+    const schedIdx = labels.indexOf('Technician Scheduling')
+    expect(schedIdx).toBe(calendarIdx + 1)
   })
 
   it('team lead sees field base + Team Performance + Payroll', () => {

@@ -10,13 +10,16 @@ export interface NavEntry {
   href: string
 }
 
-/** Admin / owner — 12 tabs. Unchanged from prior behavior. */
+/** Admin / owner — 13 tabs. Calendar (FullCalendar overview) sits next to
+ * Technician Scheduling (the Gantt crew board) so the high-level view and
+ * the detail view are adjacent. */
 export const adminNav: NavEntry[] = [
   { name: "Command Center", href: "/overview" },
   { name: "Customers", href: "/customers" },
   { name: "Pipeline", href: "/quotes" },
   { name: "Sales Appointments", href: "/appointments" },
-  { name: "Scheduling", href: "/schedule" },
+  { name: "Calendar", href: "/jobs" },
+  { name: "Technician Scheduling", href: "/schedule" },
   { name: "Service Plan Scheduling", href: "/service-plan-schedule" },
   { name: "Service Plan Hub", href: "/service-plan-hub" },
   { name: "Team Performance", href: "/performance" },
