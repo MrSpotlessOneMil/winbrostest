@@ -21,6 +21,19 @@ interface TenantStatus {
 }
 
 type EmployeeType = 'technician' | 'salesman' | 'team_lead' | null
+type RoleLabel = 'Owner' | 'Team Lead' | 'Salesman' | 'Technician' | null
+
+export function deriveRoleLabel(args: {
+  isAdmin: boolean
+  isTeamLead: boolean
+  employeeType: EmployeeType
+}): RoleLabel {
+  if (args.isAdmin) return 'Owner'
+  if (args.isTeamLead) return 'Team Lead'
+  if (args.employeeType === 'salesman') return 'Salesman'
+  if (args.employeeType === 'technician') return 'Technician'
+  return null
+}
 
 interface AuthState {
   authenticated: boolean
@@ -29,6 +42,12 @@ interface AuthState {
   isSalesman: boolean
   isTeamLead: boolean
   employeeType: EmployeeType
+  /**
+   * Human-readable role for sidebar pills and other UI. Derived from isAdmin,
+   * isTeamLead, and employeeType. Sidebar uses this so it stays in sync with
+   * the rest of the app instead of recomputing the precedence in two places.
+   */
+  roleLabel: RoleLabel
   cleanerId: number | null
   portalToken: string | null
   user: User | null
@@ -48,6 +67,7 @@ const AuthContext = createContext<AuthState>({
   isSalesman: false,
   isTeamLead: false,
   employeeType: null,
+  roleLabel: null,
   cleanerId: null,
   portalToken: null,
   user: null,
@@ -309,6 +329,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAccounts((prev) => prev.filter((a) => a.user.id !== userId))
   }
 
+  const roleLabel = deriveRoleLabel({ isAdmin, isTeamLead, employeeType })
+
   return (
     <AuthContext.Provider
       value={{
@@ -318,6 +340,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isSalesman,
         isTeamLead,
         employeeType,
+        roleLabel,
         cleanerId,
         portalToken,
         user,

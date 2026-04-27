@@ -31,6 +31,12 @@ import {
   FileText,
 } from "lucide-react"
 import { useState, useRef, useEffect, useMemo } from "react"
+import {
+  adminNav,
+  fieldNavBase,
+  teamLeadOnlyNav,
+  type NavEntry,
+} from "./sidebar-nav"
 
 // Tenant-specific accent colors
 const TENANT_COLORS: Record<string, { active: string; bg: string; bgStrong: string; text: string; textLight: string; btn: string; btnHover: string }> = {
@@ -55,36 +61,29 @@ const DEFAULT_COLORS = {
   btnHover: "hover:bg-purple-600",
 }
 
-type UserRole = "admin" | "salesman" | "technician"
+// Icon map keyed by href — the data lives in sidebar-nav.ts so the
+// role-gating logic stays testable without React/lucide imports.
+const ICON_BY_HREF: Record<string, typeof Calendar> = {
+  "/overview": LayoutDashboard,
+  "/customers": UserCircle,
+  "/quotes": Target,
+  "/appointments": Calendar,
+  "/schedule": ClipboardList,
+  "/service-plan-schedule": Calendar,
+  "/service-plan-hub": Repeat,
+  "/performance": BarChart3,
+  "/payroll": DollarSign,
+  "/tech-upsells": Plus,
+  "/insights": Lightbulb,
+  "/control-center": Sliders,
+  "/my-day": LayoutDashboard,
+  "/jobs": Calendar,
+  "/my-schedule": Clock,
+}
 
-// ADMIN VIEW — 11 tabs (from WinBros full spec)
-const adminNavigation = [
-  { name: "Command Center", href: "/overview", icon: LayoutDashboard },
-  { name: "Customers", href: "/customers", icon: UserCircle },
-  { name: "Pipeline", href: "/quotes", icon: Target },
-  { name: "Sales Appointments", href: "/appointments", icon: Calendar },
-  { name: "Scheduling", href: "/schedule", icon: CalendarDays },
-  { name: "Service Plan Scheduling", href: "/service-plan-schedule", icon: Calendar },
-  { name: "Service Plan Hub", href: "/service-plan-hub", icon: Repeat },
-  { name: "Team Performance", href: "/performance", icon: BarChart3 },
-  { name: "Payroll", href: "/payroll", icon: DollarSign },
-  { name: "Tech Upsells", href: "/tech-upsells", icon: Plus },
-  { name: "Insights", href: "/insights", icon: Lightbulb },
-  { name: "Control Center", href: "/control-center", icon: Sliders },
-]
-
-// FIELD VIEW — 6 tabs (Team Lead / Salesman / Technician)
-const fieldNavigation = [
-  { name: "Calendar", href: "/jobs", icon: Calendar },
-  { name: "Jobs", href: "/schedule", icon: ClipboardList },
-  { name: "Customers", href: "/customers", icon: UserCircle },
-  { name: "Off Days", href: "/my-schedule", icon: Clock },
-  { name: "Team Performance", href: "/performance", icon: BarChart3 },
-  { name: "Payroll", href: "/payroll", icon: DollarSign },
-]
-
-// Legacy — kept for backward compat
-const navigation = adminNavigation.map(item => ({ ...item, adminOnly: false }))
+function withIcon(item: NavEntry) {
+  return { ...item, icon: ICON_BY_HREF[item.href] || Calendar }
+}
 
 interface SidebarProps {
   collapsed: boolean
@@ -94,8 +93,8 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps) {
   const pathname = usePathname()
-  const { isAdmin, user, logout, accounts, addAccount, switchAccount, tenant } = useAuth()
-  const tenantSlug = tenant?.slug || user?.tenantSlug || ''
+  const { isAdmin, isTeamLead, roleLabel, user, logout, accounts, addAccount, switchAccount } = useAuth()
+  const tenantSlug = user?.tenantSlug || ''
   const c = useMemo(() => TENANT_COLORS[tenantSlug] || DEFAULT_COLORS, [tenantSlug])
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [dropdownVisible, setDropdownVisible] = useState(false)
@@ -178,8 +177,15 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
       return accountLabel(a.user).localeCompare(accountLabel(b.user))
     })
 
-  // Role-based navigation: Admin sees 11 tabs, Field sees 6 tabs
-  const filteredNavigation = isAdmin ? adminNavigation : fieldNavigation
+  // Role-based navigation: Admin sees 12 tabs, team leads get field base +
+  // payroll/performance, techs/salesmen get the base set only.
+  const filteredNavigation = (
+    isAdmin
+      ? adminNav
+      : isTeamLead
+        ? [...fieldNavBase, ...teamLeadOnlyNav]
+        : fieldNavBase
+  ).map(withIcon)
 
   // Prevent scroll events on sidebar from scrolling the main content
   const handleWheel = (e: React.WheelEvent) => {
@@ -200,7 +206,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
           <Link href="/customers" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
             <img src="/icon-192x192.png" alt="" className="w-7 h-7 rounded-md" />
             <span className="font-semibold text-sidebar-foreground tracking-tight text-sm">
-              {tenant?.name?.toUpperCase() || "OSIRIS"}
+              {tenantSlug?.toUpperCase() || "OSIRIS"}
             </span>
           </Link>
         )}
@@ -242,6 +248,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
             <button
               onClick={() => dropdownOpen ? closeDropdown() : setDropdownOpen(true)}
               className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-sidebar-accent text-left transition-colors"
+              data-testid="sidebar-user-switcher"
             >
               <div className={`w-8 h-8 rounded-md ${c.bg} flex items-center justify-center text-xs font-semibold ${c.text} shrink-0`}>
                 {user ? accountLabel(user).charAt(0).toUpperCase() : "U"}
@@ -250,6 +257,14 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                 <div className="text-sm font-medium text-foreground truncate">
                   {user ? accountLabel(user) : "User"}
                 </div>
+                {roleLabel && (
+                  <div
+                    className={`text-[11px] ${c.text} truncate font-medium`}
+                    data-testid="sidebar-role-pill"
+                  >
+                    {roleLabel}
+                  </div>
+                )}
               </div>
               <ChevronsUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
             </button>
@@ -411,7 +426,13 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
           <div className="flex justify-center">
             <button
               onClick={() => dropdownOpen ? closeDropdown() : setDropdownOpen(true)}
-              title={user ? accountLabel(user) : "User"}
+              title={
+                user
+                  ? roleLabel
+                    ? `${accountLabel(user)} — ${roleLabel}`
+                    : accountLabel(user)
+                  : "User"
+              }
               className={`w-8 h-8 rounded-md ${c.bg} flex items-center justify-center text-xs font-semibold ${c.text}`}
             >
               {user ? accountLabel(user).charAt(0).toUpperCase() : "U"}
