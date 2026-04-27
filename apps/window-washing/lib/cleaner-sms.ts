@@ -63,12 +63,16 @@ function getBaseUrl(): string {
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
 }
 
-// Wave C — SMS deeplinks now route through /api/auth/portal-exchange so the
-// tap auto-signs the recipient into the dashboard instead of the mobile-only
+// Wave C — SMS deeplinks route through /api/auth/portal-exchange so the tap
+// auto-signs the recipient into the dashboard instead of the mobile-only
 // /crew/<token> portal. The exchange route validates the token, mints a real
 // winbros_session, then 302s to the dashboard `next` path. Old /crew links
 // in customers' phones still work (compat shim) but new SMS sends use these.
-function portalUrl(portalToken: string, next = '/schedule'): string {
+//
+// Default landing is /my-day (Field Command Center) so daily-briefing taps
+// drop the recipient on their Command Center where today's jobs, clock-in,
+// and "+ New Quote" are all one tap away.
+function portalUrl(portalToken: string, next = '/my-day'): string {
   return `${getBaseUrl()}/api/auth/portal-exchange?token=${encodeURIComponent(portalToken)}&next=${encodeURIComponent(next)}`
 }
 
@@ -542,7 +546,9 @@ export async function sendLoginCredentials(
   }
 
   const baseUrl = getBaseUrl()
-  const portalLink = portalUrl(cleaner.portal_token!, '/schedule')
+  // Default `/my-day` — the credentials SMS says "go straight to your
+  // dashboard", which now means the Field Command Center.
+  const portalLink = portalUrl(cleaner.portal_token!)
   const message = `Your portal login:\n\nWebsite: ${baseUrl.replace('https://', '')}\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nOr tap here to go straight to your dashboard: ${portalLink}`
 
   return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
