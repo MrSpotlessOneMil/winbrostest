@@ -13,6 +13,10 @@ import { getTenantById } from '@/lib/tenant'
 import { transitionVisit, addUpsell, recordPayment, type VisitStatus } from '@/lib/visit-flow'
 import { executeCloseJobAutomation } from '@/lib/close-job'
 import { sendSMS } from '@/lib/openphone'
+import { renderTemplate, resolveAutomatedMessage } from '@/lib/automated-messages'
+
+const ON_MY_WAY_FALLBACK_BODY =
+  'Hey {{customer_name}}! Your {{business_name}} technician is on the way!'
 
 type RouteParams = { params: Promise<{ token: string; jobId: string }> }
 
@@ -390,14 +394,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const customer = (job as any)?.customers
       const customerPhone = customer?.phone_number || job?.phone_number
       if (customerPhone) {
-        const businessName = (tenant as any).business_name_short || tenant.name
-        const custName = customer?.first_name || 'there'
         try {
-          await sendSMS(
-            tenant,
-            customerPhone,
-            `Hey ${custName}! Your ${businessName} technician is on the way!`
-          )
+          const resolved = await resolveAutomatedMessage(client, {
+            tenantId: cleaner.tenant_id,
+            trigger: 'on_my_way',
+            fallbackBody: ON_MY_WAY_FALLBACK_BODY,
+          })
+          if (resolved.isActive) {
+            const businessName = (tenant as any).business_name_short || tenant.name || 'WinBros'
+            const custName = customer?.first_name || 'there'
+            const message = renderTemplate(resolved.body, {
+              customer_name: custName,
+              business_name: businessName,
+            })
+            await sendSMS(tenant, customerPhone, message)
+          }
         } catch {
           // SMS failure should not block the transition
         }

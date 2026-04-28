@@ -14,6 +14,10 @@ import { getSupabaseServiceClient } from '@/lib/supabase'
 import { transitionVisit, type VisitStatus } from '@/lib/visit-flow'
 import { executeCloseJobAutomation } from '@/lib/close-job'
 import { sendSMS } from '@/lib/openphone'
+import { renderTemplate, resolveAutomatedMessage } from '@/lib/automated-messages'
+
+const ON_MY_WAY_FALLBACK_BODY =
+  'Hi {{customer_name}}! Your {{business_name}} technician is on the way. See you soon!'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
@@ -54,12 +58,22 @@ export async function POST(request: NextRequest) {
 
     const customer = (visitData as any)?.jobs?.customers
     if (customer?.phone_number) {
-      const name = customer.first_name || 'there'
-      await sendSMS(
-        authResult.tenant,
-        customer.phone_number,
-        `Hi ${name}! Your WinBros technician is on the way. See you soon!`
-      )
+      const resolved = await resolveAutomatedMessage(client, {
+        tenantId: authResult.tenant.id,
+        trigger: 'on_my_way',
+        fallbackBody: ON_MY_WAY_FALLBACK_BODY,
+      })
+      if (resolved.isActive) {
+        const businessName =
+          (authResult.tenant as any).business_name_short ||
+          (authResult.tenant as any).name ||
+          'WinBros'
+        const message = renderTemplate(resolved.body, {
+          customer_name: customer.first_name || 'there',
+          business_name: businessName,
+        })
+        await sendSMS(authResult.tenant, customer.phone_number, message)
+      }
     }
   }
 

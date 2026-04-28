@@ -29,6 +29,10 @@ import { getSupabaseServiceClient } from '@/lib/supabase'
 import { parseFormData } from '@/lib/utils'
 import { canSendToCustomer, recordMessageSent } from '@/lib/lifecycle-engine'
 import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
+import { renderTemplate, resolveAutomatedMessage } from '@/lib/automated-messages'
+
+const DAY_BEFORE_REMINDER_FALLBACK_BODY =
+  'Hi {{customer_name}}! This is a reminder that your {{service_type}} with {{business_name}} is scheduled for tomorrow. Please ensure we have access to your home. Reply with any questions!'
 
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
@@ -648,7 +652,27 @@ async function processDayBeforeReminder(
   const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
   const serviceType = tenant ? getTenantServiceDescription(tenant) : 'service'
 
-  const message = `Hi ${customerName}! This is a reminder that your ${serviceType} with ${businessName} is scheduled for tomorrow. Please ensure we have access to your home. Reply with any questions!`
+  // Resolve the editable template (Phase G); admin can pause via is_active
+  let body = DAY_BEFORE_REMINDER_FALLBACK_BODY
+  if (tenant) {
+    const reminderClient = getSupabaseServiceClient()
+    const resolved = await resolveAutomatedMessage(reminderClient, {
+      tenantId: tenant.id,
+      trigger: 'day_before_reminder',
+      fallbackBody: DAY_BEFORE_REMINDER_FALLBACK_BODY,
+    })
+    if (!resolved.isActive) {
+      console.log(`[day-before-reminder] tenant ${tenant.slug} paused this template — skipping`)
+      return
+    }
+    body = resolved.body
+  }
+
+  const message = renderTemplate(body, {
+    customer_name: customerName,
+    service_type: serviceType,
+    business_name: businessName,
+  })
 
   // Insert DB record BEFORE sending so outbound webhook dedup finds it
   let msgRecordId: string | null = null

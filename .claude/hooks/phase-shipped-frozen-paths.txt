@@ -41,4 +41,5 @@ scripts/generate-winbros-plan-mockup-pdfs.mjs
 
 # Phase G — Editable automated message templates (Blake's IMG_0996 flow)
 apps/window-washing/lib/automated-messages.ts
+apps/window-washing/lib/close-job.ts
 scripts/migrations/20260428_automated_messages_phase_g_triggers.sql

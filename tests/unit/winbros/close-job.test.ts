@@ -92,4 +92,34 @@ describe('buildThankYouMessage', () => {
     expect(msg).toContain('tips')
     expect(msg).toContain('appreciated')
   })
+
+  it('Phase G: admin-edited body is rendered with substitutions', () => {
+    const customBody = 'Heyo {{customer_name}} — drop us a tip if you liked the work!'
+    const msg = buildThankYouMessage('Lucy', customBody)
+    expect(msg).toBe('Heyo Lucy — drop us a tip if you liked the work!')
+  })
+})
+
+describe('buildReviewMessage Phase G template override', () => {
+  it('admin-edited body controls the wording, link substitutes in', () => {
+    const customBody = 'Quick favor {{customer_name}}? Drop a 5-star: {{review_link}}'
+    const msg = buildReviewMessage('Mark', 'https://g.page/wb', customBody)
+    expect(msg).toBe('Quick favor Mark? Drop a 5-star: https://g.page/wb')
+  })
+})
+
+describe('buildReceiptMessage Phase G template override', () => {
+  it('admin-edited receipt body keeps services + total via placeholders', () => {
+    const customBody = '{{customer_name}} — paid {{total}} ({{payment_method}}). Bye!'
+    const msg = buildReceiptMessage(
+      {
+        id: 1, job_id: 1, tenant_id: 'test', visit_date: '2026-04-12',
+        payment_type: 'cash', payment_amount: 250, tip_amount: 0,
+        line_items: [{ service_name: 'Windows', price: 250, revenue_type: 'original_quote' }],
+        customer: { first_name: 'Joel', last_name: null, phone_number: '+1' },
+      },
+      customBody,
+    )
+    expect(msg).toBe('Joel — paid $250.00 (Cash). Bye!')
+  })
 })
