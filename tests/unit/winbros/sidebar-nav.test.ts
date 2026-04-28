@@ -50,11 +50,23 @@ describe('selectNavigation — sidebar role gating', () => {
     expect(labels).toContain('Command Center')
     expect(labels).toContain('Calendar')
     expect(labels).toContain('Scheduling')
+    expect(labels).toContain('My Customers')
     expect(labels).toContain('Customers')
     expect(labels).toContain('Off Days')
     expect(labels).toContain('Team Performance')
     expect(labels).toContain('Payroll')
     expect(nav.length).toBe(fieldNavBase.length + teamLeadOnlyNav.length)
+  })
+
+  it('every field role sees My Customers (Phase C — per-customer chat inbox)', () => {
+    for (const role of [
+      { isAdmin: false, isTeamLead: false },  // tech / salesman
+      { isAdmin: false, isTeamLead: true },   // team lead
+    ]) {
+      const nav = selectNavigation(role)
+      expect(nav.map(n => n.name)).toContain('My Customers')
+      expect(nav.map(n => n.href)).toContain('/my-customers')
+    }
   })
 
   it('technician (not team lead) does NOT see Team Performance or Payroll', () => {

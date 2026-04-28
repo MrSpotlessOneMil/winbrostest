@@ -35,6 +35,7 @@ export const fieldNavBase: NavEntry[] = [
   { name: "Command Center", href: "/my-day" },
   { name: "Calendar", href: "/jobs" },
   { name: "Scheduling", href: "/schedule" },
+  { name: "My Customers", href: "/my-customers" },
   { name: "Customers", href: "/customers" },
   { name: "Off Days", href: "/my-schedule" },
 ]

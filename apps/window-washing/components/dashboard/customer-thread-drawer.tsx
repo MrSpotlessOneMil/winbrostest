@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   Sheet,
   SheetContent,
@@ -8,7 +8,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet"
-import { MessageSquare, Phone, Clock, Bot, User, MapPin, DollarSign, ExternalLink } from "lucide-react"
+import { MessageSquare, Phone, Clock, Bot, User, MapPin, DollarSign, ExternalLink, Send } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 
@@ -70,19 +70,12 @@ export function CustomerThreadDrawer({
   const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [customer, setCustomer] = useState<CustomerInfo | null>(null)
   const [loading, setLoading] = useState(false)
+  const [draft, setDraft] = useState("")
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
   const router = useRouter()
 
-  useEffect(() => {
-    if (open && phoneNumber) {
-      fetchThread(phoneNumber)
-    }
-    if (!open) {
-      setMessages([])
-      setCustomer(null)
-    }
-  }, [open, phoneNumber])
-
-  async function fetchThread(phone: string) {
+  const fetchThread = useCallback(async (phone: string) => {
     setLoading(true)
     try {
       const res = await fetch(`/api/actions/inbox?phone=${encodeURIComponent(phone)}`, { cache: "no-store" })
@@ -95,7 +88,48 @@ export function CustomerThreadDrawer({
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    if (open && phoneNumber) {
+      fetchThread(phoneNumber)
+      setDraft("")
+      setSendError(null)
+    }
+    if (!open) {
+      setMessages([])
+      setCustomer(null)
+      setDraft("")
+      setSendError(null)
+    }
+  }, [open, phoneNumber, fetchThread])
+
+  const handleSend = useCallback(async () => {
+    const text = draft.trim()
+    if (!text || !phoneNumber || sending) return
+    setSending(true)
+    setSendError(null)
+    try {
+      const res = await fetch("/api/actions/send-sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: phoneNumber, message: text }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok || !body?.success) {
+        setSendError(body?.error || `Send failed: HTTP ${res.status}`)
+        return
+      }
+      setDraft("")
+      // Re-fetch the thread so the new message renders with proper
+      // server-stamped attribution ("From tech FirstName: ..." prefix).
+      await fetchThread(phoneNumber)
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : "Network error")
+    } finally {
+      setSending(false)
+    }
+  }, [draft, phoneNumber, sending, fetchThread])
 
   const customerName = displayName
     || (customer ? [customer.first_name, customer.last_name].filter(Boolean).join(" ") : null)
@@ -198,6 +232,46 @@ export function CustomerThreadDrawer({
             ))
           )}
         </div>
+
+        {/* Composer — manual SMS sender. The send-sms route prepends
+            "From tech FirstName: " when a non-admin employee is logged in. */}
+        {phoneNumber && (
+          <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-3 shrink-0">
+            {sendError && (
+              <p className="text-[11px] text-red-400 mb-2">{sendError}</p>
+            )}
+            <div className="flex items-end gap-2">
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault()
+                    handleSend()
+                  }
+                }}
+                placeholder="Text the customer… (Cmd/Ctrl+Enter to send)"
+                rows={2}
+                disabled={sending}
+                className="flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60 resize-none"
+              />
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={sending || draft.trim().length === 0}
+                data-testid="customer-thread-send"
+                className="inline-flex items-center justify-center gap-1 rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {sending ? (
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                Send
+              </button>
+            </div>
+          </div>
+        )}
       </SheetContent>
     </Sheet>
   )
