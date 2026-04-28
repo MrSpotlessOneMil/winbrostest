@@ -144,10 +144,13 @@
 | T3.2 | Phase E | QuoteBuilder picker prefills from template | 🟡 UI shipped, no UI E2E yet |
 | T3.3 | Phase E | Customer-facing /quote/<token> shows 3-plan picker w/ Download Agreement | 🔴 customer-view integration deferred |
 | T3.4 | Phase E | Plan agreement signature captured at customer accept | 🔴 deferred — needs real agreement text first |
-| T3.5 | Phase G | automation_templates round-trip via dispatchAutomation | 🔴 needs alignment |
-| T3.6 | Phase G | Cron reads template body from DB (60s cache) | 🔴 needs alignment |
-| T3.7 | Phase G | Admin UI edits template body, preview renders | 🔴 needs alignment |
-| T3.8 | Phase G | RLS: WinBros tenant cannot read HC templates | 🔴 needs alignment |
+| T3.5 | Phase G | automated_messages round-trip (POST/GET/PATCH for 4 new triggers) | ✅ `winbros-phase-g-message-templates.spec.ts` |
+| T3.5a | Phase G | renderTemplate + resolveAutomatedMessage cache/fallback unit | ✅ `tests/unit/winbros/automated-messages.test.ts` (14/14) |
+| T3.5b | Phase G | is_active=false pause-without-delete preserved across PATCH | ✅ same E2E |
+| T3.5c | Phase G | Cross-tenant PATCH rejected by tenant_id eq filter | ✅ same E2E (skip-on-FK) |
+| T3.6 | Phase G | Cron reads template body from DB via resolveAutomatedMessage helper | 🔴 deferred — wiring crons into helper is the next slice |
+| T3.7 | Phase G | Admin UI edits template body, preview renders | 🟡 UI shipped (Control Center MESSAGE_FIELDS), no UI E2E yet |
+| T3.8 | Phase G | RLS: WinBros tenant cannot read HC templates | 🟡 covered by route filter; full RLS spec deferred |
 
 ---
 

@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireAuthWithTenant } from "@/lib/auth"
 import { getSupabaseServiceClient } from "@/lib/supabase"
+import { invalidateMessageCache } from "@/lib/automated-messages"
 
 // route-check:no-vercel-cron
 
@@ -156,6 +157,9 @@ export async function POST(request: NextRequest) {
       if (error) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 })
       }
+      // Phase G — drop any cached fallback for this trigger so the next
+      // cron read sees the freshly inserted row.
+      invalidateMessageCache(tenantId, triggerType)
       return NextResponse.json({ success: true, data: row })
     }
 
@@ -296,6 +300,12 @@ export async function PATCH(request: NextRequest) {
 
       if (error) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+      }
+
+      // Phase G — invalidate the in-memory template cache so the next
+      // cron read picks up the edit immediately instead of waiting 60s.
+      if (row && typeof row.trigger_type === "string") {
+        invalidateMessageCache(tenantId, row.trigger_type)
       }
       if (!row) {
         return NextResponse.json({ success: false, error: "Not found" }, { status: 404 })

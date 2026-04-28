@@ -78,9 +78,21 @@ const TAG_TYPES = [
   "custom",
 ] as const
 
+// Phase G slot map (Blake's IMG_0996 lead → close flow).
+// Order matches the customer journey: request → appointment → arrival
+// → reminder → close → review. Existing 3 (receipt/review/thank-you-tip)
+// are kept as-is so legacy data doesn't drift.
 const MESSAGE_FIELDS = [
-  { trigger: "receipt", label: "Receipt Text", placeholder: "Text sent after payment is processed..." },
-  { trigger: "review_request", label: "Review Request Text", placeholder: "Text asking the customer to leave a review..." },
+  // ── Lead intake stage ─────────────────────────────────────────────
+  { trigger: "lead_thanks", label: "Lead Thanks (msg 1)", placeholder: "Text auto-sent when a new lead comes in. e.g. \"Thanks for reaching out — we'll get back to you within X minutes.\"" },
+  // ── Appointment stage ─────────────────────────────────────────────
+  { trigger: "appointment_confirm", label: "Appointment Confirmation (msg 2)", placeholder: "Text sent when an appointment is booked. e.g. \"Your appointment is set for {{date}} at {{time}} — we'll be there.\"" },
+  { trigger: "on_my_way", label: "On-My-Way / Arrival (msg 3)", placeholder: "Text sent the day-of when the salesman/tech is en route. e.g. \"Just heading over now — see you in {{eta_minutes}} minutes.\"" },
+  // ── Job stage ─────────────────────────────────────────────────────
+  { trigger: "day_before_reminder", label: "Day-Before Reminder (msg 5)", placeholder: "Text sent the day before service. e.g. \"Reminder — your service is tomorrow at {{time}}. See you then!\"" },
+  { trigger: "receipt", label: "Receipt / Done (msg 4)", placeholder: "Text sent after payment is processed and the job is closed..." },
+  // ── Post-job stage ────────────────────────────────────────────────
+  { trigger: "review_request", label: "Review Request", placeholder: "Text asking the customer to leave a review..." },
   { trigger: "thank_you_tip", label: "Thank You / Tip Message", placeholder: "Text thanking the customer and requesting a tip..." },
 ] as const
 
