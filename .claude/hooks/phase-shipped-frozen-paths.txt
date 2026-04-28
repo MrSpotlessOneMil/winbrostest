@@ -29,3 +29,7 @@ apps/window-washing/app/api/crew/[token]/customers/route.ts
 # Phase H — Salesman portal (My Pipeline + Team Schedules + sidebar variant)
 apps/window-washing/app/api/crew/[token]/pipeline/route.ts
 apps/window-washing/components/dashboard/sidebar-nav.ts
+
+# Phase I — Hard-link enforcement (quote ↔ appointment ↔ salesman)
+apps/window-washing/lib/quote-link-validation.ts
+scripts/migrations/20260427_quote_appointment_link_constraint.sql

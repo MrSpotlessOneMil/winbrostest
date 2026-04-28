@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
+import {
+  validateQuoteSalesmanLink,
+  mergeQuoteLinkUpdate,
+} from '@/lib/quote-link-validation'
 
 /**
  * Quote detail — hydrates a quote plus its line items and service plans in
@@ -135,7 +139,7 @@ export async function PATCH(
 
   const { data: existing, error: getErr } = await client
     .from('quotes')
-    .select('id, tenant_id, status')
+    .select('id, tenant_id, status, appointment_job_id, salesman_id')
     .eq('id', id)
     .maybeSingle()
 
@@ -149,6 +153,21 @@ export async function PATCH(
       { error: 'Quote is already converted and cannot be edited' },
       { status: 409 }
     )
+  }
+
+  // Phase I — quote ↔ appointment ↔ salesman link guard. Reject in the app
+  // layer so the user sees a clean 422 instead of a raw 23514 from the
+  // quotes_appointment_needs_salesman CHECK constraint.
+  const merged = mergeQuoteLinkUpdate({
+    existing: {
+      appointment_job_id: existing.appointment_job_id ?? null,
+      salesman_id: existing.salesman_id ?? null,
+    },
+    update: { salesman_id: body.salesman_id },
+  })
+  const linkCheck = validateQuoteSalesmanLink(merged)
+  if (!linkCheck.ok) {
+    return NextResponse.json({ error: linkCheck.error }, { status: 422 })
   }
 
   // Update top-level quote fields if provided.

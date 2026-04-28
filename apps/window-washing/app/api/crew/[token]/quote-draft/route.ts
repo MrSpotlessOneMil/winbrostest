@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { createEmployeeSession, setSessionCookie } from "@/lib/auth"
+import { validateQuoteSalesmanLink } from "@/lib/quote-link-validation"
 
 /**
  * POST /api/crew/[token]/quote-draft
@@ -58,8 +59,25 @@ export async function POST(
   // Any active crew can create a quote (Wave 3i). Only salesman attribution
   // stamps salesman_id — team leads and technicians create unattributed
   // drafts so payroll commission goes to whoever the admin sets later.
-  const salesmanId =
+  let salesmanId: number | null =
     cleaner.employee_type === "salesman" ? cleaner.id : null
+
+  // Phase I — if a non-salesman starts a quote FROM an appointment, fall
+  // back to the appointment's crew_salesman_id so the linkage stays intact.
+  // Without this, a team lead or tech opening a quote from a salesman's
+  // appointment would create an orphaned draft that fails the
+  // quotes_appointment_needs_salesman CHECK constraint.
+  if (!salesmanId && appointmentJobId) {
+    const { data: appt } = await client
+      .from("jobs")
+      .select("crew_salesman_id, tenant_id")
+      .eq("id", appointmentJobId)
+      .eq("tenant_id", cleaner.tenant_id)
+      .maybeSingle()
+    if (appt && typeof appt.crew_salesman_id === "number") {
+      salesmanId = appt.crew_salesman_id
+    }
+  }
 
   const insertRow: Record<string, unknown> = {
     tenant_id: cleaner.tenant_id,
@@ -70,6 +88,18 @@ export async function POST(
   }
   if (appointmentJobId) insertRow.appointment_job_id = appointmentJobId
   if (customerId) insertRow.customer_id = customerId
+
+  // Phase I validator — surface a clean 422 if the linkage is broken.
+  const linkCheck = validateQuoteSalesmanLink({
+    appointment_job_id: appointmentJobId,
+    salesman_id: salesmanId,
+  })
+  if (!linkCheck.ok) {
+    return NextResponse.json(
+      { success: false, error: linkCheck.error },
+      { status: 422 }
+    )
+  }
 
   const { data: quote, error: insertErr } = await client
     .from("quotes")
