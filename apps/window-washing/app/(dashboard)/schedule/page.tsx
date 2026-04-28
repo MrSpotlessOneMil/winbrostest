@@ -6,13 +6,14 @@ import {
   ChevronLeft, ChevronRight, Loader2, ChevronDown,
   Clock, MapPin, GripVertical, Plus, Package,
 } from "lucide-react"
-import { useRouter } from "next/navigation"
 import {
   DndContext, DragOverlay, useDraggable, useDroppable,
   PointerSensor, TouchSensor, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent,
 } from "@dnd-kit/core"
 import { JobDetailDrawer } from "@/components/winbros/job-detail-drawer"
+import { QuoteBuilderSheet } from "@/components/winbros/quote-builder-sheet"
+import { useStartNewQuote } from "@/hooks/use-start-new-quote"
 
 /* ─── Types ─── */
 interface ScheduleJob {
@@ -244,8 +245,9 @@ function DroppableTLCell({ id, children }: { id: string; children: React.ReactNo
 
 /* ═══ MAIN PAGE ═══ */
 export default function SchedulePage() {
-  const { user } = useAuth()
-  const router = useRouter()
+  const { user, portalToken } = useAuth()
+  const { start: startNewQuote, creating: creatingQuote } = useStartNewQuote(portalToken)
+  const [quoteSheetId, setQuoteSheetId] = useState<string | null>(null)
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
   const [viewMode, setViewMode] = useState<"week" | "day">("week")
   const [selectedDay, setSelectedDay] = useState(() => toDateStr(new Date()))
@@ -492,15 +494,24 @@ export default function SchedulePage() {
               </div>
             )}
 
-            {/* + New button */}
+            {/* + New button — opens QuoteBuilderSheet on this URL (no nav) */}
             {!bankCollapsed && (
               <div className="px-2 py-2 border-t border-border shrink-0">
                 <button
-                  onClick={() => router.push("/jobs")}
-                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md border border-dashed border-zinc-600 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:border-zinc-500 hover:bg-zinc-800/50 transition-colors"
+                  onClick={async () => {
+                    const id = await startNewQuote()
+                    if (id) setQuoteSheetId(id)
+                  }}
+                  disabled={creatingQuote}
+                  data-testid="schedule-new-quote"
+                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md border border-dashed border-zinc-600 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:border-zinc-500 hover:bg-zinc-800/50 transition-colors disabled:opacity-60 disabled:cursor-wait"
                 >
-                  <Plus className="size-3" />
-                  New Job / Quote
+                  {creatingQuote ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Plus className="size-3" />
+                  )}
+                  New Quote
                 </button>
               </div>
             )}
@@ -707,6 +718,13 @@ export default function SchedulePage() {
       open={drawerJobId !== null}
       onClose={() => setDrawerJobId(null)}
       onJobUpdated={() => { fetchWeekData(); fetchBankJobs() }}
+    />
+
+    <QuoteBuilderSheet
+      quoteId={quoteSheetId}
+      open={quoteSheetId !== null}
+      onClose={() => setQuoteSheetId(null)}
+      onSaved={() => { fetchWeekData(); fetchBankJobs() }}
     />
     </>
   )

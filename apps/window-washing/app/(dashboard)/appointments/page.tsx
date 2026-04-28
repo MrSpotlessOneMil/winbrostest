@@ -25,6 +25,14 @@ import {
   mapsDirectionsUrl,
   type PickerCustomer,
 } from "@/components/winbros/customer-picker"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet"
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
 
 interface Appointment {
   id: number
@@ -459,12 +467,17 @@ export default function AppointmentsPage() {
         initialQuery={form.customer_name}
       />
 
-      {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <form
-            onSubmit={submitCreate}
-            className="w-full max-w-md rounded-lg bg-white p-4 shadow-lg"
-          >
+      <Sheet open={showCreate} onOpenChange={(next) => { if (!next) setShowCreate(false) }}>
+        <SheetContent
+          side="right"
+          data-testid="appointment-create-sheet"
+          className="w-full sm:max-w-md overflow-y-auto bg-white p-0 border-l"
+        >
+          <SheetHeader className="sr-only">
+            <SheetTitle>New Appointment</SheetTitle>
+            <SheetDescription>Schedule a new sales appointment</SheetDescription>
+          </SheetHeader>
+          <form onSubmit={submitCreate} className="p-4">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-medium">New Appointment</h2>
               <button type="button" onClick={() => setShowCreate(false)}>
@@ -614,8 +627,8 @@ export default function AppointmentsPage() {
               </button>
             </div>
           </form>
-        </div>
-      )}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
