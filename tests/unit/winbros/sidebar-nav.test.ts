@@ -15,6 +15,7 @@ import {
   adminNav,
   fieldNavBase,
   teamLeadOnlyNav,
+  salesmanNav,
 } from '@/apps/window-washing/components/dashboard/sidebar-nav'
 import { deriveRoleLabel } from '@/apps/window-washing/lib/auth-context'
 
@@ -81,11 +82,57 @@ describe('selectNavigation — sidebar role gating', () => {
   })
 
   it('salesman (not team lead) does NOT see Team Performance or Payroll', () => {
-    // Salesman is the same gate as technician — both rely on isTeamLead=false.
-    const nav = selectNavigation({ isAdmin: false, isTeamLead: false })
+    // Salesman has a dedicated portal nav — see "salesman gets pipeline-first
+    // portal" below. They never see Team Performance or Payroll.
+    const nav = selectNavigation({ isAdmin: false, isTeamLead: false, employeeType: 'salesman' })
     const labels = nav.map(n => n.name)
     expect(labels).not.toContain('Team Performance')
     expect(labels).not.toContain('Payroll')
+  })
+
+  it('salesman gets pipeline-first portal — My Pipeline + Team Schedules + My Customers', () => {
+    // Phase H: salesman lives in their own nav so the day reads
+    // appointments → pipeline → customer chats, not tech-style scheduling.
+    const nav = selectNavigation({ isAdmin: false, isTeamLead: false, employeeType: 'salesman' })
+    expect(nav).toBe(salesmanNav)
+    const labels = nav.map(n => n.name)
+    expect(labels).toContain('Command Center')
+    expect(labels).toContain('My Pipeline')
+    expect(labels).toContain('Team Schedules')
+    expect(labels).toContain('My Customers')
+    expect(labels).toContain('Customers')
+    expect(labels).toContain('Off Days')
+    // Salesmen don't run techs, so they don't get the daily Scheduling Gantt
+    // or the FullCalendar Calendar that techs use to see today's jobs.
+    expect(labels).not.toContain('Scheduling')
+    expect(labels).not.toContain('Calendar')
+    // And they never see admin-only entries.
+    expect(labels).not.toContain('Team Performance')
+    expect(labels).not.toContain('Payroll')
+  })
+
+  it('salesman+team_lead hybrid → team-lead nav wins (crew duties dominate the day)', () => {
+    // A user that is both a salesman (employeeType='salesman') AND has
+    // is_team_lead=true should see the team-lead view, since running the
+    // crew is the more time-sensitive role on any given day.
+    const nav = selectNavigation({ isAdmin: false, isTeamLead: true, employeeType: 'salesman' })
+    expect(nav.length).toBe(fieldNavBase.length + teamLeadOnlyNav.length)
+    const labels = nav.map(n => n.name)
+    expect(labels).toContain('Team Performance')
+    expect(labels).toContain('Payroll')
+    // No salesman-only entries leaked.
+    expect(labels).not.toContain('My Pipeline')
+    expect(labels).not.toContain('Team Schedules')
+  })
+
+  it('technician with employeeType=technician still gets field base (not salesman portal)', () => {
+    const nav = selectNavigation({ isAdmin: false, isTeamLead: false, employeeType: 'technician' })
+    expect(nav).toBe(fieldNavBase)
+  })
+
+  it('employeeType undefined falls back to field base (back-compat with old callers)', () => {
+    const nav = selectNavigation({ isAdmin: false, isTeamLead: false })
+    expect(nav).toBe(fieldNavBase)
   })
 
   it('field nav puts Command Center first so post-login lands feel natural', () => {

@@ -30,7 +30,10 @@ export const adminNav: NavEntry[] = [
   { name: "Control Center", href: "/control-center" },
 ]
 
-/** Field base set — every tech / salesman / team-lead sees these. */
+/** Field base set — every tech / team-lead sees these. Salesmen have a
+ * different nav (see salesmanNav) — they don't run techs through Scheduling
+ * and they don't need the FullCalendar Calendar; their day is appointments +
+ * pipeline. */
 export const fieldNavBase: NavEntry[] = [
   { name: "Command Center", href: "/my-day" },
   { name: "Calendar", href: "/jobs" },
@@ -46,16 +49,36 @@ export const teamLeadOnlyNav: NavEntry[] = [
   { name: "Payroll", href: "/payroll" },
 ]
 
+/** Salesman portal — pipeline-first nav. My Pipeline replaces the techs'
+ * Calendar entry (their day is appointments → quotes → jobs they own).
+ * Team Schedules is read-only so they can see when crews are open before
+ * promising a customer a date. My Customers is the chat inbox for every
+ * non-closed lead/quote/job they own. */
+export const salesmanNav: NavEntry[] = [
+  { name: "Command Center", href: "/my-day" },
+  { name: "My Pipeline", href: "/my-pipeline" },
+  { name: "Team Schedules", href: "/team-schedules" },
+  { name: "My Customers", href: "/my-customers" },
+  { name: "Customers", href: "/customers" },
+  { name: "Off Days", href: "/my-schedule" },
+]
+
 /**
  * Resolve the sidebar items shown for a given role state. Admin gets the
  * full owner nav; team leads get the field base plus payroll/performance;
- * techs and salesmen get only the base set.
+ * salesmen get the salesman portal; techs get the field base.
+ *
+ * Precedence: admin > team_lead > salesman > technician. A user that is
+ * both team_lead and salesman is treated as team_lead (their crew-running
+ * duties dominate their day).
  */
 export function selectNavigation(args: {
   isAdmin: boolean
   isTeamLead: boolean
+  employeeType?: 'technician' | 'salesman' | 'team_lead' | null
 }): NavEntry[] {
   if (args.isAdmin) return adminNav
   if (args.isTeamLead) return [...fieldNavBase, ...teamLeadOnlyNav]
+  if (args.employeeType === 'salesman') return salesmanNav
   return fieldNavBase
 }

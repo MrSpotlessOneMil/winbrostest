@@ -22,3 +22,10 @@ apps/window-washing/lib/appointment-commission.ts
 apps/window-washing/lib/quote-conversion.ts
 apps/window-washing/lib/payroll.ts
 scripts/migrations/20260427_appointment_set_commission.sql
+
+# Phase C — Per-customer chat for tech + salesman
+apps/window-washing/app/api/crew/[token]/customers/route.ts
+
+# Phase H — Salesman portal (My Pipeline + Team Schedules + sidebar variant)
+apps/window-washing/app/api/crew/[token]/pipeline/route.ts
+apps/window-washing/components/dashboard/sidebar-nav.ts

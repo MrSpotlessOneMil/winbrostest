@@ -21,6 +21,7 @@ import {
   Lightbulb,
   Settings,
   Inbox,
+  MessageSquare,
   Clock,
   ClipboardList,
   DollarSign,
@@ -31,12 +32,7 @@ import {
   FileText,
 } from "lucide-react"
 import { useState, useRef, useEffect, useMemo } from "react"
-import {
-  adminNav,
-  fieldNavBase,
-  teamLeadOnlyNav,
-  type NavEntry,
-} from "./sidebar-nav"
+import { selectNavigation, type NavEntry } from "./sidebar-nav"
 
 // Tenant-specific accent colors
 const TENANT_COLORS: Record<string, { active: string; bg: string; bgStrong: string; text: string; textLight: string; btn: string; btnHover: string }> = {
@@ -79,6 +75,9 @@ const ICON_BY_HREF: Record<string, typeof Calendar> = {
   "/my-day": LayoutDashboard,
   "/jobs": Calendar,
   "/my-schedule": Clock,
+  "/my-customers": MessageSquare,
+  "/my-pipeline": Target,
+  "/team-schedules": Users,
 }
 
 function withIcon(item: NavEntry) {
@@ -93,7 +92,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps) {
   const pathname = usePathname()
-  const { isAdmin, isTeamLead, roleLabel, user, logout, accounts, addAccount, switchAccount } = useAuth()
+  const { isAdmin, isTeamLead, employeeType, roleLabel, user, logout, accounts, addAccount, switchAccount } = useAuth()
   const tenantSlug = user?.tenantSlug || ''
   const c = useMemo(() => TENANT_COLORS[tenantSlug] || DEFAULT_COLORS, [tenantSlug])
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -177,15 +176,11 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
       return accountLabel(a.user).localeCompare(accountLabel(b.user))
     })
 
-  // Role-based navigation: Admin sees 12 tabs, team leads get field base +
-  // payroll/performance, techs/salesmen get the base set only.
-  const filteredNavigation = (
-    isAdmin
-      ? adminNav
-      : isTeamLead
-        ? [...fieldNavBase, ...teamLeadOnlyNav]
-        : fieldNavBase
-  ).map(withIcon)
+  // Role-based navigation — owner gets the full admin nav, team leads get
+  // field base + payroll/performance, salesmen get the salesman portal,
+  // techs get the field base. selectNavigation is the single source of
+  // truth and is unit-tested without React.
+  const filteredNavigation = selectNavigation({ isAdmin, isTeamLead, employeeType }).map(withIcon)
 
   // Prevent scroll events on sidebar from scrolling the main content
   const handleWheel = (e: React.WheelEvent) => {
