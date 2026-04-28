@@ -17,8 +17,11 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core"
-import { Calendar, Loader2, MapPin, Plus, User, UserPlus, X } from "lucide-react"
+import { Calendar, FileText, Loader2, MapPin, Plus, User, UserPlus, X } from "lucide-react"
 import { APPOINTMENT_GRID, buildTimeSlots, slotForTime } from "@/lib/appointment-grid-config"
+import { QuoteBuilderSheet } from "@/components/winbros/quote-builder-sheet"
+import { useStartNewQuote } from "@/hooks/use-start-new-quote"
+import { useAuth } from "@/lib/auth-context"
 import {
   CustomerPickerModal,
   customerDisplayName,
@@ -75,7 +78,17 @@ function labelDate(ymd: string): string {
   return d.toLocaleDateString(undefined, { weekday: "short", month: "numeric", day: "numeric" })
 }
 
-function DraggableAppt({ appt, label }: { appt: Appointment; label: string }) {
+function DraggableAppt({
+  appt,
+  label,
+  onConvertToQuote,
+  converting,
+}: {
+  appt: Appointment
+  label: string
+  onConvertToQuote?: (appt: Appointment) => void
+  converting?: boolean
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `appt-${appt.id}`,
     data: appt,
@@ -83,23 +96,42 @@ function DraggableAppt({ appt, label }: { appt: Appointment; label: string }) {
   const style: React.CSSProperties = {
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     opacity: isDragging ? 0.6 : 1,
-    cursor: "grab",
   }
   return (
     <div
       ref={setNodeRef}
       style={style}
-      {...listeners}
-      {...attributes}
       className="rounded-md border border-teal-500/40 bg-teal-500/15 px-2 py-1 text-xs shadow-sm hover:bg-teal-500/25 hover:border-teal-400/60 transition-colors"
     >
-      <div className="font-medium text-teal-100">{label}</div>
-      {appt.address && <div className="truncate text-teal-300/80">{appt.address}</div>}
-      {appt.scheduled_at && (
-        <div className="text-teal-300">
-          {appt.scheduled_at}
-          {appt.price != null && ` · $${Number(appt.price).toFixed(0)}`}
-        </div>
+      <div
+        {...listeners}
+        {...attributes}
+        className="cursor-grab active:cursor-grabbing"
+      >
+        <div className="font-medium text-teal-100">{label}</div>
+        {appt.address && <div className="truncate text-teal-300/80">{appt.address}</div>}
+        {appt.scheduled_at && (
+          <div className="text-teal-300">
+            {appt.scheduled_at}
+            {appt.price != null && ` · $${Number(appt.price).toFixed(0)}`}
+          </div>
+        )}
+      </div>
+      {onConvertToQuote && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onConvertToQuote(appt) }}
+          disabled={converting}
+          title="Mint a draft quote linked to this appointment (12.5% commission earns on conversion)"
+          className="mt-1 inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-300 hover:text-amber-200 disabled:opacity-50"
+        >
+          {converting ? (
+            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+          ) : (
+            <FileText className="h-2.5 w-2.5" />
+          )}
+          → Quote
+        </button>
       )}
     </div>
   )
@@ -110,11 +142,15 @@ function DroppableCell({
   date,
   slot,
   appointments,
+  onConvertToQuote,
+  convertingId,
 }: {
   salesmanId: number | null
   date: string
   slot: string
   appointments: Appointment[]
+  onConvertToQuote?: (appt: Appointment) => void
+  convertingId?: number | null
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `cell-${salesmanId ?? "unassigned"}-${date}-${slot}`,
@@ -131,6 +167,8 @@ function DroppableCell({
             key={a.id}
             appt={a}
             label={a.service_type || a.phone_number || `Job #${a.id}`}
+            onConvertToQuote={onConvertToQuote}
+            converting={convertingId === a.id}
           />
         ))}
       </div>
@@ -167,6 +205,7 @@ function defaultCreateForm(weekStart: string): CreateFormState {
 }
 
 export default function AppointmentsPage() {
+  const { portalToken } = useAuth()
   const [weekStart, setWeekStart] = useState<string>(() => mondayOf(new Date()))
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [salesmen, setSalesmen] = useState<Salesman[]>([])
@@ -176,6 +215,27 @@ export default function AppointmentsPage() {
   const [creating, setCreating] = useState(false)
   const [showCustomerPicker, setShowCustomerPicker] = useState(false)
   const [form, setForm] = useState<CreateFormState>(() => defaultCreateForm(mondayOf(new Date())))
+  const [convertingApptId, setConvertingApptId] = useState<number | null>(null)
+  const [quoteSheetId, setQuoteSheetId] = useState<string | null>(null)
+  const { start: startNewQuote } = useStartNewQuote(portalToken)
+
+  const handleConvertToQuote = useCallback(async (appt: Appointment) => {
+    setError(null)
+    setConvertingApptId(appt.id)
+    try {
+      const id = await startNewQuote({
+        appointment_job_id: appt.id,
+        customer_id: appt.customer_id ?? undefined,
+      })
+      if (!id) {
+        setError("Could not create quote draft for this appointment.")
+        return
+      }
+      setQuoteSheetId(id)
+    } finally {
+      setConvertingApptId(null)
+    }
+  }, [startNewQuote])
 
   const slots = useMemo(() => buildTimeSlots(), [])
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart])
@@ -418,6 +478,8 @@ export default function AppointmentsPage() {
                               date={d}
                               slot={s}
                               appointments={cellAppts}
+                              onConvertToQuote={handleConvertToQuote}
+                              convertingId={convertingApptId}
                             />
                           )
                         })
@@ -444,6 +506,8 @@ export default function AppointmentsPage() {
                     key={a.id}
                     appt={a}
                     label={a.service_type || a.phone_number || `Job #${a.id}`}
+                    onConvertToQuote={handleConvertToQuote}
+                    converting={convertingApptId === a.id}
                   />
                 ))
               )}
@@ -629,6 +693,13 @@ export default function AppointmentsPage() {
           </form>
         </SheetContent>
       </Sheet>
+
+      <QuoteBuilderSheet
+        quoteId={quoteSheetId}
+        open={quoteSheetId !== null}
+        onClose={() => setQuoteSheetId(null)}
+        onSaved={load}
+      />
     </div>
   )
 }

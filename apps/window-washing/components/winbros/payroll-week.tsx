@@ -44,6 +44,16 @@ interface SalesmanEntry {
   commission_1time_pct: number
   commission_triannual_pct: number
   commission_quarterly_pct: number
+  /** Phase F (2026-04-27): 12.5% of appointment quoted price, frozen weekly. */
+  commission_appointment_pct?: number
+  /** Phase F: sum of earned-and-settled appointment credits this week. */
+  commission_appointment_amount?: number
+  /** Phase F: sum of appointment quoted prices behind the earned credits (audit). */
+  revenue_appointments_set?: number
+  /** Phase F: live-overlay sum of pending credits not yet earned (next-week view). */
+  appointment_pending_amount?: number
+  /** Phase F: count of pending credits (e.g. "3 in flight"). */
+  appointment_pending_count?: number
   total_pay: number
 }
 
@@ -335,13 +345,16 @@ export function PayrollWeek({
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Triannual Revenue</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Quarterly Revenue</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Commission</th>
+                <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide" title="Earned appointment-set commission this week (12.5% of appt quoted price). Pending credits show below in italics until they convert.">
+                  Appt&nbsp;$
+                </th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide font-semibold">Total Pay</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-900">
               {salesmen.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-zinc-600 text-sm">
+                  <td colSpan={8} className="px-4 py-8 text-center text-zinc-600 text-sm">
                     No salesman data for this week
                   </td>
                 </tr>
@@ -416,6 +429,23 @@ export function PayrollWeek({
                         <td className="px-4 py-3 text-right text-zinc-400">
                           {$(totalComm)}
                         </td>
+                        <td className="px-4 py-3 text-right">
+                          {(s.commission_appointment_amount ?? 0) > 0 ? (
+                            <span className="text-emerald-400 font-medium">
+                              {$(s.commission_appointment_amount ?? 0)}
+                            </span>
+                          ) : (
+                            <span className="text-zinc-600">--</span>
+                          )}
+                          {(s.appointment_pending_amount ?? 0) > 0 && (
+                            <div
+                              className="text-[10px] italic text-amber-400/80 mt-0.5"
+                              title={`${s.appointment_pending_count ?? 0} appointment credit(s) pending — earn on quote-conversion`}
+                            >
+                              +{$(s.appointment_pending_amount ?? 0)} pending
+                            </div>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right font-semibold text-white">{$(s.total_pay)}</td>
                       </tr>
                     )
@@ -433,6 +463,9 @@ export function PayrollWeek({
                       {$(salesmen.reduce((s, e) => s + e.revenue_quarterly, 0))}
                     </td>
                     <td className="px-4 py-2.5"></td>
+                    <td className="px-4 py-2.5 text-right text-xs font-semibold text-emerald-400">
+                      {$(salesmen.reduce((s, e) => s + (e.commission_appointment_amount ?? 0), 0))}
+                    </td>
                     <td className="px-4 py-2.5 text-right text-sm font-bold text-green-400">{$(salesTotalPay)}</td>
                   </tr>
                 </>

@@ -40,8 +40,30 @@ export async function GET(request: NextRequest) {
     // No payroll generated yet — return empty with pay rates for display
     const { data: rates } = await client
       .from('pay_rates')
-      .select('cleaner_id, role, pay_mode, hourly_rate, pay_percentage, commission_1time_pct, commission_triannual_pct, commission_quarterly_pct, cleaners!inner(name)')
+      .select('cleaner_id, role, pay_mode, hourly_rate, pay_percentage, commission_1time_pct, commission_triannual_pct, commission_quarterly_pct, commission_appointment_pct, cleaners!inner(name)')
       .eq('tenant_id', tenantId)
+
+    // Phase F — fetch pending + earned-but-unsettled appointment credits so
+    // admin can see what's in flight even before the week is generated.
+    const { data: liveCredits } = await client
+      .from('salesman_appointment_credits')
+      .select('salesman_id, status, amount_pending, amount_earned, appointment_price')
+      .eq('tenant_id', tenantId)
+      .in('status', ['pending', 'earned'])
+      .is('payroll_week_id', null)
+    const apptStatsBySalesman = new Map<number, { pending: number; earned: number; pendingCount: number; revenueSet: number }>()
+    for (const c of liveCredits || []) {
+      const sid = c.salesman_id as number
+      const cur = apptStatsBySalesman.get(sid) ?? { pending: 0, earned: 0, pendingCount: 0, revenueSet: 0 }
+      if (c.status === 'pending') {
+        cur.pending = Math.round((cur.pending + Number(c.amount_pending ?? 0)) * 100) / 100
+        cur.pendingCount += 1
+      } else if (c.status === 'earned') {
+        cur.earned = Math.round((cur.earned + Number(c.amount_earned ?? 0)) * 100) / 100
+        cur.revenueSet = Math.round((cur.revenueSet + Number(c.appointment_price ?? 0)) * 100) / 100
+      }
+      apptStatsBySalesman.set(sid, cur)
+    }
 
     const technicians = (rates || [])
       .filter(r => r.role === 'technician' || r.role === 'team_lead')
@@ -63,17 +85,26 @@ export async function GET(request: NextRequest) {
 
     const salesmen = (rates || [])
       .filter(r => r.role === 'salesman')
-      .map(r => ({
-        cleaner_id: r.cleaner_id,
-        name: (r as any).cleaners?.name || 'Unknown',
-        revenue_1time: 0,
-        revenue_triannual: 0,
-        revenue_quarterly: 0,
-        commission_1time_pct: Number(r.commission_1time_pct || 0),
-        commission_triannual_pct: Number(r.commission_triannual_pct || 0),
-        commission_quarterly_pct: Number(r.commission_quarterly_pct || 0),
-        total_pay: 0,
-      }))
+      .map(r => {
+        const stats = apptStatsBySalesman.get(r.cleaner_id) ?? { pending: 0, earned: 0, pendingCount: 0, revenueSet: 0 }
+        return {
+          cleaner_id: r.cleaner_id,
+          name: (r as any).cleaners?.name || 'Unknown',
+          revenue_1time: 0,
+          revenue_triannual: 0,
+          revenue_quarterly: 0,
+          commission_1time_pct: Number(r.commission_1time_pct || 0),
+          commission_triannual_pct: Number(r.commission_triannual_pct || 0),
+          commission_quarterly_pct: Number(r.commission_quarterly_pct || 0),
+          commission_appointment_pct: Number((r as { commission_appointment_pct?: number | null }).commission_appointment_pct ?? 12.5),
+          // "Live" view: earned credits the next payroll-gen will sweep up.
+          commission_appointment_amount: stats.earned,
+          revenue_appointments_set: stats.revenueSet,
+          appointment_pending_amount: stats.pending,
+          appointment_pending_count: stats.pendingCount,
+          total_pay: stats.earned,
+        }
+      })
 
     return NextResponse.json({ technicians, salesmen, status: 'draft' })
   }
@@ -102,19 +133,45 @@ export async function GET(request: NextRequest) {
       total_pay: Number(e.total_pay || 0),
     }))
 
+  // Pending credits aren't tied to a finalized week — pull them as a live
+  // overlay so admin can still see what's coming next week even when
+  // viewing a frozen past week. They'd settle in the NEXT payroll-gen.
+  const { data: livePending } = await client
+    .from('salesman_appointment_credits')
+    .select('salesman_id, amount_pending')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'pending')
+    .is('payroll_week_id', null)
+  const pendingBySalesman = new Map<number, { amount: number; count: number }>()
+  for (const c of livePending || []) {
+    const sid = c.salesman_id as number
+    const cur = pendingBySalesman.get(sid) ?? { amount: 0, count: 0 }
+    cur.amount = Math.round((cur.amount + Number(c.amount_pending ?? 0)) * 100) / 100
+    cur.count += 1
+    pendingBySalesman.set(sid, cur)
+  }
+
   const salesmen = (entries || [])
     .filter(e => e.role === 'salesman')
-    .map(e => ({
-      cleaner_id: e.cleaner_id,
-      name: (e as any).cleaners?.name || 'Unknown',
-      revenue_1time: Number(e.revenue_1time || 0),
-      revenue_triannual: Number(e.revenue_triannual || 0),
-      revenue_quarterly: Number(e.revenue_quarterly || 0),
-      commission_1time_pct: Number(e.commission_1time_pct || 0),
-      commission_triannual_pct: Number(e.commission_triannual_pct || 0),
-      commission_quarterly_pct: Number(e.commission_quarterly_pct || 0),
-      total_pay: Number(e.total_pay || 0),
-    }))
+    .map(e => {
+      const pending = pendingBySalesman.get(e.cleaner_id) ?? { amount: 0, count: 0 }
+      return {
+        cleaner_id: e.cleaner_id,
+        name: (e as any).cleaners?.name || 'Unknown',
+        revenue_1time: Number(e.revenue_1time || 0),
+        revenue_triannual: Number(e.revenue_triannual || 0),
+        revenue_quarterly: Number(e.revenue_quarterly || 0),
+        commission_1time_pct: Number(e.commission_1time_pct || 0),
+        commission_triannual_pct: Number(e.commission_triannual_pct || 0),
+        commission_quarterly_pct: Number(e.commission_quarterly_pct || 0),
+        commission_appointment_pct: Number((e as { commission_appointment_pct?: number | null }).commission_appointment_pct ?? 12.5),
+        commission_appointment_amount: Number((e as { commission_appointment_amount?: number | null }).commission_appointment_amount ?? 0),
+        revenue_appointments_set: Number((e as { revenue_appointments_set?: number | null }).revenue_appointments_set ?? 0),
+        appointment_pending_amount: pending.amount,
+        appointment_pending_count: pending.count,
+        total_pay: Number(e.total_pay || 0),
+      }
+    })
 
   return NextResponse.json({
     technicians,
