@@ -19,12 +19,13 @@ import {
 import { deriveRoleLabel } from '@/apps/window-washing/lib/auth-context'
 
 describe('selectNavigation — sidebar role gating', () => {
-  it('admin sees the full owner nav with Calendar + Technician Scheduling adjacent', () => {
+  it('admin sees the full owner nav with Calendar above Sales Appointments', () => {
     const nav = selectNavigation({ isAdmin: true, isTeamLead: false })
     expect(nav).toBe(adminNav)
     const labels = nav.map(n => n.name)
     expect(labels).toContain('Command Center')
     expect(labels).toContain('Calendar')
+    expect(labels).toContain('Sales Appointments')
     expect(labels).toContain('Technician Scheduling')
     expect(labels).toContain('Team Performance')
     expect(labels).toContain('Payroll')
@@ -33,11 +34,14 @@ describe('selectNavigation — sidebar role gating', () => {
     // "Technician Scheduling" so it's distinct from "Sales Appointments"
     // and "Service Plan Scheduling".
     expect(labels).not.toContain('Scheduling')
-    // Calendar (overview) sits immediately before Technician Scheduling
-    // (Gantt detail) so navigating from high-level to detail is one step.
+    // 2026-04-27: Dominic asked Calendar to sit ABOVE Sales Appointments
+    // — high-level "what's the day look like" before "who's booking sales
+    // calls". Technician Scheduling stays right after Sales Appointments.
     const calendarIdx = labels.indexOf('Calendar')
-    const schedIdx = labels.indexOf('Technician Scheduling')
-    expect(schedIdx).toBe(calendarIdx + 1)
+    const apptIdx = labels.indexOf('Sales Appointments')
+    const techSchedIdx = labels.indexOf('Technician Scheduling')
+    expect(apptIdx).toBe(calendarIdx + 1)
+    expect(techSchedIdx).toBe(apptIdx + 1)
   })
 
   it('team lead sees field base + Team Performance + Payroll', () => {

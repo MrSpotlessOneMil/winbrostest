@@ -248,6 +248,31 @@ export default function SchedulePage() {
   const { user, portalToken } = useAuth()
   const { start: startNewQuote, creating: creatingQuote } = useStartNewQuote(portalToken)
   const [quoteSheetId, setQuoteSheetId] = useState<string | null>(null)
+  const [newQuoteError, setNewQuoteError] = useState<string | null>(null)
+  const handleNewQuoteClick = useCallback(async () => {
+    setNewQuoteError(null)
+    try {
+      // Bypass the silent-catch in useStartNewQuote so we can surface a
+      // visible error message instead of the click feeling like a no-op.
+      const url = portalToken
+        ? `/api/crew/${portalToken}/quote-draft`
+        : `/api/actions/quotes/draft`
+      const res = await fetch(url, { method: "POST" })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setNewQuoteError(body.error || `Draft failed: HTTP ${res.status}`)
+        return
+      }
+      const body = (await res.json()) as { success?: boolean; quoteId?: number | string; error?: string }
+      if (!body.success || body.quoteId == null) {
+        setNewQuoteError(body.error || "Draft response missing quoteId")
+        return
+      }
+      setQuoteSheetId(String(body.quoteId))
+    } catch (e) {
+      setNewQuoteError(e instanceof Error ? e.message : "Network error creating draft")
+    }
+  }, [portalToken])
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
   const [viewMode, setViewMode] = useState<"week" | "day">("week")
   const [selectedDay, setSelectedDay] = useState(() => toDateStr(new Date()))
@@ -496,12 +521,9 @@ export default function SchedulePage() {
 
             {/* + New button — opens QuoteBuilderSheet on this URL (no nav) */}
             {!bankCollapsed && (
-              <div className="px-2 py-2 border-t border-border shrink-0">
+              <div className="px-2 py-2 border-t border-border shrink-0 space-y-1.5">
                 <button
-                  onClick={async () => {
-                    const id = await startNewQuote()
-                    if (id) setQuoteSheetId(id)
-                  }}
+                  onClick={handleNewQuoteClick}
                   disabled={creatingQuote}
                   data-testid="schedule-new-quote"
                   className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md border border-dashed border-zinc-600 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:border-zinc-500 hover:bg-zinc-800/50 transition-colors disabled:opacity-60 disabled:cursor-wait"
@@ -513,6 +535,11 @@ export default function SchedulePage() {
                   )}
                   New Quote
                 </button>
+                {newQuoteError && (
+                  <p className="text-[9px] text-red-400 px-1 leading-tight" title={newQuoteError}>
+                    {newQuoteError}
+                  </p>
+                )}
               </div>
             )}
 
