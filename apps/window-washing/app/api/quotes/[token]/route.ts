@@ -104,6 +104,17 @@ export async function GET(
     .eq("tenant_id", tenant.id)
     .eq("offered_to_customer", true)
 
+  // Phase E final — fetch the 3 template plans so the customer can
+  // self-select if no salesman pre-offered one. Templates are
+  // tenant-scoped (sort_order ascending: Monthly / Quarterly / Triannual
+  // for WinBros).
+  const { data: planTemplates } = await supabase
+    .from("service_plan_templates")
+    .select("id, slug, name, recurring_price, recurrence, agreement_pdf_url, description, sort_order")
+    .eq("tenant_id", tenant.id)
+    .eq("active", true)
+    .order("sort_order", { ascending: true })
+
   // Build service agreement text
   const wc = tenant.workflow_config as Record<string, unknown> || {}
   const cancellationFee = Number(wc.cancellation_fee_cents || 5000) / 100
@@ -160,6 +171,7 @@ export async function GET(
     servicePlans: servicePlans || [],
     attachedServicePlans: offeredPlans,
     servicePlanAgreementHtml,
+    planTemplates: planTemplates || [],
     serviceAgreement,
     custom_base_price: quote.custom_base_price ? Number(quote.custom_base_price) : null,
     custom_terms: quote.custom_terms || null,
@@ -175,6 +187,100 @@ export async function GET(
       currency: tenant.currency || 'usd',
     },
   })
+}
+
+/**
+ * Phase E final — customer self-selects one of the 3 template plans.
+ * POST /api/quotes/[token]
+ *   { action: 'pick_plan', template_slug: 'winbros-quarterly' }
+ *
+ * Idempotent: if the customer already picked a plan, swaps the offered
+ * one rather than stacking multiple. Token alone is the auth — same
+ * model as GET/PATCH on this route.
+ */
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ token: string }> }
+) {
+  const { token } = await params
+  if (!token) {
+    return NextResponse.json({ error: "Token is required" }, { status: 400 })
+  }
+
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
+  if (body.action !== "pick_plan") {
+    return NextResponse.json({ error: "Unsupported action" }, { status: 400 })
+  }
+  const slug = typeof body.template_slug === "string" ? body.template_slug.trim() : ""
+  if (!slug) {
+    return NextResponse.json({ error: "template_slug required" }, { status: 400 })
+  }
+
+  const supabase = getSupabaseServiceClient()
+
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select("id, tenant_id, status")
+    .eq("token", token)
+    .maybeSingle()
+
+  if (!quote) {
+    return NextResponse.json({ error: "Quote not found" }, { status: 404 })
+  }
+  if (quote.status === "approved" || quote.status === "rejected") {
+    return NextResponse.json(
+      { error: "Quote is locked — cannot change plan" },
+      { status: 409 }
+    )
+  }
+
+  const { data: template } = await supabase
+    .from("service_plan_templates")
+    .select("id, name, recurring_price, recurrence, commission_rule, sort_order")
+    .eq("tenant_id", quote.tenant_id)
+    .eq("slug", slug)
+    .eq("active", true)
+    .maybeSingle()
+
+  if (!template) {
+    return NextResponse.json({ error: "Plan template not found" }, { status: 404 })
+  }
+
+  // Wipe any prior offered plan(s) for this quote so the customer's pick
+  // is the single source of truth. Salesman-pre-offered plans get
+  // replaced — that's intentional, the customer is the final say.
+  await supabase
+    .from("quote_service_plans")
+    .delete()
+    .eq("quote_id", quote.id)
+    .eq("tenant_id", quote.tenant_id)
+
+  const { data: inserted, error: insertErr } = await supabase
+    .from("quote_service_plans")
+    .insert({
+      quote_id: quote.id,
+      tenant_id: quote.tenant_id,
+      name: template.name,
+      recurring_price: template.recurring_price,
+      recurrence: template.recurrence,
+      commission_rule: template.commission_rule,
+      offered_to_customer: true,
+      sort_order: template.sort_order ?? 0,
+    })
+    .select("id, name, recurring_price")
+    .single()
+
+  if (insertErr) {
+    return NextResponse.json({ error: insertErr.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ success: true, plan: inserted })
 }
 
 export async function PATCH(

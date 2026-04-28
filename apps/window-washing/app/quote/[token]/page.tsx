@@ -38,7 +38,8 @@ interface ServicePlan { id: string; slug: string; name: string; visits_per_year:
 interface ServiceAgreement { cancellation_fee: number; cancellation_window_hours: number; satisfaction_guarantee: boolean; deposit_percentage: number; processing_fee_percentage: number; terms: string[] }
 interface Quote { id: string; token: string; status: "pending" | "approved" | "expired" | "cancelled"; customer_name: string | null; customer_phone: string | null; customer_email: string | null; customer_address: string | null; square_footage: number | null; bedrooms: number | null; bathrooms: number | null; selected_tier: string | null; selected_addons: string[]; subtotal: string | null; discount: string | null; total: string | null; membership_discount: string | null; membership_plan: string | null; deposit_amount: string | null; valid_until: string; approved_at: string | null; created_at: string; service_date: string | null; service_time: string | null; notes: string | null }
 interface AttachedServicePlan { id: number; name: string; recurring_price: number; offered_to_customer: boolean }
-interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; attachedServicePlans?: AttachedServicePlan[]; servicePlanAgreementHtml?: string | null; serviceAgreement: ServiceAgreement; custom_base_price: number | null; custom_terms: string[] | null; quote_notes: string | null; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null; currency?: string | null } }
+interface PlanTemplate { id: string; slug: string; name: string; recurring_price: number; recurrence: { months?: number; label?: string } | null; agreement_pdf_url: string | null; description: string | null; sort_order: number }
+interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; attachedServicePlans?: AttachedServicePlan[]; servicePlanAgreementHtml?: string | null; planTemplates?: PlanTemplate[]; serviceAgreement: ServiceAgreement; custom_base_price: number | null; custom_terms: string[] | null; quote_notes: string | null; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null; currency?: string | null } }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -133,6 +134,9 @@ export default function QuotePage() {
   const [showAllTiers, setShowAllTiers] = useState(false)
   const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; place_id: string }[]>([])
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
+  // Phase E final — customer self-selecting one of the 3 plan templates
+  const [pickingPlanSlug, setPickingPlanSlug] = useState<string | null>(null)
+  const [planPickError, setPlanPickError] = useState<string | null>(null)
 
   // ── Address autocomplete (debounced) ──────────────────────────────
   useEffect(() => {
@@ -269,6 +273,7 @@ export default function QuotePage() {
   // variable substitution and HTML-escaping of customer fields.
   const servicePlanAgreementHtml = data?.servicePlanAgreementHtml ?? null
   const attachedServicePlans = data?.attachedServicePlans ?? []
+  const planTemplates = data?.planTemplates ?? []
   const tenantCurrency = tenant?.currency?.toUpperCase() || "USD"
   const fmt = (amount: number) => fmtCurrency(amount, tenantCurrency)
   const serviceType = data?.serviceType ?? "house_cleaning"
@@ -956,6 +961,93 @@ export default function QuotePage() {
             />
             <p className="text-right text-xs text-slate-300 mt-1">{customerNotes.length}/500</p>
           </div>
+        )}
+
+        {/* ── Service Plan Picker (Phase E final) ───────────────── */}
+        {/* Customer-side picker: 3 template plans rendered as cards.
+            Visible when no plan has been pre-offered AND the tenant has
+            templates configured (3 for WinBros). Picking one swaps to the
+            agreement view above (server re-renders next page load). */}
+        {!isExpired &&
+          attachedServicePlans.length === 0 &&
+          planTemplates.length > 0 && (
+            <div data-testid="customer-plan-picker">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <ShieldCheck className="size-5 text-emerald-500" />
+                Add a Service Plan (optional)
+              </h2>
+              <p className="text-sm text-slate-500 mb-4">
+                Save with recurring service. Pick a plan and we'll add it
+                to your booking — no upfront payment needed today.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {planTemplates.map((tpl) => {
+                  const recurrenceLabel =
+                    tpl.recurrence?.label ||
+                    (tpl.recurrence?.months === 1 ? 'every month' :
+                      tpl.recurrence?.months ? `every ${tpl.recurrence.months} months` : '')
+                  const isPicking = pickingPlanSlug === tpl.slug
+                  return (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      data-testid={`plan-card-${tpl.slug}`}
+                      disabled={pickingPlanSlug !== null}
+                      onClick={async () => {
+                        setPlanPickError(null)
+                        setPickingPlanSlug(tpl.slug)
+                        try {
+                          const res = await fetch(`/api/quotes/${token}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              action: 'pick_plan',
+                              template_slug: tpl.slug,
+                            }),
+                          })
+                          const json = await res.json()
+                          if (!res.ok) {
+                            throw new Error(json.error || 'Could not add plan')
+                          }
+                          // Re-fetch the quote so the agreement renders
+                          const r2 = await fetch(`/api/quotes/${token}`)
+                          const j2 = await r2.json()
+                          if (j2.success) setData(j2)
+                        } catch (e) {
+                          setPlanPickError((e as Error).message)
+                        } finally {
+                          setPickingPlanSlug(null)
+                        }
+                      }}
+                      className="bg-white border-2 border-blue-100 rounded-2xl p-4 text-left hover:border-blue-400 hover:shadow-md transition-all disabled:opacity-60"
+                    >
+                      <div className="font-bold text-slate-800">{tpl.name}</div>
+                      {recurrenceLabel && (
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {recurrenceLabel}
+                        </div>
+                      )}
+                      <div className="mt-2 text-2xl font-bold text-blue-600">
+                        {fmt(Number(tpl.recurring_price))}
+                        <span className="text-sm font-normal text-slate-500">
+                          {' '}
+                          / visit
+                        </span>
+                      </div>
+                      {tpl.description && (
+                        <p className="mt-2 text-xs text-slate-600">{tpl.description}</p>
+                      )}
+                      <div className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-blue-600">
+                        {isPicking ? 'Adding…' : 'Add this plan →'}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+              {planPickError && (
+                <p className="mt-2 text-sm text-rose-600">{planPickError}</p>
+              )}
+            </div>
         )}
 
         {/* ── Service Plan Agreement (Phase E2) ─────────────────── */}

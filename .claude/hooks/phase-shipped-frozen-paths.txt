@@ -38,6 +38,8 @@ scripts/migrations/20260427_quote_appointment_link_constraint.sql
 apps/window-washing/app/api/actions/service-plan-templates/route.ts
 scripts/migrations/20260428_service_plan_templates.sql
 scripts/generate-winbros-plan-mockup-pdfs.mjs
+# Phase E final — customer-side 3-plan picker on /quote/[token]
+apps/window-washing/app/api/quotes/[token]/route.ts
 
 # Phase G — Editable automated message templates (Blake's IMG_0996 flow)
 apps/window-washing/lib/automated-messages.ts

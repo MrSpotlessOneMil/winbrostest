@@ -142,7 +142,10 @@
 | T3.1b | Phase E | Agreement PDFs publicly reachable (no session) | ✅ same |
 | T3.1c | Phase E | Cleaner sessions can READ templates | ✅ same |
 | T3.2 | Phase E | QuoteBuilder picker prefills from template | 🟡 UI shipped, no UI E2E yet |
-| T3.3 | Phase E | Customer-facing /quote/<token> shows 3-plan picker w/ Download Agreement | 🔴 customer-view integration deferred |
+| T3.3 | Phase E | Customer-facing /quote/<token> shows 3-plan picker w/ Add-this-plan | ✅ `winbros-phase-e3-customer-plan-picker.spec.ts` |
+| T3.3a | Phase E | Picker swaps plan in-place when customer changes mind | ✅ same |
+| T3.3b | Phase E | Picker rejected (409) when quote is locked (approved/rejected) | ✅ same |
+| T3.3c | Phase E | Picker rejected (404) on unknown slug | ✅ same |
 | T3.4 | Phase E | Plan agreement signature captured at customer accept | 🔴 deferred — needs real agreement text first |
 | T3.5 | Phase G | automated_messages round-trip (POST/GET/PATCH for 4 new triggers) | ✅ `winbros-phase-g-message-templates.spec.ts` |
 | T3.5a | Phase G | renderTemplate + resolveAutomatedMessage cache/fallback unit | ✅ `tests/unit/winbros/automated-messages.test.ts` (14/14) |
