@@ -210,6 +210,58 @@ test.describe('Phase E2 — service-plan agreement', () => {
     expect(body.servicePlanAgreementHtml).toBeNull()
   })
 
+  test('customer page renders the agreement when quote has offered plan', async ({
+    page,
+  }) => {
+    // Reuse the quote seeded in test 2 (it has an offered Quarterly plan).
+    expect(fx.customerToken).toBeTruthy()
+    await page.goto(`${BASE}/quote/${fx.customerToken}`)
+    // Public route — no auth needed.
+    await page.waitForLoadState('domcontentloaded')
+
+    const block = page.getByTestId('customer-quote-plan-agreement')
+    await expect(block).toBeVisible({ timeout: 15000 })
+
+    // Heading + plan-name inline + agreement body all rendered.
+    await expect(block.getByRole('heading', { name: /Service Plan Agreement/i })).toBeVisible()
+    // Substituted variables should render as text, not as {{...}}.
+    const bodyText = (await block.innerText()).toLowerCase()
+    expect(bodyText).toContain('quarterly')
+    expect(bodyText).toContain('phase e2 customer')
+    expect(bodyText).not.toMatch(/\{\{\s*customer_name/)
+    expect(bodyText).not.toMatch(/\{\{\s*plan_name/)
+  })
+
+  test('plan-less customer page does NOT render the plan agreement block', async ({
+    page,
+  }) => {
+    // Seed a fresh plan-less quote so this test stands alone.
+    const quoteRows = await supabaseRest<Array<{ id: string; token: string | null }>>(
+      'quotes',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          tenant_id: WINBROS_TENANT_ID,
+          status: 'sent',
+          customer_name: 'Phase E2 PageNoPlan',
+          phone_number: '+15555550196',
+          address: 'PHASE_E2_TEST_FIXTURE',
+          total_price: 250,
+          salesman_id: TEST_PERSONAS.salesman.cleanerId,
+        }),
+      }
+    )
+    const quoteId = quoteRows[0].id
+    const customerToken = quoteRows[0].token ?? quoteId
+    fx.registry.quoteIds.push(quoteId as unknown as number)
+
+    await page.goto(`${BASE}/quote/${customerToken}`)
+    await page.waitForLoadState('domcontentloaded')
+    // The agreement block must NOT appear when no plan is offered.
+    const block = page.getByTestId('customer-quote-plan-agreement')
+    expect(await block.count()).toBe(0)
+  })
+
   test('XSS via customer_name is HTML-escaped, not executed', async ({
     request,
   }) => {

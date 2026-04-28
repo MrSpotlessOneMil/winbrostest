@@ -37,7 +37,8 @@ interface TierPrice { price: number; breakdown: { service: string; price: number
 interface ServicePlan { id: string; slug: string; name: string; visits_per_year: number; interval_months: number; discount_per_visit: number; free_addons: string[] | null; agreement_text: string | null }
 interface ServiceAgreement { cancellation_fee: number; cancellation_window_hours: number; satisfaction_guarantee: boolean; deposit_percentage: number; processing_fee_percentage: number; terms: string[] }
 interface Quote { id: string; token: string; status: "pending" | "approved" | "expired" | "cancelled"; customer_name: string | null; customer_phone: string | null; customer_email: string | null; customer_address: string | null; square_footage: number | null; bedrooms: number | null; bathrooms: number | null; selected_tier: string | null; selected_addons: string[]; subtotal: string | null; discount: string | null; total: string | null; membership_discount: string | null; membership_plan: string | null; deposit_amount: string | null; valid_until: string; approved_at: string | null; created_at: string; service_date: string | null; service_time: string | null; notes: string | null }
-interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; serviceAgreement: ServiceAgreement; custom_base_price: number | null; custom_terms: string[] | null; quote_notes: string | null; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null; currency?: string | null } }
+interface AttachedServicePlan { id: number; name: string; recurring_price: number; offered_to_customer: boolean }
+interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; attachedServicePlans?: AttachedServicePlan[]; servicePlanAgreementHtml?: string | null; serviceAgreement: ServiceAgreement; custom_base_price: number | null; custom_terms: string[] | null; quote_notes: string | null; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null; currency?: string | null } }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -263,6 +264,11 @@ export default function QuotePage() {
     ? { ...rawAgreement!, terms: data.custom_terms, satisfaction_guarantee: true }
     : rawAgreement
   const tenant = data?.tenant ?? null
+  // Phase E2 — auto-attached service-plan agreement HTML rendered just
+  // above the standard service agreement block. Server already did
+  // variable substitution and HTML-escaping of customer fields.
+  const servicePlanAgreementHtml = data?.servicePlanAgreementHtml ?? null
+  const attachedServicePlans = data?.attachedServicePlans ?? []
   const tenantCurrency = tenant?.currency?.toUpperCase() || "USD"
   const fmt = (amount: number) => fmtCurrency(amount, tenantCurrency)
   const serviceType = data?.serviceType ?? "house_cleaning"
@@ -949,6 +955,30 @@ export default function QuotePage() {
               className="w-full px-4 py-3 rounded-xl border-2 border-blue-100 bg-white text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 resize-none placeholder:text-slate-300"
             />
             <p className="text-right text-xs text-slate-300 mt-1">{customerNotes.length}/500</p>
+          </div>
+        )}
+
+        {/* ── Service Plan Agreement (Phase E2) ─────────────────── */}
+        {/* Only shown when this quote has at least one offered service plan
+            AND the tenant has a non-empty agreement saved in Control
+            Center. Server pre-rendered {{customer_name}} etc. and escaped
+            them, so dangerouslySetInnerHTML is safe for trusted shapes. */}
+        {!isExpired && servicePlanAgreementHtml && attachedServicePlans.length > 0 && (
+          <div data-testid="customer-quote-plan-agreement">
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-3 flex items-center gap-2">
+              <ShieldCheck className="size-5 text-emerald-500" />
+              Service Plan Agreement
+            </h2>
+            <p className="text-sm text-slate-500 mb-3">
+              Because your quote includes the{" "}
+              <span className="font-semibold text-slate-700">
+                {attachedServicePlans[0].name}
+              </span>{" "}
+              plan, this agreement is part of your booking.
+            </p>
+            <div className="bg-white border-2 border-blue-100 rounded-2xl p-5 prose prose-sm max-w-none text-slate-700 [&_p]:mb-2 [&_strong]:text-slate-900 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5">
+              <div dangerouslySetInnerHTML={{ __html: servicePlanAgreementHtml }} />
+            </div>
           </div>
         )}
 
