@@ -4,12 +4,12 @@ import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { sendSMS } from "@/lib/openphone"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { getTenantBySlug, getTenantServiceDescription } from "@/lib/tenant"
+import { getTenantBySlug, getTenantServiceDescription, tenantUsesFeature } from "@/lib/tenant"
 import { upsertLeadCustomer } from "@/lib/customer-dedup"
 import { buildFirstTouchSMS } from "@/lib/website-lead-sms"
 import { transitionState } from "@/lib/lifecycle-state"
 import { computeNudgeSendTime } from "@/lib/nudge-timing"
-import { scheduleTask } from "@/lib/scheduler"
+import { scheduleTask, scheduleRetargetingSequence } from "@/lib/scheduler"
 
 // CORS headers for embed-friendly response (any domain can POST)
 const corsHeaders = {
@@ -289,6 +289,165 @@ export async function POST(
   // Check for promo campaign (shared config — single source of truth)
   const { getPromoConfig } = await import('@/lib/promo-config')
   const promoConfig = getPromoConfig({ utm_campaign: body.utm_campaign, source_detail: sourceDetail, service_type: serviceType })
+
+  // ── Upfront quote (full-info form submission) ───────────────────
+  // When the form supplies enough to price a job (email + address + bed/bath)
+  // and the tenant uses the standard remote-cleaning quote flow, skip the
+  // "ask for missing info" first-touch SMS and create + send a quote link
+  // immediately. Mirrors the [BOOKING_COMPLETE] branch in the openphone
+  // webhook (apps/house-cleaning/app/api/webhooks/openphone/route.ts).
+  const isWindowCleaningTenant = tenantUsesFeature(tenant, 'use_hcp_mirror')
+  const hasQuoteableInfo =
+    !!(email && address && typeof bedrooms === 'number' && typeof bathrooms === 'number') &&
+    !!customer?.id &&
+    !!lead?.id
+
+  if (hasQuoteableInfo && !isWindowCleaningTenant) {
+    const svcType = (serviceType || '').toLowerCase()
+    const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
+    const isMetaPromo = !!promoConfig
+
+    const { data: newQuote, error: quoteError } = await client
+      .from('quotes')
+      .insert({
+        tenant_id: tenant.id,
+        customer_id: customer.id,
+        customer_name: [firstName, lastName].filter(Boolean).join(' ') || null,
+        customer_phone: phone,
+        customer_email: email,
+        customer_address: address,
+        bedrooms,
+        bathrooms,
+        square_footage: null,
+        service_category: quoteCategory,
+        selected_tier: promoConfig?.tier || null,
+        custom_base_price: promoConfig?.price || null,
+        selected_addons: promoConfig?.addons || [],
+        service_date: null,
+        service_time: null,
+        notes: [
+          promoConfig ? `$${promoConfig.price} Meta Promo` : null,
+          frequency ? `Frequency: ${frequency}` : null,
+        ].filter(Boolean).join(' | ') || null,
+        ...(promoConfig ? { custom_terms: promoConfig.terms } : {}),
+      })
+      .select('id, token')
+      .single()
+
+    if (quoteError || !newQuote) {
+      console.error('[Website Webhook] Upfront quote insert failed; falling through to first-touch ack:', quoteError)
+    } else {
+      await client
+        .from('customers')
+        .update({ lifecycle_stage_override: 'quoted_not_booked' })
+        .eq('id', customer.id)
+        .is('lifecycle_stage_override', null)
+
+      const { getClientConfig } = await import('@/lib/client-config')
+      const appDomain = getClientConfig().domain.replace(/\/+$/, '')
+      const quoteUrl = `${appDomain}/quote/${newQuote.token}`
+
+      let quoteMsg: string
+      if (isMetaPromo && promoConfig) {
+        quoteMsg = promoConfig.quoteSms
+          .replace('{name}', firstName || 'there')
+          .replace('{url}', quoteUrl)
+      } else {
+        quoteMsg = firstName
+          ? `Hey ${firstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+          : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+      }
+
+      const quoteSmsResult = await sendSMS(tenant, phone, quoteMsg, {
+        skipDedup: true,
+        skipThrottle: true,
+        bypassFilters: true,
+        source: 'website_lead_quote',
+        customerId: customer.id,
+      })
+
+      if (!quoteSmsResult.success) {
+        console.error('[Website Webhook] Upfront quote SMS failed:', quoteSmsResult.error)
+        // fall through — first-touch ack below will still send
+      } else {
+        await client
+          .from('leads')
+          .update({
+            status: 'qualified',
+          })
+          .eq('id', lead.id)
+
+        try {
+          await transitionState(client, tenant.id, customer.id, 'engaged', {
+            event: 'website_quote_sent',
+            metadata: { lead_id: lead.id, quote_id: newQuote.id, source_detail: sourceDetail },
+          })
+        } catch (stateErr) {
+          console.error('[Website Webhook] transitionState failed (non-blocking):', stateErr)
+        }
+
+        try {
+          await scheduleTask({
+            tenantId: tenant.id,
+            taskType: 'quote_followup_urgent',
+            taskKey: `quote-${newQuote.id}-urgent`,
+            scheduledFor: new Date(Date.now() + 2 * 60 * 60 * 1000),
+            payload: {
+              quoteId: newQuote.id,
+              customerId: customer.id,
+              customerPhone: phone,
+              customerName: firstName || 'there',
+              tenantId: tenant.id,
+            },
+          })
+        } catch (taskErr) {
+          console.error('[Website Webhook] quote_followup_urgent schedule failed (non-blocking):', taskErr)
+        }
+
+        try {
+          await scheduleRetargetingSequence(
+            tenant.id,
+            customer.id,
+            phone,
+            firstName || 'there',
+            'quoted_not_booked'
+          )
+        } catch (retargetErr) {
+          console.error('[Website Webhook] retargeting schedule failed (non-blocking):', retargetErr)
+        }
+
+        await client
+          .from('quotes')
+          .update({ followup_enrolled_at: new Date().toISOString() })
+          .eq('id', newQuote.id)
+
+        await logSystemEvent({
+          tenant_id: tenant.id,
+          source: 'website',
+          event_type: 'WEBSITE_LEAD_RECEIVED',
+          message: `Website lead auto-quoted on submit: ${firstName || 'Unknown'} ${lastName || ''}`.trim(),
+          phone_number: phone,
+          metadata: {
+            lead_id: lead.id,
+            quote_id: newQuote.id,
+            quote_url: quoteUrl,
+            service_type: serviceType,
+            source,
+            source_detail: sourceDetail,
+            bedrooms,
+            bathrooms,
+            tenant_slug: tenant.slug,
+            flow: 'website_upfront_quote',
+          },
+        })
+
+        return NextResponse.json(
+          { success: true, id: lead.id, quote_url: quoteUrl },
+          { headers: corsHeaders }
+        )
+      }
+    }
+  }
 
   const smsMessage = buildFirstTouchSMS({
     firstName,
