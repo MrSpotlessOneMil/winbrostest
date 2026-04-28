@@ -69,6 +69,17 @@ export default defineConfig({
         storageState: STORAGE_STATE,
       },
     },
+    {
+      // WinBros Phase H/I tests — run against the window-washing dev
+      // server on port 3002 (or WW_BASE_URL). They mint sessions inline
+      // via Supabase service role, so they don't need auth.setup.ts.
+      name: 'winbros-phase',
+      testMatch: /winbros-phase-[a-z]+-.*\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env.WW_BASE_URL || 'http://localhost:3002',
+      },
+    },
   ],
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined

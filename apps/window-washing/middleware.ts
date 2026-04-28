@@ -18,6 +18,11 @@ const publicRoutes = [
   '/api/auth/logout',
   '/api/auth/session',
   '/api/auth/crew-login',
+  // /api/auth/portal-exchange is the magic-link landing for SMS deeplinks —
+  // it must be reachable without a session because its job is to MINT one.
+  // Was missing from the whitelist (discovered 2026-04-28 via E2E setup);
+  // every SMS deeplink had been silently 401'ing.
+  '/api/auth/portal-exchange',
   '/quote',
   '/api/quotes',
   '/api/public',
