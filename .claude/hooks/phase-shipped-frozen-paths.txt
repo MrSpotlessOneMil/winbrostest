@@ -33,3 +33,8 @@ apps/window-washing/components/dashboard/sidebar-nav.ts
 # Phase I — Hard-link enforcement (quote ↔ appointment ↔ salesman)
 apps/window-washing/lib/quote-link-validation.ts
 scripts/migrations/20260427_quote_appointment_link_constraint.sql
+
+# Phase E — Service plan templates (3 fixed plans + mockup PDFs)
+apps/window-washing/app/api/actions/service-plan-templates/route.ts
+scripts/migrations/20260428_service_plan_templates.sql
+scripts/generate-winbros-plan-mockup-pdfs.mjs

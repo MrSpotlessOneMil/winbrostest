@@ -67,6 +67,17 @@ interface ServiceBookItem {
   default_price: number
 }
 
+interface PlanTemplate {
+  id: string
+  slug: string
+  name: string
+  recurring_price: number
+  recurrence: { interval_months?: number; visits_per_year?: number } | null
+  agreement_pdf_url: string | null
+  description: string | null
+  sort_order: number
+}
+
 const OPTION_CYCLE: Record<Optionality, Optionality> = {
   required: 'recommended',
   recommended: 'optional',
@@ -137,6 +148,7 @@ export function QuoteBuilder({
   const [lineItems, setLineItems] = useState<LineItem[]>([])
   const [plans, setPlans] = useState<Plan[]>([])
   const [catalog, setCatalog] = useState<ServiceBookItem[]>([])
+  const [planTemplates, setPlanTemplates] = useState<PlanTemplate[]>([])
   const [showPicker, setShowPicker] = useState(false)
   const [showCustomerPicker, setShowCustomerPicker] = useState(false)
 
@@ -145,9 +157,14 @@ export function QuoteBuilder({
     setLoading(true)
     setError(null)
     try {
-      const [qRes, bookRes] = await Promise.all([
+      const [qRes, bookRes, tmplRes] = await Promise.all([
         fetch(`/api/actions/quotes/${quoteId}`),
         fetch(`/api/actions/service-book`),
+        // Phase E: pull tenant's plan templates so the QuoteBuilder can
+        // offer a quick-pick instead of forcing the salesman to type out
+        // "Monthly $99" every time. Soft-fail so a tenant without seeded
+        // templates still gets the freeform Add-Plan flow.
+        fetch(`/api/actions/service-plan-templates`).catch(() => null),
       ])
       if (!qRes.ok) {
         const body = await qRes.json().catch(() => ({ error: qRes.statusText }))
@@ -182,6 +199,10 @@ export function QuoteBuilder({
             default_price: Number(it.default_price ?? 0),
           }))
         )
+      }
+      if (tmplRes && tmplRes.ok) {
+        const tBody = await tmplRes.json()
+        setPlanTemplates((tBody.templates || []) as PlanTemplate[])
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load quote')
@@ -270,6 +291,22 @@ export function QuoteBuilder({
         recurring_price: 0,
         first_visit_keeps_original_price: false,
         offered_to_customer: false,
+        sort_order: prev.length,
+      },
+    ])
+  }
+
+  function addPlanFromTemplate(slug: string) {
+    const tmpl = planTemplates.find(t => t.slug === slug)
+    if (!tmpl) return
+    setPlans(prev => [
+      ...prev,
+      {
+        name: tmpl.name,
+        discount_label: null,
+        recurring_price: Number(tmpl.recurring_price) || 0,
+        first_visit_keeps_original_price: false,
+        offered_to_customer: true,  // sensible default — admin tweaks if not
         sort_order: prev.length,
       },
     ])
@@ -710,6 +747,26 @@ export function QuoteBuilder({
                 >
                   {showPerPlanFirstVisit ? 'Hide per-plan override' : 'Customize per plan'}
                 </button>
+              )}
+              {planTemplates.length > 0 && (
+                <select
+                  data-testid="plan-template-picker"
+                  className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 focus:border-blue-500 focus:outline-none"
+                  value=""
+                  onChange={e => {
+                    if (e.target.value) {
+                      addPlanFromTemplate(e.target.value)
+                      e.target.value = ''
+                    }
+                  }}
+                >
+                  <option value="">+ From template…</option>
+                  {planTemplates.map(t => (
+                    <option key={t.slug} value={t.slug}>
+                      {t.name} — ${Number(t.recurring_price).toFixed(0)}
+                    </option>
+                  ))}
+                </select>
               )}
               <button
                 type="button"

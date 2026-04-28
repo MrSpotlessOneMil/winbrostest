@@ -23,6 +23,9 @@ const publicRoutes = [
   // Was missing from the whitelist (discovered 2026-04-28 via E2E setup);
   // every SMS deeplink had been silently 401'ing.
   '/api/auth/portal-exchange',
+  // Public service-plan agreement PDFs (Phase E). Customer-facing
+  // /quote/<token> view links to these — no session needed to download.
+  '/service-plans',
   '/quote',
   '/api/quotes',
   '/api/public',

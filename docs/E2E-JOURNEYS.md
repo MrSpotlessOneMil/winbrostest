@@ -137,10 +137,13 @@
 
 | # | Map ref | Journey | Status |
 |---|---|---|---|
-| T3.1 | Phase E | Service plan template seeds (3 fixed) | 🔴 blocked: plan names |
-| T3.2 | Phase E | Plan price = formula × exterior_windows line | 🔴 blocked |
-| T3.3 | Phase E | Customer accepts plan → auto-create service_plan_jobs | 🔴 blocked |
-| T3.4 | Phase E | Plan agreement signature captured | 🔴 blocked |
+| T3.1 | Phase E | Service plan template seeds (3 fixed) | ✅ `winbros-phase-e-service-plan-templates.spec.ts` |
+| T3.1a | Phase E | Each template has expected price + recurrence shape | ✅ same |
+| T3.1b | Phase E | Agreement PDFs publicly reachable (no session) | ✅ same |
+| T3.1c | Phase E | Cleaner sessions can READ templates | ✅ same |
+| T3.2 | Phase E | QuoteBuilder picker prefills from template | 🟡 UI shipped, no UI E2E yet |
+| T3.3 | Phase E | Customer-facing /quote/<token> shows 3-plan picker w/ Download Agreement | 🔴 customer-view integration deferred |
+| T3.4 | Phase E | Plan agreement signature captured at customer accept | 🔴 deferred — needs real agreement text first |
 | T3.5 | Phase G | automation_templates round-trip via dispatchAutomation | 🔴 needs alignment |
 | T3.6 | Phase G | Cron reads template body from DB (60s cache) | 🔴 needs alignment |
 | T3.7 | Phase G | Admin UI edits template body, preview renders | 🔴 needs alignment |
@@ -173,7 +176,7 @@ against prod (`cleanmachine.live`); the new sweep should run locally.
 | 3 | 8 / 8 | 0 / 8 | 8 specs (mostly blocked) |
 | HC sweep | per-tenant lifecycle | partial smoke only | full sweep |
 
-**Total winbros-phase E2E: 21 tests passing.**
+**Total winbros-phase E2E: 25 tests passing across Phases A, D, E, F, H, I.**
 
 **Pre-push gate stays at the unit level (200 tests) until Tier 1 + Tier 2A
 hit green. The winbros-phase project covers the round-2 work in `main`.**
