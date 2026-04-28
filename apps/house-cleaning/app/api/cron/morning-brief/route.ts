@@ -217,8 +217,9 @@ export async function GET(request: NextRequest) {
   }
 
   const dateLabel = formatBriefDate(ptDate)
-  const spendLabel = metaError ? '(spend unavailable)' : `$${totalSpend.toFixed(2)} spent`
-  let sms = `Spotless — ${dateLabel}\n${spendLabel} → ${leads.length} ${leads.length === 1 ? 'lead' : 'leads'}`
+  const leadsLabel = `${leads.length} ${leads.length === 1 ? 'lead' : 'leads'}`
+  const summaryLine = metaError ? leadsLabel : `$${totalSpend.toFixed(2)} → ${leadsLabel}`
+  let sms = `Spotless — ${dateLabel}\n${summaryLine}`
 
   if (leads.length > 0) {
     sms += '\n'
