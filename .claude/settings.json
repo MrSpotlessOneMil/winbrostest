@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/freeze-quote-flow.sh",
+            "command": "bash .claude/hooks/freeze-phase-shipped.sh",
             "timeout": 5
           }
         ]

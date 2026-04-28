@@ -1,0 +1,24 @@
+# Phase A/B/D/F Shipped Files — protected by freeze-phase-shipped.sh.
+# Trailing `*` = prefix wildcard. Otherwise exact match.
+# Unfreeze: export PHASE_SHIPPED_UNFROZEN=1 in the session after confirming
+# the edit with Dominic.
+
+# Phase A — Day-off approval workflow
+apps/window-washing/lib/time-off-validation.ts
+apps/window-washing/app/api/actions/time-off/route.ts
+apps/window-washing/app/api/actions/time-off/decision/route.ts
+scripts/migrations/20260427_time_off_approval.sql
+
+# Phase B — Standardized Create-X (the unified popup contract)
+apps/window-washing/hooks/use-start-new-quote.ts
+apps/window-washing/components/winbros/quote-builder-sheet.tsx
+
+# Phase D — Job execution + manual actions
+apps/window-washing/app/api/actions/visits/line-item/route.ts
+apps/window-washing/app/api/actions/send-review-link/route.ts
+
+# Phase F — 12.5% appointment-set commission
+apps/window-washing/lib/appointment-commission.ts
+apps/window-washing/lib/quote-conversion.ts
+apps/window-washing/lib/payroll.ts
+scripts/migrations/20260427_appointment_set_commission.sql
