@@ -39,12 +39,12 @@
 | T1.14 | 4.2 #6 / Phase I | winbros | salesman | Crew quote-draft from appointment auto-stamps salesman_id | `winbros-phase-i-quote-link-guard.spec.ts` | ✅ |
 | T1.15 | 4.2 #6 / Phase I | winbros | tech | Non-salesman crew draft inherits salesman from appointment | same | ✅ |
 | T1.16 | 5.2 Q7 | winbros | (db) | Direct DB insert violating link rule → CHECK 23514 | same | ✅ |
-| T1.17 | 5.8 A1 | winbros | tech/salesman | `/api/auth/portal-exchange` is publicly reachable (FIXED) | (smoke via curl in CI) | 🔴 |
-| T1.18 | 4.6 #6 | hc-any | admin | Login + currency render matches tenant (USD vs CAD) | `hc-currency-isolation.spec.ts` | 🔴 |
-| T1.19 | 5.7 T1 | hc-any | cleaner | Cross-tenant job read returns 404 | `hc-tenant-isolation.spec.ts` | 🔴 |
-| T1.20 | 5.4 V4 | hc-any | (system) | Stripe charge failure on close marks visit `payment_failed` | `hc-payment-failure.spec.ts` | 🔴 |
+| T1.17 | 5.8 A1 | winbros | tech/salesman | `/api/auth/portal-exchange` is publicly reachable (FIXED) | `winbros-phase-tier1-portal-exchange.spec.ts` | ✅ |
+| T1.18 | 4.6 #6 | all | admin | Quote endpoint returns tenant currency (WN=CAD, others=USD) | `winbros-phase-tier1-currency-isolation.spec.ts` | ✅ |
+| T1.19 | 5.7 T1 | winbros | admin | Cross-tenant PATCH on messages / time-off / line-items rejected | `winbros-phase-tier1-cross-tenant.spec.ts` | ✅ |
+| T1.20 | 5.4 V4 | hc-any | (system) | Stripe charge failure on close marks visit `payment_failed` | `hc-payment-failure.spec.ts` | 🔴 deferred — needs Stripe network mock |
 
-**Current Tier 1 coverage: 16 / 20 ✅**
+**Current Tier 1 coverage: 19 / 20 ✅** (T1.20 Stripe failure deferred — needs network mock)
 
 ---
 
@@ -79,9 +79,9 @@
 | T2.16b | Appointment with no salesman → no credit (skipped) | same | ✅ |
 | T2.16c | Appointment with price=0 → no credit (skipped) | same | ✅ |
 | T2.17 | Send quote SMS to customer (mocked OpenPhone) | `winbros-salesman-send-quote.spec.ts` | 🔴 |
-| T2.18 | Day-off ≥14 days → row created `pending` | `winbros-time-off-request.spec.ts` | 🔴 |
-| T2.19 | Day-off <14 days → blocked, `Text Mgr` badge | same | 🔴 |
-| T2.20 | Day-off denied + re-request → upsert resets to `pending` | same | 🔴 |
+| T2.18 | Day-off ≥14 days → row created `pending` | `winbros-phase-tier2-time-off-cycle.spec.ts` | ✅ |
+| T2.19 | Day-off <14 days → blocked at UI (server still accepts for override) | same | ✅ |
+| T2.20 | Day-off denied + re-request → upsert resets to `pending` | same | ✅ |
 
 ### 2C — WinBros team lead (section 4.3)
 
