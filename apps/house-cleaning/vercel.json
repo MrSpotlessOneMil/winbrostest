@@ -89,7 +89,7 @@
       "schedule": "0 4 * * *"
     },
     {
-      "path": "/api/cron/meta-ads-monitor",
+      "path": "/api/cron/morning-brief",
       "schedule": "0 16 * * *"
     },
     {
