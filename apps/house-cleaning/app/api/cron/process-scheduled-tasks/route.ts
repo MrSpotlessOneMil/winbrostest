@@ -150,6 +150,10 @@ const PERSONAL_HOURS_TASKS = new Set([
   'hot_lead_followup',
   'ranked_cascade',
   'overnight_catchup',
+  // Build 2 (HC follow-ups + retargeting rebuild)
+  // Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md
+  'followup.ghost_chase',
+  'retargeting.win_back',
 ])
 
 const ACTIVE_CONVO_WINDOW_MIN = 30
@@ -196,6 +200,9 @@ const RETARGETING_GATED_TASKS = new Set([
   'mid_convo_nudge',
   'post_job_recurring_push',
   'hot_lead_followup',
+  // Build 2: gated by RETARGETING_DISABLED + per-tenant followup_rebuild_v2_enabled
+  'followup.ghost_chase',
+  'retargeting.win_back',
 ])
 const PERSONAL_HOUR_START = 9  // 9 AM
 const PERSONAL_HOUR_END = 21   // 9 PM
@@ -339,6 +346,42 @@ async function processTask(task: ScheduledTask): Promise<void> {
     case 'overnight_catchup':
       await processOvernightCatchup(payload, tenant, tenant_id || null)
       break
+
+    // Build 2 (HC follow-ups + retargeting rebuild)
+    // Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md
+    case 'followup.ghost_chase': {
+      // Per-tenant feature flag: only fire when v2 is enabled for this tenant.
+      const v2Enabled = !!(tenant?.workflow_config && (tenant.workflow_config as Record<string, unknown>).followup_rebuild_v2_enabled)
+      if (!v2Enabled) {
+        // Cancel the v2-mode chase; legacy crons handle followups for this tenant until cutover.
+        const supabase = getSupabaseServiceClient()
+        await supabase.from('scheduled_tasks').update({ status: 'cancelled', last_error: 'cancelled: v2_disabled' }).eq('id', task.id)
+        break
+      }
+      const { runGhostChaseStep } = await import('@/lib/services/followups/ghost-chase')
+      await runGhostChaseStep({
+        taskId: task.id,
+        payload: payload as Parameters<typeof runGhostChaseStep>[0]['payload'],
+        tenantId: tenant_id || tenant?.id || '',
+      })
+      break
+    }
+
+    case 'retargeting.win_back': {
+      const v2Enabled = !!(tenant?.workflow_config && (tenant.workflow_config as Record<string, unknown>).followup_rebuild_v2_enabled)
+      if (!v2Enabled) {
+        const supabase = getSupabaseServiceClient()
+        await supabase.from('scheduled_tasks').update({ status: 'cancelled', last_error: 'cancelled: v2_disabled' }).eq('id', task.id)
+        break
+      }
+      const { runWinBackStep } = await import('@/lib/services/followups/retargeting-service')
+      await runWinBackStep({
+        taskId: task.id,
+        payload: payload as Parameters<typeof runWinBackStep>[0]['payload'],
+        tenantId: tenant_id || tenant?.id || '',
+      })
+      break
+    }
 
     case 'send_sms':
     case 'post_job_tip':

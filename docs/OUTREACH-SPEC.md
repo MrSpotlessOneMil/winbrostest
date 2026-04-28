@@ -565,6 +565,7 @@ All future changes to this spec get an entry here.
 |------|--------|--------|-------------|
 | 2026-04-22 | Initial freeze — v1.0 | Phase 2 redesign after 2026-04-22 West Niagara audit | Dominic |
 | 2026-04-23 | Universal 30-min active-conversation gate added to all 3 pipelines; legacy post-quote stage-1 10-min skip superseded. | Dominic flagged that follow-ups could fire mid-convo when customer is actively texting. | Dominic |
+| 2026-04-28 | **v1.0 SUPERSEDED by v2 rebuild** (`~/.claude/plans/a-remeber-i-said-drifting-manatee.md`). New unified 6-step ghost chase (pre-quote + post-quote share cadence) + next-task-on-fire infinite retargeting per `clean_machine_rebuild/04_FOLLOW_UPS.md` + `07_RETARGETING.md`. New code: `apps/house-cleaning/lib/services/followups/{ghost-chase,retargeting-service,offer-engine,unsubscribe,templates}.ts`. v1.0 Pipeline crons (`followup-pre-quote`, `followup-post-quote`, `retargeting-drip`) remain in repo but no-op (no tenant has `outreach_enabled=true`). v2 gated per-tenant by `workflow_config.followup_rebuild_v2_enabled` (default `false`). Build 1 also rebuilt the AI quote-send moment to (a) hide $ from SMS body, (b) insert a rapport / value-build turn before the quote link, (c) re-read history on resume after human takeover. | Dominic ("delete it all and rebuild") |
 
 ---
 

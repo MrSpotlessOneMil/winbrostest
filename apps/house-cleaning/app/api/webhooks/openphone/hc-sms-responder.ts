@@ -14,6 +14,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { buildIntakeSnapshot, decideIntake } from '@/lib/intake-state-machine'
+import { stripCurrencyForQuoteSend, computeRapportGate } from '@/lib/auto-response'
 
 // ── Types ──
 
@@ -40,6 +41,10 @@ interface HCResponderInput {
     notes?: string | null
     bedrooms?: number | null
     bathrooms?: number | null
+    /** Build 1 #2: rapport-first state. NULL = AI must send rapport before quote. */
+    pre_quote_rapport_sent_at?: string | null
+    /** Build 1 #3: takeover hold. AI does NOT respond if in the future. */
+    human_takeover_until?: string | null
   } | null
   knownInfo?: {
     firstName?: string | null
@@ -67,6 +72,13 @@ interface HCResponderResult {
   reason: string
   bookingComplete?: boolean
   escalation?: { shouldEscalate: boolean; reasons: string[] }
+  /**
+   * True when this turn is the rapport / value-build message that fires once
+   * per lead lifecycle BEFORE the quote link. Webhook caller must stamp
+   * customers.pre_quote_rapport_sent_at when this is true.
+   * Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md (Build 1 #2)
+   */
+  rapportSent?: boolean
 }
 
 // ── Sanitizer ──
@@ -194,14 +206,16 @@ THE FLOW:
 Each of these is ONE text, sent on separate turns. Wait for their reply between each.
 
 1. They text in -> you greet and ask the FIRST missing piece (service type, then bed/bath).
-2. Once you have service type + bed + bath -> CLOSE. One message: quote the EXACT price from VERIFIED PRICING below + tell them you're sending options. Fire [BOOKING_COMPLETE] on this same turn. The system will text the booking URL automatically right after.
-   Example: "A standard clean for 3 bed, 2 bath is $362.50. Sending you a quick link with options now. [BOOKING_COMPLETE]"
-3. If they push back BEFORE you've sent the link (e.g. "thats a lot", "too expensive"):
-   - Price objection: stack one value point. "We're fully insured, background-checked, and guarantee your satisfaction or we come back free." Then wait.
-   - Question: answer it. Then wait.
-   - Then close on the next turn with [BOOKING_COMPLETE].
+2. Once you have service type + bed + bath:
+   FIRST TIME: send a short rapport / value-build message (NO price, NO link). Ask one casual question that invites a reply. Close with one trust point. Example: "Real quick before I send your quote, anything specific you want us to focus on? We bring all our own supplies and are fully insured."
+   AFTER they reply: CLOSE. Tell them you are sending the quote, fire [BOOKING_COMPLETE]. Example: "Got it — sending your quote options now. [BOOKING_COMPLETE]"
+3. CRITICAL — NEVER include any dollar amount, price number, or currency symbol in your SMS. The customer sees the price ONLY when they click the quote link. If you write a number like 325 or $362.50, the message will be blocked.
+4. If they push back BEFORE you've sent the link (e.g. "how much", "thats a lot", "too expensive"):
+   - "Want me to send your options? Standard / deep / move clean each have different rates." Then wait.
+   - Stack value: "We're fully insured, background-checked, and guarantee your satisfaction or we come back free."
+   - Close on the next turn with [BOOKING_COMPLETE]. The link reveals price.
 
-CRITICAL: As soon as you have service + bed + bath, fire [BOOKING_COMPLETE] in the same message as the price. Do NOT make the customer ask twice. Do NOT wait for them to say "yes send it" — the offer to send a link IS the close. The booking URL is the next message they receive automatically.
+CRITICAL: NEVER quote a dollar amount in your message. Pricing lives ONLY on the quote page behind the link the system sends after [BOOKING_COMPLETE].
 
 PRICE OBJECTIONS:
 Don't flinch. Don't apologize. Stack value one point at a time:
@@ -222,7 +236,8 @@ Say "Our team will reach out shortly!" and stop.
 CRITICAL:
 - ONE message per turn. This is the most important rule.
 - Never re-ask something already answered
-- Never send a price AND [BOOKING_COMPLETE] in the same message
+- NEVER include a dollar amount, price number, or currency symbol in your SMS body. Pricing lives only on the quote link page.
+- Never send a number AND [BOOKING_COMPLETE] in the same message
 - If a human is already texting this customer, stay out of it
 - If they want a job as a cleaner: "Text ${tenant.owner_phone || 'the owner'} about opportunities"
 
@@ -296,17 +311,77 @@ export async function generateHCResponse(input: HCResponderInput): Promise<HCRes
   // toward [BOOKING_COMPLETE]. If no, pin the focus gap so it asks for the
   // right thing instead of freelancing. Fixes the Natasha Jones stall
   // where the agent collected bed+bath then just stopped.
+  //
+  // Build 1 #2: BEFORE firing [BOOKING_COMPLETE], we check the rapport gate.
+  // If facts are complete AND customer has never received the rapport turn,
+  // we send rapport ONLY and explicitly NOT [BOOKING_COMPLETE] this turn.
+  // Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md
   let intakeBlock = ''
+  // Compute rapport-first + takeover-resume gates from canonical helper.
+  const gate = computeRapportGate({
+    knownCustomerInfo: knownInfo
+      ? {
+          firstName: knownInfo.firstName ?? null,
+          address: knownInfo.address ?? null,
+          bedrooms: knownInfo.bedrooms ?? null,
+          bathrooms: knownInfo.bathrooms ?? null,
+          serviceType: knownInfo.serviceType ?? null,
+        }
+      : undefined,
+    customerContext: customer
+      ? {
+          activeJobs: (customerContext?.activeJobs ?? []).map(j => ({
+            id: 0, service_type: j.service_type ?? null, date: j.date ?? null,
+            scheduled_at: null, price: null, status: j.status,
+            address: null, cleaner_name: null,
+          })),
+          recentJobs: (customerContext?.recentJobs ?? []).map(j => ({
+            id: 0, service_type: j.service_type ?? null, date: null,
+            price: j.price ?? null, completed_at: j.completed_at ?? null,
+          })),
+          customer: {
+            id: customer.id, first_name: customer.first_name ?? null,
+            last_name: customer.last_name ?? null, email: customer.email ?? null,
+            address: customer.address ?? null, notes: customer.notes ?? null,
+            housecall_pro_customer_id: null,
+            pre_quote_rapport_sent_at: customer.pre_quote_rapport_sent_at ?? null,
+            human_takeover_until: customer.human_takeover_until ?? null,
+          },
+          lead: null,
+          totalJobs: customerContext?.totalJobs ?? 0,
+          totalSpend: customerContext?.totalSpend ?? 0,
+        }
+      : null,
+    isRetargetingReply,
+  })
+
   try {
     const snap = buildIntakeSnapshot(null, customer, knownInfo)
     const decision = decideIntake(snap)
     if (decision.complete) {
-      intakeBlock = `\n\nINTAKE STATE: COMPLETE. You have every required field. Quote the exact price from the PRICING block above AND fire [BOOKING_COMPLETE] in this same message. The system will text the booking URL right after. Do NOT wait another turn.\n`
+      if (gate.shouldDeliverRapportFirst) {
+        intakeBlock = `\n\nINTAKE STATE: COMPLETE — but you have NEVER sent this customer the rapport / value-build message. You MUST send rapport NOW before the quote link.\n`
+          + `Rules for THIS turn ONLY:\n`
+          + `  - Send ONE short message (under 160 chars). NO price. NO dollar amount. NO link.\n`
+          + `  - Briefly acknowledge what they want.\n`
+          + `  - Ask ONE casual rapport question that invites a reply (examples: "anything specific you want us to focus on?", "any pets we should know about?", "how is your day going?").\n`
+          + `  - Mention ONE value point: insured + background-checked, all supplies included, satisfaction guarantee, or highly rated on Google.\n`
+          + `  - DO NOT include [BOOKING_COMPLETE] in this turn.\n`
+          + `  - Do NOT promise to send the quote NOW; say "send your quote next" or similar future tense.\n`
+      } else {
+        intakeBlock = `\n\nINTAKE STATE: COMPLETE. You have every required field AND the customer already received the rapport turn. Tell them you are sending the quote and fire [BOOKING_COMPLETE] in this same message. The system will text the booking URL right after. NEVER include a dollar amount in your SMS body — the link reveals price.\n`
+      }
     } else if (decision.gaps.length > 0) {
       intakeBlock = `\n\nINTAKE STATE: missing ${decision.gaps.join(', ')}. FOCUS: ${decision.focus}. Ask ONE short question: "${decision.nextQuestion}". Do NOT ask for anything in INFO ON FILE.\n`
     }
   } catch {
     // Non-blocking — fall back to existing behavior if snapshot fails.
+  }
+
+  // Build 1 #3: takeover-resume awareness — prepend instruction when AI is
+  // resuming a thread a human just handed back.
+  if (gate.humanTakeoverRecentlyEnded) {
+    intakeBlock = `\n\nHUMAN-OPERATOR-WAS-HANDLING-THIS-THREAD: A human operator was managing this conversation until very recently. Read the FULL history below carefully. Do NOT repeat anything the human already said. If the human already addressed the customer's last question, briefly acknowledge and move forward. Be especially careful not to undo or contradict anything the human told the customer.\n` + intakeBlock
   }
 
   // Load brain + patterns + pricing in parallel
@@ -395,7 +470,7 @@ REMEMBER: ONE message only. No emojis. No em dashes. No markdown. If intake is C
     }
 
     // Detect tags
-    const hasBookingComplete = rawText.includes('[BOOKING_COMPLETE]')
+    let hasBookingComplete = rawText.includes('[BOOKING_COMPLETE]')
     const escalationMatch = rawText.match(/\[ESCALATE:(\w+)\]/)
 
     // Clean response
@@ -409,17 +484,38 @@ REMEMBER: ONE message only. No emojis. No em dashes. No markdown. If intake is C
     // Strip ||| — the AI should never send multiple texts in one turn
     cleaned = cleaned.split('|||')[0].trim()
 
+    // Build 1 #2: rapport-first override. If we instructed rapport-only and
+    // the model still emitted [BOOKING_COMPLETE], we cancel the booking trigger
+    // and treat this turn as a rapport message. Webhook caller will stamp
+    // customers.pre_quote_rapport_sent_at.
+    let isRapportTurn = false
+    if (gate.shouldDeliverRapportFirst) {
+      isRapportTurn = true
+      hasBookingComplete = false
+    }
+
+    // Build 1 #1: defense-in-depth currency strip when a quote-send is imminent
+    // OR when we're in the rapport turn (rapport must NEVER include a price).
+    if (isRapportTurn || hasBookingComplete) {
+      const { stripped, didStrip } = stripCurrencyForQuoteSend(cleaned)
+      if (didStrip) {
+        console.warn(`[HC Responder] ${tenant.slug}: currency leaked into SMS — stripped. Raw: "${rawText.slice(0, 200)}"`)
+      }
+      cleaned = stripped
+    }
+
     if (!cleaned) {
       return { response: '', shouldSend: false, reason: 'Response empty after sanitization' }
     }
 
-    console.log(`[HC Responder] ${tenant.slug}: "${message.slice(0, 50)}" -> "${cleaned.slice(0, 80)}" booking=${hasBookingComplete}`)
+    console.log(`[HC Responder] ${tenant.slug}: "${message.slice(0, 50)}" -> "${cleaned.slice(0, 80)}" booking=${hasBookingComplete} rapport=${isRapportTurn}`)
 
     return {
       response: cleaned,
       shouldSend: true,
-      reason: 'HC SMS responder (operation-beat-human)',
+      reason: isRapportTurn ? 'HC SMS responder (rapport-first turn)' : 'HC SMS responder (operation-beat-human)',
       bookingComplete: hasBookingComplete || undefined,
+      rapportSent: isRapportTurn || undefined,
       escalation: escalationMatch
         ? { shouldEscalate: true, reasons: [escalationMatch[1]] }
         : undefined,

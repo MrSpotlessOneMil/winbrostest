@@ -34,6 +34,10 @@ export type TaskType =
   | 'send_sms'
   | 'hot_lead_followup'
   | 'ranked_cascade'
+  // Build 2 (HC follow-ups + retargeting rebuild)
+  // Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md
+  | 'followup.ghost_chase'
+  | 'retargeting.win_back'
 
 export interface ScheduledTask {
   id: string

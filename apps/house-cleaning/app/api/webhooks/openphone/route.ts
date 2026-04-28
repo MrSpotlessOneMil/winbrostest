@@ -3341,7 +3341,20 @@ async function processOpenPhoneWebhook(request: NextRequest): Promise<NextRespon
               reason: autoResponse.reason,
               combined_message: combinedMessage,
               received_at: receivedAt,
+              rapport_turn: autoResponse.rapportSent || false,
             })
+
+            // Build 1 #2: stamp pre_quote_rapport_sent_at when AI fired the rapport turn.
+            // The next inbound from this customer triggers normal quote-link send.
+            // Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md
+            if (autoResponse.rapportSent && customer?.id && sendResult.success) {
+              await client
+                .from('customers')
+                .update({ pre_quote_rapport_sent_at: new Date().toISOString() })
+                .eq('id', customer.id)
+                .eq('tenant_id', tenant!.id)
+                .is('pre_quote_rapport_sent_at', null) // idempotent: only stamp once
+            }
 
             // Sync customer name to DB + OpenPhone as soon as we have it
             if (tenant) await syncCustomerNameIfAvailable(client, tenant, customer, conversationHistory)
