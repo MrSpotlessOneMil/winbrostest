@@ -193,17 +193,15 @@ Study the conversation history below. Match the customer's vibe. If they text sh
 THE FLOW:
 Each of these is ONE text, sent on separate turns. Wait for their reply between each.
 
-1. They text in -> you greet and ask how many bedrooms and bathrooms
-2. They give bed/bath -> you give the EXACT price from VERIFIED PRICING below. Just the price and one trust signal. That's it.
-3. They react (could be "ok", "thats a lot", "sounds good", anything) -> you respond to THEIR reaction:
-   - If positive: "Want me to send your booking options? No charge until after the job is done." then [BOOKING_COMPLETE]
-   - If price objection: stack one value point. "We're fully insured, background-checked, and guarantee your satisfaction or we come back free." Then wait.
-   - If question: answer it. Then wait.
-4. ONLY fire [BOOKING_COMPLETE] AFTER they signal yes/ok/ready/send it/book me
+1. They text in -> you greet and ask the FIRST missing piece (service type, then bed/bath).
+2. Once you have service type + bed + bath -> CLOSE. One message: quote the EXACT price from VERIFIED PRICING below + tell them you're sending options. Fire [BOOKING_COMPLETE] on this same turn. The system will text the booking URL automatically right after.
+   Example: "A standard clean for 3 bed, 2 bath is $362.50. Sending you a quick link with options now. [BOOKING_COMPLETE]"
+3. If they push back BEFORE you've sent the link (e.g. "thats a lot", "too expensive"):
+   - Price objection: stack one value point. "We're fully insured, background-checked, and guarantee your satisfaction or we come back free." Then wait.
+   - Question: answer it. Then wait.
+   - Then close on the next turn with [BOOKING_COMPLETE].
 
-NEVER fire [BOOKING_COMPLETE] on the same turn you give the price. NEVER. Give price -> wait -> they respond -> then close.
-
-If they gave bed/bath in their FIRST message along with "how much", you can give the price in your first reply. But still wait for their reaction before firing [BOOKING_COMPLETE].
+CRITICAL: As soon as you have service + bed + bath, fire [BOOKING_COMPLETE] in the same message as the price. Do NOT make the customer ask twice. Do NOT wait for them to say "yes send it" — the offer to send a link IS the close. The booking URL is the next message they receive automatically.
 
 PRICE OBJECTIONS:
 Don't flinch. Don't apologize. Stack value one point at a time:
@@ -303,7 +301,7 @@ export async function generateHCResponse(input: HCResponderInput): Promise<HCRes
     const snap = buildIntakeSnapshot(null, customer, knownInfo)
     const decision = decideIntake(snap)
     if (decision.complete) {
-      intakeBlock = `\n\nINTAKE STATE: COMPLETE. You have every required field. Quote the exact price from the PRICING block above and fire [BOOKING_COMPLETE] on the NEXT turn (not this one — give the price first, let the customer react).\n`
+      intakeBlock = `\n\nINTAKE STATE: COMPLETE. You have every required field. Quote the exact price from the PRICING block above AND fire [BOOKING_COMPLETE] in this same message. The system will text the booking URL right after. Do NOT wait another turn.\n`
     } else if (decision.gaps.length > 0) {
       intakeBlock = `\n\nINTAKE STATE: missing ${decision.gaps.join(', ')}. FOCUS: ${decision.focus}. Ask ONE short question: "${decision.nextQuestion}". Do NOT ask for anything in INFO ON FILE.\n`
     }
@@ -372,7 +370,7 @@ Customer just texted: "${message}"
 
 Respond as ${sdrName}. Write ONLY the SMS text (and [BOOKING_COMPLETE] or [ESCALATE:reason] tag if needed). Nothing else.
 
-REMEMBER: ONE message only. No emojis. No em dashes. No markdown. Do NOT include [BOOKING_COMPLETE] if you are giving a price in this same message. Give the price, wait for their reply, THEN close on the next turn.`
+REMEMBER: ONE message only. No emojis. No em dashes. No markdown. If intake is COMPLETE (service + bed + bath), give the price AND fire [BOOKING_COMPLETE] in this same message — the system sends the booking URL automatically right after.`
 
   // Call Claude
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -397,17 +395,8 @@ REMEMBER: ONE message only. No emojis. No em dashes. No markdown. Do NOT include
     }
 
     // Detect tags
-    let hasBookingComplete = rawText.includes('[BOOKING_COMPLETE]')
+    const hasBookingComplete = rawText.includes('[BOOKING_COMPLETE]')
     const escalationMatch = rawText.match(/\[ESCALATE:(\w+)\]/)
-
-    // CRITICAL: If the response contains a price ($XXX) AND [BOOKING_COMPLETE],
-    // suppress the booking tag. The customer hasn't reacted to the price yet.
-    // Let them respond first, then close on the next turn.
-    const hasPrice = /\$\d/.test(rawText)
-    if (hasBookingComplete && hasPrice) {
-      console.log(`[HC Responder] Suppressed [BOOKING_COMPLETE] — price in same message, waiting for customer reaction`)
-      hasBookingComplete = false
-    }
 
     // Clean response
     let cleaned = rawText
