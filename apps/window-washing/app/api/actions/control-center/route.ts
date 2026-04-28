@@ -96,6 +96,11 @@ export async function GET(request: NextRequest) {
         success: true,
         data: {
           service_plan_label: (wc.service_plan_label as string) || "Service Plans",
+          // Phase E2 (Blake 2026-04-28): editable, tenant-wide service-plan
+          // agreement. Auto-attached to any quote whose plans are offered to
+          // the customer. Empty string = no agreement attached yet.
+          service_plan_agreement_html:
+            (wc.service_plan_agreement_html as string) || "",
         },
       })
     }
@@ -385,6 +390,12 @@ export async function PATCH(request: NextRequest) {
       if (typeof data.service_plan_label === "string") {
         wc.service_plan_label = data.service_plan_label.trim() || "Service Plans"
       }
+      // Phase E2 — editable plan agreement. We accept any string (HTML
+      // allowed for formatting); customer-side render uses sanitized
+      // dangerouslySetInnerHTML. Empty string clears the agreement.
+      if (typeof data.service_plan_agreement_html === "string") {
+        wc.service_plan_agreement_html = data.service_plan_agreement_html
+      }
       const { error } = await client
         .from("tenants")
         .update({ workflow_config: wc })
@@ -393,7 +404,13 @@ export async function PATCH(request: NextRequest) {
       if (error) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 })
       }
-      return NextResponse.json({ success: true, data: { service_plan_label: wc.service_plan_label } })
+      return NextResponse.json({
+        success: true,
+        data: {
+          service_plan_label: wc.service_plan_label,
+          service_plan_agreement_html: wc.service_plan_agreement_html ?? "",
+        },
+      })
     }
   }
 }

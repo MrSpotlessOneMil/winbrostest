@@ -74,7 +74,7 @@ export default defineConfig({
       // server on port 3002 (or WW_BASE_URL). They mint sessions inline
       // via Supabase service role, so they don't need auth.setup.ts.
       name: 'winbros-phase',
-      testMatch: /winbros-phase-[a-z]+-.*\.spec\.ts/,
+      testMatch: /winbros-phase-[a-z][a-z0-9]*-.*\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         baseURL: process.env.WW_BASE_URL || 'http://localhost:3002',

@@ -207,6 +207,12 @@ export default function ControlCenterPage() {
   const [sectionLabel, setSectionLabel] = useState("Service Plans")
   const [editingLabel, setEditingLabel] = useState(false)
   const [labelDraft, setLabelDraft] = useState("Service Plans")
+  // Phase E2 — editable service-plan agreement (Blake 2026-04-28).
+  // Lives in tenants.workflow_config.service_plan_agreement_html.
+  // Auto-attached to any quote that has at least one offered service plan.
+  const [agreementHtml, setAgreementHtml] = useState("")
+  const [agreementDraft, setAgreementDraft] = useState("")
+  const [agreementSaving, setAgreementSaving] = useState(false)
   const [labelSaving, setLabelSaving] = useState(false)
 
   // ── Fetch helpers ──
@@ -292,11 +298,39 @@ export default function ControlCenterPage() {
         const label = json.data.service_plan_label || "Service Plans"
         setSectionLabel(label)
         setLabelDraft(label)
+        const ag = (json.data.service_plan_agreement_html as string) || ""
+        setAgreementHtml(ag)
+        setAgreementDraft(ag)
       }
     } catch {
       // Use default
     }
   }, [])
+
+  async function saveAgreement() {
+    setAgreementSaving(true)
+    try {
+      const res = await fetch(API, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "config",
+          data: { service_plan_agreement_html: agreementDraft },
+        }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      setAgreementHtml(agreementDraft)
+      showToast("success", "Agreement saved")
+    } catch (err) {
+      showToast(
+        "error",
+        err instanceof Error ? err.message : "Failed to save agreement"
+      )
+    } finally {
+      setAgreementSaving(false)
+    }
+  }
 
   async function saveSectionLabel() {
     const trimmed = labelDraft.trim() || "Service Plans"
@@ -1130,6 +1164,62 @@ export default function ControlCenterPage() {
               Add Plan Type
             </Button>
           )}
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* SECTION 2b: Service Plan Agreement (auto-attached to quotes w/ plans) */}
+      {/* Phase E2 (Blake 2026-04-28): one tenant-wide editable agreement.      */}
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-950 overflow-hidden">
+        <div className="px-4 py-3 border-b border-zinc-800 bg-zinc-900/50">
+          <h2 className="text-sm font-semibold text-zinc-100 uppercase tracking-wider">
+            {sectionLabel} Agreement
+          </h2>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Auto-attached to any quote that includes at least one service
+            plan offered to the customer. HTML allowed (e.g. &lt;p&gt;,
+            &lt;ul&gt;, &lt;strong&gt;). Variables you can use:{" "}
+            <code className="text-zinc-300">{"{{customer_name}}"}</code>,{" "}
+            <code className="text-zinc-300">{"{{plan_name}}"}</code>,{" "}
+            <code className="text-zinc-300">{"{{plan_price}}"}</code>,{" "}
+            <code className="text-zinc-300">{"{{tenant_name}}"}</code>.
+          </p>
+        </div>
+        <div className="px-4 py-4 space-y-2">
+          <Textarea
+            data-testid="service-plan-agreement-textarea"
+            value={agreementDraft}
+            onChange={(e) => setAgreementDraft(e.target.value)}
+            placeholder={`<p>This Service Agreement is between {{customer_name}} ("Customer") and ${
+              sectionLabel || "WinBros"
+            } ("Provider")…</p>`}
+            className="min-h-[180px] text-sm bg-zinc-900 font-mono"
+          />
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] text-zinc-600">
+              {agreementDraft.length} chars
+              {agreementDraft.trim().length === 0 && (
+                <span className="ml-2 text-amber-400">
+                  (empty — no agreement attached to plan quotes)
+                </span>
+              )}
+            </p>
+            <Button
+              size="sm"
+              data-testid="service-plan-agreement-save"
+              onClick={saveAgreement}
+              disabled={agreementSaving || agreementDraft === agreementHtml}
+              className="cursor-pointer text-xs"
+            >
+              {agreementSaving ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Save className="w-3 h-3 mr-1" />
+              )}
+              Save Agreement
+            </Button>
+          </div>
         </div>
       </div>
 

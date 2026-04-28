@@ -3,6 +3,17 @@ import { getSupabaseServiceClient } from "@/lib/supabase"
 import { getQuotePricing, computeQuoteTotal, isWindowCleaningTenant } from "@/lib/quote-pricing"
 import { getStripeClientForTenant, getTenantRedirectDomain, findOrCreateStripeCustomer } from "@/lib/stripe-client"
 
+/** Escape any text value before slotting into our agreement HTML so a
+ *  customer name like "<script>" can't break out into the rendered DOM. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 /** Safely add months without JS Date overflow (Jan 31 + 1 month = Feb 28, not Mar 3) */
 function addMonths(date: Date, months: number): Date {
   const result = new Date(date)
@@ -83,6 +94,16 @@ export async function GET(
     .eq("active", true)
     .order("discount_per_visit", { ascending: true })
 
+  // Phase E2 — fetch per-quote attached plans (offered_to_customer=true).
+  // If any are present, the tenant's editable service-plan agreement gets
+  // rendered on the customer view with variable substitution.
+  const { data: attachedPlans } = await supabase
+    .from("quote_service_plans")
+    .select("id, name, recurring_price, offered_to_customer")
+    .eq("quote_id", quote.id)
+    .eq("tenant_id", tenant.id)
+    .eq("offered_to_customer", true)
+
   // Build service agreement text
   const wc = tenant.workflow_config as Record<string, unknown> || {}
   const cancellationFee = Number(wc.cancellation_fee_cents || 5000) / 100
@@ -102,6 +123,33 @@ export async function GET(
     ],
   }
 
+  // Phase E2 — auto-attach service-plan agreement when this quote has any
+  // offered plan. We render the first plan's name + price into the
+  // template; if multiple plans are offered, the customer-side renderer
+  // can re-render per plan.
+  const offeredPlans = attachedPlans ?? []
+  const rawAgreement =
+    (wc.service_plan_agreement_html as string | undefined) || ""
+  let servicePlanAgreementHtml: string | null = null
+  if (offeredPlans.length > 0 && rawAgreement.trim().length > 0) {
+    const firstPlan = offeredPlans[0]
+    const customerName =
+      (quote.customer_name as string | null) || "Customer"
+    const tenantName =
+      (tenant.business_name as string | null) ||
+      (tenant.name as string | null) ||
+      "Provider"
+    const planName = (firstPlan?.name as string | null) || "Plan"
+    const planPriceNum = Number(firstPlan?.recurring_price ?? 0)
+    const planPrice = `$${planPriceNum.toFixed(2)}`
+
+    servicePlanAgreementHtml = rawAgreement
+      .replace(/\{\{\s*customer_name\s*\}\}/gi, escapeHtml(customerName))
+      .replace(/\{\{\s*tenant_name\s*\}\}/gi, escapeHtml(tenantName))
+      .replace(/\{\{\s*plan_name\s*\}\}/gi, escapeHtml(planName))
+      .replace(/\{\{\s*plan_price\s*\}\}/gi, escapeHtml(planPrice))
+  }
+
   return NextResponse.json({
     success: true,
     quote,
@@ -110,6 +158,8 @@ export async function GET(
     addons: pricing.addons,
     serviceType: pricing.serviceType,
     servicePlans: servicePlans || [],
+    attachedServicePlans: offeredPlans,
+    servicePlanAgreementHtml,
     serviceAgreement,
     custom_base_price: quote.custom_base_price ? Number(quote.custom_base_price) : null,
     custom_terms: quote.custom_terms || null,
