@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { upsertPendingAppointmentCredit } from '@/lib/appointment-commission'
+import { renderTemplate, resolveAutomatedMessage } from '@/lib/automated-messages'
 
 /**
  * Appointments — WinBros Round 2 task 4.
@@ -170,7 +171,53 @@ export async function POST(request: NextRequest) {
     })
   }
 
+  // Phase G: send the editable `appointment_confirm` SMS once we have a
+  // customer phone. Skipped silently if no template + no phone, or if the
+  // admin paused the template via is_active=false.
+  if (data?.id) {
+    void sendAppointmentConfirm(client, authResult.tenant, data.id).catch((err) => {
+      console.error('[appointments] appointment_confirm send failed:', err)
+    })
+  }
+
   return NextResponse.json({ appointment: data })
+}
+
+async function sendAppointmentConfirm(
+  client: ReturnType<typeof getSupabaseServiceClient>,
+  tenant: { id: string; business_name_short?: string | null; name?: string | null },
+  appointmentId: number,
+): Promise<void> {
+  const { data: appt } = await client
+    .from('jobs')
+    .select(
+      'id, date, scheduled_at, phone_number, customer_id, customers:customer_id(first_name, phone_number)'
+    )
+    .eq('id', appointmentId)
+    .maybeSingle()
+
+  const customer = (appt as any)?.customers
+  const phone = customer?.phone_number || appt?.phone_number
+  if (!phone) return
+
+  const fallback = `Hi {{customer_name}}! Your appointment with {{business_name}} is set for {{date}} at {{time}}. We'll be there!`
+  const resolved = await resolveAutomatedMessage(client, {
+    tenantId: tenant.id,
+    trigger: 'appointment_confirm',
+    fallbackBody: fallback,
+  })
+  if (!resolved.isActive) return
+
+  const businessName = tenant.business_name_short || tenant.name || 'WinBros'
+  const message = renderTemplate(resolved.body, {
+    customer_name: customer?.first_name || 'there',
+    business_name: businessName,
+    date: appt?.date || '',
+    time: appt?.scheduled_at || '',
+  })
+
+  const { sendSMS } = await import('@/lib/openphone')
+  await sendSMS(tenant as any, phone, message)
 }
 
 export async function PATCH(request: NextRequest) {

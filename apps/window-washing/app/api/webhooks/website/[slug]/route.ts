@@ -5,6 +5,7 @@ import { sendSMS } from "@/lib/openphone"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getTenantBySlug, getTenantServiceDescription } from "@/lib/tenant"
+import { renderTemplate, resolveAutomatedMessage } from "@/lib/automated-messages"
 
 // CORS headers for embed-friendly response (any domain can POST)
 const corsHeaders = {
@@ -212,25 +213,48 @@ export async function POST(
   // reach [BOOKING_COMPLETE] (needs address + bed/bath) and send the 3-tier quote link.
   const sdrName = tenant.sdr_persona || "Mary"
   const isSpecializedService = ['commercial', 'post_construction', 'airbnb'].includes(serviceType)
-  let smsMessage: string
+  let smartFallback: string
   if (isSpecializedService) {
-    // Specialized services — don't ask for bedrooms/bathrooms, collect project details instead
-    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for reaching out about ${friendlyService}! We'd love to learn more about the job — what's the address and roughly how big is the space? We'll get you a custom quote fast.`
+    smartFallback = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for reaching out about ${friendlyService}! We'd love to learn more about the job — what's the address and roughly how big is the space? We'll get you a custom quote fast.`
   } else if (bedrooms && bathrooms && estimatedPrice && address) {
-    // Everything we need — tell them quote is on the way (bot will fire [BOOKING_COMPLETE])
-    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for your quote request — ${bedrooms} bed, ${bathrooms} bath at ${address}. I'm sending over your cleaning options right now!`
+    smartFallback = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for your quote request — ${bedrooms} bed, ${bathrooms} bath at ${address}. I'm sending over your cleaning options right now!`
   } else if (bedrooms && bathrooms && estimatedPrice) {
-    // Have sizing + price, just need address to send the quote link
-    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your quote request — ${bedrooms} bed, ${bathrooms} bath, looks like around $${estimatedPrice} for a standard clean. What's the address? I'll send over your options right away!`
+    smartFallback = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your quote request — ${bedrooms} bed, ${bathrooms} bath, looks like around $${estimatedPrice} for a standard clean. What's the address? I'll send over your options right away!`
   } else if (bedrooms && bathrooms) {
-    // Have sizing but no price — ask for address
-    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your request — ${bedrooms} bed, ${bathrooms} bath. What's the address? I'll send over pricing options right away!`
+    smartFallback = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your request — ${bedrooms} bed, ${bathrooms} bath. What's the address? I'll send over pricing options right away!`
   } else if (estimatedPrice) {
-    // Have a price estimate but no sizing details
-    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for checking out our pricing for ${friendlyService}! To get you exact options, what's your address and how many bedrooms and bathrooms?`
+    smartFallback = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for checking out our pricing for ${friendlyService}! To get you exact options, what's your address and how many bedrooms and bathrooms?`
   } else {
-    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for reaching out about ${friendlyService}! What's your address and how many bedrooms and bathrooms? I'll get you a quote right away!`
+    smartFallback = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for reaching out about ${friendlyService}! What's your address and how many bedrooms and bathrooms? I'll get you a quote right away!`
   }
+
+  // Phase G: admin-editable lead_thanks template overrides the smart fallback.
+  // is_active=false means admin paused — return early without sending SMS.
+  const leadThanksResolved = await resolveAutomatedMessage(client, {
+    tenantId: tenant.id,
+    trigger: 'lead_thanks',
+    fallbackBody: smartFallback,
+  })
+  if (!leadThanksResolved.isActive) {
+    console.log(`[Website Webhook] lead_thanks paused for ${tenant.slug} — skipping auto-SMS`)
+    return NextResponse.json(
+      { success: true, id: lead?.id, smsSent: false, reason: 'lead_thanks_paused' },
+      { headers: corsHeaders }
+    )
+  }
+  // If source === 'fallback', the smart-branched body is already fully
+  // formatted (no {{vars}}), so renderTemplate is a no-op. If source is
+  // 'db' or 'cache', admin's body uses {{var}} placeholders.
+  const smsMessage = renderTemplate(leadThanksResolved.body, {
+    customer_name: firstName,
+    business_name: businessName,
+    service_type: friendlyService,
+    address,
+    bedrooms: bedrooms ?? '',
+    bathrooms: bathrooms ?? '',
+    estimated_price: estimatedPrice != null ? `$${estimatedPrice}` : '',
+    sdr_name: sdrName,
+  })
 
   // Pre-insert message record so outbound webhook dedup finds it
   const { data: msgRecord } = await client.from("messages").insert({
