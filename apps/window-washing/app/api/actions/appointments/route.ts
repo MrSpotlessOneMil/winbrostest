@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
+import { upsertPendingAppointmentCredit } from '@/lib/appointment-commission'
 
 /**
  * Appointments — WinBros Round 2 task 4.
@@ -149,6 +150,26 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Phase F: log a pending 12.5% credit if the appointment was created
+  // already-assigned to a salesman with a price. Helper is idempotent and
+  // skips silently when either piece is missing — admins typically drag
+  // the appointment onto a salesman after creation, which is handled in
+  // PATCH below.
+  if (
+    data &&
+    typeof data.crew_salesman_id === 'number' &&
+    typeof data.price === 'number' &&
+    data.price > 0
+  ) {
+    await upsertPendingAppointmentCredit(client, {
+      tenantId: authResult.tenant.id,
+      appointmentJobId: data.id,
+      salesmanId: data.crew_salesman_id,
+      appointmentPrice: data.price,
+    })
+  }
+
   return NextResponse.json({ appointment: data })
 }
 
@@ -196,6 +217,23 @@ export async function PATCH(request: NextRequest) {
 
   if (jobErr) return NextResponse.json({ error: jobErr.message }, { status: 500 })
   if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Phase F: log/refresh the pending appointment credit when a salesman is
+  // assigned (or re-assigned). Idempotent + price-aware: if the appointment
+  // has no price yet, nothing happens; price added later still gets a
+  // pending credit on the next PATCH.
+  if (
+    typeof job.crew_salesman_id === 'number' &&
+    typeof job.price === 'number' &&
+    job.price > 0
+  ) {
+    await upsertPendingAppointmentCredit(client, {
+      tenantId: authResult.tenant.id,
+      appointmentJobId: job.id,
+      salesmanId: job.crew_salesman_id,
+      appointmentPrice: job.price,
+    })
+  }
 
   // When a salesman is assigned, ensure a crew_days row exists with them as
   // team_lead for that date. WinBros salesmen typically run their own crews;

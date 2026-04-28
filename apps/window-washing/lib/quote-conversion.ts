@@ -7,6 +7,7 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js'
+import { settleAppointmentCreditOnConversion } from './appointment-commission'
 
 interface QuoteLineItem {
   id: number
@@ -154,6 +155,28 @@ export async function approveAndConvertQuote(
 
   if (updateError) {
     return { success: false, error: `Failed to update quote: ${updateError.message}` }
+  }
+
+  // 6. Phase F: if this quote was tied to an appointment, flip the salesman's
+  // pending appointment credit to earned. The helper is no-op when the quote
+  // has no appointment_job_id or the credit was already settled.
+  const appointmentJobId =
+    typeof (quote as { appointment_job_id?: number | null }).appointment_job_id === 'number'
+      ? (quote as { appointment_job_id: number }).appointment_job_id
+      : null
+  if (appointmentJobId) {
+    const settle = await settleAppointmentCreditOnConversion(client, {
+      tenantId: quote.tenant_id,
+      appointmentJobId,
+      convertedQuoteId: String(quoteId),
+    })
+    if (!settle.success) {
+      // Don't fail the whole conversion — just log; payroll will catch up
+      // on the next pass once the data is corrected.
+      console.error(
+        `[quote-conversion] failed to settle appointment credit for quote ${quoteId}: ${settle.error}`
+      )
+    }
   }
 
   return { success: true, job_id: job.id, visit_id: visit.id }

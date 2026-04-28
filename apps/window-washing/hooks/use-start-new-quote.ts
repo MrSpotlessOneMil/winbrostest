@@ -16,16 +16,47 @@ export function quoteDraftUrl(portalToken: string | null): string {
     : `/api/actions/quotes/draft`
 }
 
+export interface NewQuoteContext {
+  /** Phase F linkage: when launching a quote from a sales appointment,
+   * thread the appointment's jobs.id so quote-conversion can flip the
+   * matching salesman_appointment_credits row from pending → earned. */
+  appointment_job_id?: number
+  /** Pre-populates the builder so the salesman doesn't re-pick the same
+   * customer they just saw at the appointment. */
+  customer_id?: number
+}
+
 /**
  * POST to the right draft endpoint and return the new quote id, or null on
  * any failure (network, success:false, missing id). Pure async — no React.
+ *
+ * The 2nd arg is overloaded for backwards compatibility with the unit
+ * tests written before Phase F: passing a function in slot 2 is treated
+ * as fetchImpl; passing an object is treated as the context payload.
  */
 export async function fetchNewQuoteDraft(
   portalToken: string | null,
-  fetchImpl: typeof fetch = fetch
+  contextOrFetchImpl?: NewQuoteContext | typeof fetch,
+  maybeFetchImpl?: typeof fetch
 ): Promise<string | null> {
+  const fetchImpl: typeof fetch =
+    typeof contextOrFetchImpl === 'function'
+      ? (contextOrFetchImpl as typeof fetch)
+      : (maybeFetchImpl ?? fetch)
+  const context: NewQuoteContext | undefined =
+    typeof contextOrFetchImpl === 'function' ? undefined : contextOrFetchImpl
+
   try {
-    const res = await fetchImpl(quoteDraftUrl(portalToken), { method: "POST" })
+    const url = quoteDraftUrl(portalToken)
+    const init: RequestInit =
+      context && (context.appointment_job_id || context.customer_id)
+        ? {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(context),
+          }
+        : { method: "POST" }
+    const res = await fetchImpl(url, init)
     if (!res.ok) return null
     const body = (await res.json().catch(() => null)) as
       | { success: boolean; quoteId?: string | number }
@@ -51,11 +82,11 @@ export async function fetchNewQuoteDraft(
 export function useStartNewQuote(portalToken: string | null) {
   const [creating, setCreating] = useState(false)
 
-  const start = useCallback(async (): Promise<string | null> => {
+  const start = useCallback(async (context?: NewQuoteContext): Promise<string | null> => {
     if (creating) return null
     setCreating(true)
     try {
-      return await fetchNewQuoteDraft(portalToken)
+      return await fetchNewQuoteDraft(portalToken, context)
     } finally {
       setCreating(false)
     }

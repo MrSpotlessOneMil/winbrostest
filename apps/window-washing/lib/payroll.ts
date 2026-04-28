@@ -19,6 +19,10 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js'
+import {
+  aggregateEarnedCreditsBySalesman,
+  type EarnedCreditRow,
+} from './appointment-commission'
 
 type PayMode = 'hourly' | 'percentage'
 
@@ -337,6 +341,22 @@ export async function generatePayrollWeek(
     )
   }
 
+  // Phase F — pull every earned + unsettled appointment credit for this
+  // tenant. We don't filter by week_start/week_end because credits accrue
+  // when the appointment converts (which may have been logged days/weeks
+  // ago), and we want this week's payroll to settle every backlog credit
+  // that has hit "earned" but hasn't been paid out yet.
+  const { data: earnedCreditRows } = await client
+    .from('salesman_appointment_credits')
+    .select('id, salesman_id, amount_earned, appointment_price, frozen_pct')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'earned')
+    .is('payroll_week_id', null)
+
+  const apptByeSalesman = aggregateEarnedCreditsBySalesman(
+    (earnedCreditRows || []) as EarnedCreditRow[]
+  )
+
   // Wave 3h — for hourly workers, override visit-timer hours with
   // time_entries clock spans so drive time between jobs counts as paid.
   // Pull all closed entries that overlap the week window for this tenant.
@@ -404,7 +424,14 @@ export async function generatePayrollWeek(
       })
     } else if (rate.role === 'salesman') {
       const rev = salesmanRevenue[rate.cleaner_id] || { onetime: 0, triannual: 0, quarterly: 0 }
-      const totalPay = calculateSalesmanPay(
+      const apptTotals = apptByeSalesman[rate.cleaner_id]
+      const apptCommissionPct = Number(
+        (rate as { commission_appointment_pct?: number | null }).commission_appointment_pct ?? 12.5
+      )
+      const apptAmount = apptTotals?.amount ?? 0
+      const apptRevenueSet = apptTotals?.revenueSet ?? 0
+
+      const conversionPay = calculateSalesmanPay(
         rev.onetime,
         rev.triannual,
         rev.quarterly,
@@ -412,6 +439,7 @@ export async function generatePayrollWeek(
         rate.commission_triannual_pct || 0,
         rate.commission_quarterly_pct || 0
       )
+      const totalPay = Math.round((conversionPay + apptAmount) * 100) / 100
 
       entries.push({
         payroll_week_id: week.id,
@@ -424,6 +452,9 @@ export async function generatePayrollWeek(
         commission_1time_pct: rate.commission_1time_pct,
         commission_triannual_pct: rate.commission_triannual_pct,
         commission_quarterly_pct: rate.commission_quarterly_pct,
+        commission_appointment_pct: apptCommissionPct,
+        commission_appointment_amount: apptAmount,
+        revenue_appointments_set: apptRevenueSet,
         total_pay: totalPay,
       })
     }
@@ -436,6 +467,25 @@ export async function generatePayrollWeek(
 
     if (entryError) {
       return { success: false, week_id: week.id, entries: 0, error: `Failed to create entries: ${entryError.message}` }
+    }
+
+    // Phase F — stamp payroll_week_id onto every appointment credit we
+    // just settled. We do this AFTER the entries insert so a failed
+    // entries write doesn't accidentally mark credits as paid.
+    const allSettledIds: number[] = []
+    for (const sid of Object.keys(apptByeSalesman)) {
+      allSettledIds.push(...apptByeSalesman[Number(sid)].creditIds)
+    }
+    if (allSettledIds.length > 0) {
+      const { error: settleError } = await client
+        .from('salesman_appointment_credits')
+        .update({ payroll_week_id: week.id })
+        .in('id', allSettledIds)
+      if (settleError) {
+        console.error(
+          `[payroll] generated entries but failed to stamp ${allSettledIds.length} appointment credits: ${settleError.message}`
+        )
+      }
     }
   }
 

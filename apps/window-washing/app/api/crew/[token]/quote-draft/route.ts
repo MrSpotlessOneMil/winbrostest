@@ -18,11 +18,28 @@ import { createEmployeeSession, setSessionCookie } from "@/lib/auth"
  * - Returns the new quote's id so the client can push the route.
  */
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params
   const client = getSupabaseServiceClient()
+
+  // Optional body — appointment_job_id threads Phase F linkage; customer_id
+  // pre-populates the builder. Bare POST keeps working.
+  let body: { appointment_job_id?: unknown; customer_id?: unknown } = {}
+  try {
+    body = await request.json().catch(() => ({}))
+  } catch {
+    body = {}
+  }
+  const appointmentJobId =
+    typeof body.appointment_job_id === 'number' && body.appointment_job_id > 0
+      ? body.appointment_job_id
+      : null
+  const customerId =
+    typeof body.customer_id === 'number' && body.customer_id > 0
+      ? body.customer_id
+      : null
 
   const { data: cleaner, error: cleanerErr } = await client
     .from("cleaners")
@@ -44,15 +61,19 @@ export async function POST(
   const salesmanId =
     cleaner.employee_type === "salesman" ? cleaner.id : null
 
+  const insertRow: Record<string, unknown> = {
+    tenant_id: cleaner.tenant_id,
+    status: "pending",
+    customer_name: "New Quote",
+    total_price: 0,
+    salesman_id: salesmanId,
+  }
+  if (appointmentJobId) insertRow.appointment_job_id = appointmentJobId
+  if (customerId) insertRow.customer_id = customerId
+
   const { data: quote, error: insertErr } = await client
     .from("quotes")
-    .insert({
-      tenant_id: cleaner.tenant_id,
-      status: "pending",
-      customer_name: "New Quote",
-      total_price: 0,
-      salesman_id: salesmanId,
-    })
+    .insert(insertRow)
     .select("id")
     .single()
 
