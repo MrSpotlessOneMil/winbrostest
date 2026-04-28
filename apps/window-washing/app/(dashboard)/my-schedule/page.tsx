@@ -24,7 +24,16 @@ type CrewDay = {
   id: number; date: string; team_lead_id: number
   crew_day_members: { cleaner_id: number; role: string }[]
 }
-type TimeOffEntry = { cleaner_id: number; date: string; reason?: string | null }
+type TimeOffStatus = "pending" | "approved" | "denied"
+type TimeOffEntry = {
+  id?: number
+  cleaner_id: number
+  date: string
+  reason?: string | null
+  status?: TimeOffStatus
+  decided_at?: string | null
+  denial_reason?: string | null
+}
 type Job = {
   id: number; date: string; scheduled_at: string | null; service_type: string | null
   address: string | null; status: string; price: number | null; hours: number | null
@@ -183,12 +192,26 @@ export default function CrewAssignmentPage() {
   const technicians = useMemo(() => cleaners.filter(c => !c.is_team_lead && c.employee_type !== "salesman" && c.active), [cleaners])
   const salesmen = useMemo(() => cleaners.filter(c => c.employee_type === "salesman" && !c.is_team_lead && c.active), [cleaners])
 
+  // Approved off-days only count toward unavailability. Pending requests
+  // still show in the admin queue but don't block a worker from being
+  // dragged onto a TL that day until the admin actually approves.
   const timeOffSet = useMemo(() => {
     const s = new Set<string>()
-    for (const t of timeOff) s.add(`${t.cleaner_id}-${t.date}`)
+    for (const t of timeOff) {
+      if ((t.status ?? "approved") === "approved") {
+        s.add(`${t.cleaner_id}-${t.date}`)
+      }
+    }
     return s
   }, [timeOff])
   const isOff = (cId: number, date: string) => timeOffSet.has(`${cId}-${date}`)
+
+  // Cleaner-name lookup keyed by id, for the admin pending-requests panel.
+  const cleanerNameById = useMemo(() => {
+    const m = new Map<number, string>()
+    for (const c of cleaners) m.set(c.id, c.name)
+    return m
+  }, [cleaners])
 
   const jobsByDateCleaner = useMemo(() => {
     const m: Record<string, Record<number, Job[]>> = {}
@@ -232,6 +255,22 @@ export default function CrewAssignmentPage() {
     return salesmen.filter(s => !isOff(s.id, dateStr) && !assigned.has(s.id))
   }, [salesmen, isOff, getAssignedIdsForDay])
 
+  // Pending day-off requests (admin queue). Lives outside the week range
+  // because admins want a single inbox of "what's waiting on me" rather than
+  // only seeing requests that fall in the week they're currently viewing.
+  const [pendingRequests, setPendingRequests] = useState<TimeOffEntry[]>([])
+  const [decidingId, setDecidingId] = useState<number | null>(null)
+
+  const fetchPending = useCallback(async () => {
+    if (!isAdmin) return
+    try {
+      const res = await fetch(`/api/actions/time-off?status=pending`)
+      if (!res.ok) return
+      const body = await res.json()
+      setPendingRequests((body.timeOff || []) as TimeOffEntry[])
+    } catch { }
+  }, [isAdmin])
+
   // ── Fetch data ──
   const fetchData = useCallback(async () => {
     const dateStr = toDateStr(weekStart)
@@ -247,7 +286,30 @@ export default function CrewAssignmentPage() {
       setLocalAssignments(new Map()); setDirty(new Set())
     } catch { }
     setLoading(false)
-  }, [weekStart])
+    fetchPending()
+  }, [weekStart, fetchPending])
+
+  const decideRequest = useCallback(async (id: number, status: "approved" | "denied", reason?: string) => {
+    setDecidingId(id)
+    try {
+      const res = await fetch(`/api/actions/time-off/decision`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status, denial_reason: reason ?? undefined }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        alert(body.error || `Failed to ${status} request`)
+        return
+      }
+      // Optimistic: drop from pending list, refresh week data so any newly-
+      // approved entries show as red on the calendar.
+      setPendingRequests(prev => prev.filter(r => r.id !== id))
+      fetchData()
+    } finally {
+      setDecidingId(null)
+    }
+  }, [fetchData])
 
   useEffect(() => { setLoading(true); fetchData() }, [fetchData])
 
@@ -313,17 +375,34 @@ export default function CrewAssignmentPage() {
   }
 
   // ── Worker: toggle time off ──
+  // Three input states map to one of two server actions:
+  //   - denied (record exists, status='denied')      → POST (upsert flips to pending)
+  //   - pending or approved (record exists, off)     → DELETE (withdraw the request)
+  //   - no record (cell is available)                → POST (new pending request)
   const toggleTimeOff = async (dateStr: string) => {
     if (!cleanerId || cleanerId <= 0) return
     setTogglingOff(dateStr)
-    const isCurrentlyOff = workerTimeOff.some(t => t.date === dateStr)
+    const existing = workerTimeOff.find(t => t.date === dateStr)
+    const shouldDelete = existing && (existing.status ?? "approved") !== "denied"
     try {
-      if (isCurrentlyOff) {
-        await fetch("/api/actions/time-off", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cleaner_id: cleanerId, dates: [dateStr] }) })
+      if (shouldDelete) {
+        await fetch("/api/actions/time-off", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cleaner_id: cleanerId, dates: [dateStr] }),
+        })
         setWorkerTimeOff(prev => prev.filter(t => t.date !== dateStr))
       } else {
-        await fetch("/api/actions/time-off", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cleaner_id: cleanerId, dates: [dateStr] }) })
-        setWorkerTimeOff(prev => [...prev, { cleaner_id: cleanerId, date: dateStr }])
+        await fetch("/api/actions/time-off", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cleaner_id: cleanerId, dates: [dateStr] }),
+        })
+        // Optimistic insert/update — server has now stamped this as pending.
+        setWorkerTimeOff(prev => {
+          const without = prev.filter(t => t.date !== dateStr)
+          return [...without, { cleaner_id: cleanerId, date: dateStr, status: "pending" }]
+        })
       }
     } catch { }
     setTogglingOff(null)
@@ -346,7 +425,16 @@ export default function CrewAssignmentPage() {
      ════════════════════════════════════════════════════════════════════════ */
   const showWorkerView = !isAdmin
   if (showWorkerView) {
-    const workerOffSet = new Set(workerTimeOff.map(t => t.date))
+    // Index off-days by date so each cell can render its own status badge.
+    // A denied request stays in the dataset (so the worker sees the result)
+    // but the cell renders as available, not red.
+    const workerOffByDate = new Map<string, TimeOffEntry>()
+    for (const t of workerTimeOff) workerOffByDate.set(t.date, t)
+    const workerOffSet = new Set(
+      workerTimeOff
+        .filter(t => (t.status ?? "approved") !== "denied")
+        .map(t => t.date)
+    )
     const calYear = calendarMonth.getFullYear()
     const calMonth = calendarMonth.getMonth()
     const firstDow = new Date(calYear, calMonth, 1).getDay()
@@ -359,6 +447,13 @@ export default function CrewAssignmentPage() {
     const twoWeeksOut = new Date(todayDate)
     twoWeeksOut.setDate(twoWeeksOut.getDate() + 14)
 
+    // Counts visible to the worker: total approved off-days this month +
+    // any pending requests still waiting on admin. Helps a tech self-audit
+    // before tapping yet another date.
+    const workerApprovedThisMonth = workerTimeOff.filter(t => (t.status ?? "approved") === "approved").length
+    const workerPendingThisMonth = workerTimeOff.filter(t => t.status === "pending").length
+    const workerDeniedThisMonth = workerTimeOff.filter(t => t.status === "denied").length
+
     return (
       <div className="h-full flex flex-col">
         {/* Header */}
@@ -366,6 +461,21 @@ export default function CrewAssignmentPage() {
           <div>
             <h1 className="text-lg font-bold text-foreground">Off Days</h1>
             <p className="text-xs text-muted-foreground">Tap a date to toggle availability</p>
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold">
+            <span className="rounded-full border border-red-500/40 bg-red-500/10 text-red-400 px-2 py-0.5">
+              {workerApprovedThisMonth} OFF
+            </span>
+            {workerPendingThisMonth > 0 && (
+              <span className="rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 px-2 py-0.5">
+                {workerPendingThisMonth} PENDING
+              </span>
+            )}
+            {workerDeniedThisMonth > 0 && (
+              <span className="rounded-full border border-zinc-600 bg-zinc-800/50 text-zinc-400 px-2 py-0.5">
+                {workerDeniedThisMonth} DENIED
+              </span>
+            )}
           </div>
         </div>
 
@@ -409,6 +519,11 @@ export default function CrewAssignmentPage() {
               const dayDate = new Date(calYear, calMonth, dayNum)
               const dateStr = toDateStr(dayDate)
               const off = workerOffSet.has(dateStr)
+              const entry = workerOffByDate.get(dateStr)
+              const status: TimeOffStatus = entry?.status ?? "approved"
+              const isPending = off && status === "pending"
+              const isApproved = off && status === "approved"
+              const wasDenied = !off && entry?.status === "denied"
               const isToday = dateStr === todayStr
               const isPast = dayDate < todayDate
               const tooSoon = !isPast && dayDate < twoWeeksOut
@@ -417,14 +532,17 @@ export default function CrewAssignmentPage() {
 
               // Past dates: non-clickable, grayed
               // Within 14 days: grayed, non-clickable, show "Text manager" tooltip
-              // But if already OFF within 14 days, allow toggling back ON
+              // But if already requested (pending/approved) within 14 days, allow toggling back ON
               const isDisabled = toggling || noCleanerId || isPast || (tooSoon && !off)
 
               let cellClasses = "relative flex flex-col items-center justify-center rounded-lg aspect-square transition-all text-sm font-medium "
 
-              if (off) {
-                // OFF state: red, line-through styling
+              if (isPending) {
+                cellClasses += "bg-amber-500/15 border-2 border-amber-500/40 text-amber-300 "
+              } else if (isApproved) {
                 cellClasses += "bg-red-500/20 border-2 border-red-500/40 text-red-400 "
+              } else if (wasDenied) {
+                cellClasses += "border border-red-900/40 bg-red-950/20 text-red-300/70 hover:bg-muted/40 cursor-pointer "
               } else if (isPast) {
                 cellClasses += "bg-zinc-900/30 text-zinc-600 cursor-not-allowed "
               } else if (tooSoon) {
@@ -432,9 +550,20 @@ export default function CrewAssignmentPage() {
               } else if (isToday) {
                 cellClasses += "bg-primary/10 border-2 border-primary/30 text-foreground hover:bg-primary/20 cursor-pointer "
               } else {
-                // Available (ON) state: default
                 cellClasses += "border border-zinc-800/40 text-foreground hover:bg-muted/40 cursor-pointer "
               }
+
+              const tooltip = (() => {
+                if (isPast) return "Past date"
+                if (tooSoon && !off) return "Text manager for short-notice requests"
+                if (isPending) return "Pending admin approval — tap to withdraw"
+                if (isApproved) return "Approved off-day — tap to mark available"
+                if (wasDenied) {
+                  const reason = entry?.denial_reason ? ` (${entry.denial_reason})` : ""
+                  return `Denied by manager${reason} — tap to re-request`
+                }
+                return "Tap to request off"
+              })()
 
               return (
                 <button
@@ -444,21 +573,26 @@ export default function CrewAssignmentPage() {
                     toggleTimeOff(dateStr)
                   }}
                   disabled={isDisabled}
-                  title={
-                    isPast ? "Past date" :
-                    tooSoon && !off ? "Text manager for short-notice requests" :
-                    off ? "Tap to mark available" :
-                    "Tap to mark off"
-                  }
+                  title={tooltip}
                   className={cellClasses}
                 >
-                  <span className={off ? "line-through" : ""}>{dayNum}</span>
-                  {off && (
+                  <span className={isApproved ? "line-through" : ""}>{dayNum}</span>
+                  {isApproved && (
                     <span className="text-[8px] font-bold uppercase leading-none mt-0.5 text-red-400">
                       OFF
                     </span>
                   )}
-                  {tooSoon && !off && !isPast && (
+                  {isPending && (
+                    <span className="text-[7px] font-bold uppercase leading-none mt-0.5 text-amber-300">
+                      PENDING
+                    </span>
+                  )}
+                  {wasDenied && (
+                    <span className="text-[7px] font-bold uppercase leading-none mt-0.5 text-red-400/80">
+                      DENIED
+                    </span>
+                  )}
+                  {tooSoon && !off && !isPast && !wasDenied && (
                     <span className="text-[7px] text-amber-400 font-semibold leading-none mt-0.5">
                       TEXT MGR
                     </span>
@@ -472,14 +606,22 @@ export default function CrewAssignmentPage() {
           </div>
 
           {/* Legend */}
-          <div className="flex items-center justify-center gap-6 mt-6 text-xs text-muted-foreground">
+          <div className="flex items-center justify-center flex-wrap gap-x-4 gap-y-2 mt-6 text-xs text-muted-foreground">
             <div className="flex items-center gap-1.5">
               <div className="size-3 rounded border border-zinc-800/40 bg-background" />
               <span>Available</span>
             </div>
             <div className="flex items-center gap-1.5">
+              <div className="size-3 rounded bg-amber-500/15 border-2 border-amber-500/40" />
+              <span>Pending</span>
+            </div>
+            <div className="flex items-center gap-1.5">
               <div className="size-3 rounded bg-red-500/20 border-2 border-red-500/40" />
-              <span>Off</span>
+              <span>Approved off</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="size-3 rounded bg-red-950/20 border border-red-900/40" />
+              <span>Denied</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="size-3 rounded bg-zinc-900/30" />
@@ -488,7 +630,7 @@ export default function CrewAssignmentPage() {
           </div>
 
           <p className="text-[11px] text-amber-400/70 mt-4 text-center">
-            Off-day requests must be at least 2 weeks in advance. Text your manager for short-notice requests.
+            Off-day requests must be at least 2 weeks in advance and require admin approval. Text your manager for short-notice requests.
           </p>
         </div>
       </div>
@@ -521,6 +663,61 @@ export default function CrewAssignmentPage() {
             </div>
           </div>
         </div>
+
+        {/* Pending day-off requests (admin queue) */}
+        {pendingRequests.length > 0 && (
+          <div className="border-b border-border bg-amber-500/5 px-4 py-2">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                Pending day-off requests
+              </span>
+              <span className="text-[10px] text-muted-foreground bg-amber-500/15 px-1.5 rounded">
+                {pendingRequests.length}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {pendingRequests.map(req => {
+                const name = cleanerNameById.get(req.cleaner_id) || `#${req.cleaner_id}`
+                const dateLabel = new Date(req.date + "T12:00:00").toLocaleDateString("en-US", {
+                  weekday: "short", month: "short", day: "numeric",
+                })
+                const isDeciding = decidingId === req.id
+                return (
+                  <div key={req.id} className="flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px]">
+                    <span className="font-semibold text-foreground">{name.split(" ")[0]}</span>
+                    <span className="text-muted-foreground">{dateLabel}</span>
+                    {req.reason && (
+                      <span className="text-muted-foreground italic max-w-[140px] truncate" title={req.reason}>
+                        — {req.reason}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => req.id && decideRequest(req.id, "approved")}
+                      disabled={isDeciding}
+                      className="ml-1 px-1.5 py-0.5 rounded bg-emerald-600/80 hover:bg-emerald-600 text-white font-semibold cursor-pointer disabled:opacity-50"
+                      title="Approve"
+                    >
+                      {isDeciding ? "…" : "Approve"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!req.id) return
+                        const reason = window.prompt("Reason for denial (shown to worker):", "Coverage needed that day")
+                        if (!reason) return
+                        decideRequest(req.id, "denied", reason)
+                      }}
+                      disabled={isDeciding}
+                      className="px-1.5 py-0.5 rounded bg-red-600/80 hover:bg-red-600 text-white font-semibold cursor-pointer disabled:opacity-50"
+                      title="Deny"
+                    >
+                      Deny
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Calendar grid */}
         <div className={`flex-1 overflow-auto grid ${viewMode === "week" ? "grid-cols-7" : "grid-cols-1"} gap-px bg-border`}>

@@ -57,10 +57,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Fetch time-off for the range
+  // Fetch time-off for the range. Status is included so the admin grid can
+  // distinguish approved (red) from pending (amber) and ignore denied rows.
   const { data: timeOff } = await client
     .from('time_off')
-    .select('id, cleaner_id, date, reason')
+    .select('id, cleaner_id, date, reason, status')
     .eq('tenant_id', tenant.id)
     .gte('date', startDate)
     .lte('date', endDate)

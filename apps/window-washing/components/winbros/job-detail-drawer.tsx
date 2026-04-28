@@ -27,12 +27,13 @@ import {
 } from '@/components/ui/sheet'
 import { VisitChecklist } from '@/components/winbros/visit-checklist'
 import { ServicePlanSetup } from '@/components/winbros/service-plan-setup'
+import { CustomerThreadDrawer } from '@/components/dashboard/customer-thread-drawer'
 import CubeLoader from '@/components/ui/cube-loader'
 import {
   MapPin, Navigation, Play, Square, CheckCircle2, Clock, Lock,
   Plus, CreditCard, Banknote, Receipt, ChevronDown, ChevronUp,
   FileText, History, Tag, Users, ScrollText, ExternalLink,
-  DollarSign, X,
+  DollarSign, X, MessageSquare, Send, Star,
 } from 'lucide-react'
 import {
   Dialog,
@@ -264,6 +265,16 @@ export function JobDetailDrawer({ jobId, open, onClose, onJobUpdated }: JobDetai
 
   // Service plan creation
   const [showPlanSetup, setShowPlanSetup] = useState(false)
+
+  // Manual action buttons
+  const [chatOpen, setChatOpen] = useState(false)
+  const [sendingInvoice, setSendingInvoice] = useState(false)
+  const [sendingReview, setSendingReview] = useState(false)
+  const [actionFlash, setActionFlash] = useState<string | null>(null)
+
+  // Inline price edit state — keyed by line_item id; value is the in-flight string
+  const [priceDraft, setPriceDraft] = useState<Record<number, string>>({})
+  const [priceSaving, setPriceSaving] = useState<Record<number, boolean>>({})
 
   // ----------- Data Fetching -----------
 
@@ -500,6 +511,114 @@ export function JobDetailDrawer({ jobId, open, onClose, onJobUpdated }: JobDetai
     )
   }, [])
 
+  // ----------- Inline Line-Item Price Edit -----------
+
+  const commitLinePrice = useCallback(async (lineItemId: number, draftValue: string) => {
+    if (!data) return
+    const parsed = Number(draftValue)
+    if (!isFinite(parsed) || parsed < 0) {
+      // Revert and bail — cell will reset on next render
+      setPriceDraft(prev => {
+        const next = { ...prev }
+        delete next[lineItemId]
+        return next
+      })
+      return
+    }
+    // Skip the round-trip if the value didn't actually change.
+    const current = data.line_items.find(li => li.id === lineItemId)
+    if (current && Math.abs(Number(current.price) - parsed) < 0.005) {
+      setPriceDraft(prev => {
+        const next = { ...prev }
+        delete next[lineItemId]
+        return next
+      })
+      return
+    }
+    setPriceSaving(prev => ({ ...prev, [lineItemId]: true }))
+    try {
+      const res = await fetch('/api/actions/visits/line-item', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: lineItemId, price: parsed }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Save failed' }))
+        alert(err.error || 'Failed to update price')
+        return
+      }
+      // Optimistic local update so the running totals reflect the new price
+      // without a full refetch.
+      setData(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          line_items: prev.line_items.map(li =>
+            li.id === lineItemId ? { ...li, price: parsed } : li
+          ),
+        }
+      })
+      onJobUpdated?.()
+    } finally {
+      setPriceSaving(prev => {
+        const next = { ...prev }
+        delete next[lineItemId]
+        return next
+      })
+      setPriceDraft(prev => {
+        const next = { ...prev }
+        delete next[lineItemId]
+        return next
+      })
+    }
+  }, [data, onJobUpdated])
+
+  // ----------- Manual Action Buttons -----------
+
+  const handleSendInvoice = useCallback(async () => {
+    if (!data?.job?.id) return
+    setSendingInvoice(true)
+    setActionFlash(null)
+    try {
+      const res = await fetch('/api/actions/send-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: data.job.id }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(body.error || 'Failed to send invoice')
+        return
+      }
+      setActionFlash('Invoice sent ✓')
+      setTimeout(() => setActionFlash(null), 2500)
+    } finally {
+      setSendingInvoice(false)
+    }
+  }, [data])
+
+  const handleSendReview = useCallback(async () => {
+    if (!data?.job?.id) return
+    setSendingReview(true)
+    setActionFlash(null)
+    try {
+      const res = await fetch('/api/actions/send-review-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: data.job.id }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(body.error || 'Failed to send review link')
+        return
+      }
+      setActionFlash('Review link sent ✓')
+      setTimeout(() => setActionFlash(null), 2500)
+    } finally {
+      setSendingReview(false)
+    }
+  }, [data])
+
   // ----------- Notes Save -----------
 
   const handleSaveNotes = useCallback(async () => {
@@ -731,6 +850,52 @@ export function JobDetailDrawer({ jobId, open, onClose, onJobUpdated }: JobDetai
           {visit.status === 'closed' && (
             <p className="text-xs text-green-400 mt-2">Job closed -- receipt, review request, and thank you sent</p>
           )}
+
+          {/* Manual customer-facing actions */}
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setChatOpen(true)}
+              disabled={!(customer.phone_number || job.phone_number)}
+              className="text-xs cursor-pointer border-zinc-700"
+            >
+              <MessageSquare className="w-3.5 h-3.5 mr-1" />
+              Text Customer
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSendInvoice}
+              disabled={sendingInvoice || !customer.email}
+              title={customer.email ? 'Email an invoice for this job' : 'Customer has no email on file'}
+              className="text-xs cursor-pointer border-zinc-700"
+            >
+              {sendingInvoice ? (
+                <span className="w-3.5 h-3.5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin mr-1" />
+              ) : (
+                <Send className="w-3.5 h-3.5 mr-1" />
+              )}
+              Send Invoice
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSendReview}
+              disabled={sendingReview || !(customer.phone_number || job.phone_number)}
+              className="text-xs cursor-pointer border-zinc-700"
+            >
+              {sendingReview ? (
+                <span className="w-3.5 h-3.5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin mr-1" />
+              ) : (
+                <Star className="w-3.5 h-3.5 mr-1" />
+              )}
+              Send Review Link
+            </Button>
+            {actionFlash && (
+              <span className="ml-auto self-center text-[11px] text-emerald-400">{actionFlash}</span>
+            )}
+          </div>
         </div>
 
         {/* ============================================================ */}
@@ -793,12 +958,40 @@ export function JobDetailDrawer({ jobId, open, onClose, onJobUpdated }: JobDetai
                 </div>
                 <div className="p-3 space-y-1.5">
                   {originalItems.length > 0 ? (
-                    originalItems.map(item => (
-                      <div key={item.id} className="flex justify-between text-sm">
-                        <span className="text-zinc-300">{item.service_name}</span>
-                        <span className="text-white font-medium">{formatCurrency(item.price)}</span>
-                      </div>
-                    ))
+                    originalItems.map(item => {
+                      const editable = visit.status !== 'closed'
+                      const draft = priceDraft[item.id]
+                      const saving = priceSaving[item.id]
+                      const value = draft ?? String(Number(item.price ?? 0))
+                      return (
+                        <div key={item.id} className="flex justify-between items-center text-sm">
+                          <span className="text-zinc-300 truncate flex-1 mr-2">{item.service_name}</span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-zinc-500">$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              disabled={!editable || saving}
+                              value={value}
+                              onChange={e => setPriceDraft(prev => ({ ...prev, [item.id]: e.target.value }))}
+                              onBlur={e => commitLinePrice(item.id, e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                                if (e.key === 'Escape') {
+                                  setPriceDraft(prev => {
+                                    const next = { ...prev }; delete next[item.id]; return next
+                                  })
+                                  ;(e.target as HTMLInputElement).blur()
+                                }
+                              }}
+                              className="w-20 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-right text-sm font-medium text-white focus:border-blue-500 focus:outline-none disabled:opacity-60"
+                            />
+                            {saving && <span className="inline-block w-3 h-3 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />}
+                          </div>
+                        </div>
+                      )
+                    })
                   ) : (
                     <div className="flex justify-between text-sm">
                       <span className="text-zinc-300">{job.service_type || 'Service'}</span>
@@ -809,17 +1002,45 @@ export function JobDetailDrawer({ jobId, open, onClose, onJobUpdated }: JobDetai
                   {/* Upsell items */}
                   {upsellItems.length > 0 && (
                     <div className="border-t border-zinc-800 pt-1.5 mt-1.5 space-y-1.5">
-                      {upsellItems.map(item => (
-                        <div key={item.id} className="flex justify-between items-center text-sm">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-zinc-300">{item.service_name}</span>
-                            <Badge variant="outline" className="text-[9px] border-amber-600 text-amber-400 py-0 px-1">
-                              UPSELL
-                            </Badge>
+                      {upsellItems.map(item => {
+                        const editable = visit.status !== 'closed'
+                        const draft = priceDraft[item.id]
+                        const saving = priceSaving[item.id]
+                        const value = draft ?? String(Number(item.price ?? 0))
+                        return (
+                          <div key={item.id} className="flex justify-between items-center text-sm">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
+                              <span className="text-zinc-300 truncate">{item.service_name}</span>
+                              <Badge variant="outline" className="text-[9px] border-amber-600 text-amber-400 py-0 px-1 shrink-0">
+                                UPSELL
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-amber-400/70">$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                disabled={!editable || saving}
+                                value={value}
+                                onChange={e => setPriceDraft(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                onBlur={e => commitLinePrice(item.id, e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                                  if (e.key === 'Escape') {
+                                    setPriceDraft(prev => {
+                                      const next = { ...prev }; delete next[item.id]; return next
+                                    })
+                                    ;(e.target as HTMLInputElement).blur()
+                                  }
+                                }}
+                                className="w-20 rounded-md border border-amber-800/60 bg-amber-950/20 px-2 py-1 text-right text-sm font-medium text-amber-300 focus:border-amber-500 focus:outline-none disabled:opacity-60"
+                              />
+                              {saving && <span className="inline-block w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />}
+                            </div>
                           </div>
-                          <span className="text-amber-400 font-medium">{formatCurrency(item.price)}</span>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
 
@@ -1343,6 +1564,19 @@ export function JobDetailDrawer({ jobId, open, onClose, onJobUpdated }: JobDetai
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Customer chat (OpenPhone thread) — opens as a nested drawer */}
+        <CustomerThreadDrawer
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          phoneNumber={customer.phone_number || job.phone_number}
+          displayName={customerFullName}
+          context={[
+            ...(job.address ? [{ label: 'Address', value: job.address }] : []),
+            ...(job.service_type ? [{ label: 'Service', value: job.service_type }] : []),
+            ...(displayTotal > 0 ? [{ label: 'Total', value: formatCurrency(displayTotal) }] : []),
+          ]}
+        />
       </SheetContent>
     </Sheet>
   )
