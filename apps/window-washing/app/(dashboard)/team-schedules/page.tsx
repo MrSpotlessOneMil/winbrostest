@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { ChevronLeft, ChevronRight, Loader2, Clock, MapPin } from "lucide-react"
 import Link from "next/link"
+import { parseCityZip } from "@/lib/address-utils"
 
 interface ScheduleJob {
   id: number
@@ -182,15 +183,25 @@ export default function TeamSchedulesPage() {
               const date = weekDays[i]
               const head = formatDayHeader(date)
               const isToday = day.date === todayStr
+              // PRD #13 — fully empty day = green-fill, signals "open slot, book here".
+              const isOpen = day.totalJobs === 0
+              const dayClass = isOpen
+                ? "border-emerald-500/40 bg-emerald-500/10"
+                : isToday
+                  ? "border-teal-500/40 bg-teal-500/5"
+                  : "border-zinc-800 bg-zinc-900/40"
               return (
                 <div
                   key={day.date}
                   data-testid="team-schedule-day"
-                  className={`rounded-xl border ${isToday ? "border-teal-500/40 bg-teal-500/5" : "border-zinc-800 bg-zinc-900/40"} p-3 min-h-[200px]`}
+                  data-open={isOpen ? "true" : "false"}
+                  className={`rounded-xl border ${dayClass} p-3 min-h-[200px]`}
                 >
                   <div className="flex items-baseline justify-between mb-2">
                     <div>
-                      <div className={`text-xs uppercase tracking-wider ${isToday ? "text-teal-300" : "text-zinc-400"} font-bold`}>
+                      <div className={`text-xs uppercase tracking-wider font-bold ${
+                        isOpen ? "text-emerald-300" : isToday ? "text-teal-300" : "text-zinc-400"
+                      }`}>
                         {head.day}
                       </div>
                       <div className="text-sm font-semibold text-zinc-200">{head.date}</div>
@@ -203,9 +214,17 @@ export default function TeamSchedulesPage() {
                     </div>
                   </div>
 
-                  {day.crews.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-zinc-800 bg-zinc-900/30 p-3 text-center text-[11px] text-zinc-500">
-                      Open day — no crews booked.
+                  {isOpen ? (
+                    <div
+                      data-testid="team-schedule-open-slot"
+                      className="rounded-md border border-dashed border-emerald-500/40 bg-emerald-500/5 p-4 text-center"
+                    >
+                      <div className="text-emerald-300 text-xs font-semibold uppercase tracking-wider">
+                        Open
+                      </div>
+                      <div className="text-[11px] text-emerald-200/70 mt-1">
+                        No crews booked — safe to promise this day.
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -224,26 +243,34 @@ export default function TeamSchedulesPage() {
                               </span>
                             )}
                           </div>
-                          {crew.first_job_town && (
-                            <div className="flex items-center gap-1 text-[10px] text-zinc-500 mb-1">
-                              <MapPin className="w-2.5 h-2.5" />
-                              <span className="truncate">{crew.first_job_town}</span>
-                            </div>
-                          )}
                           <div className="space-y-1">
-                            {(crew.jobs || []).slice(0, 4).map((job) => (
-                              <div key={job.id} className="text-[11px] text-zinc-300 leading-tight">
-                                <div className="flex items-center gap-1">
-                                  {job.time && (
-                                    <span className="text-zinc-500">
-                                      <Clock className="w-2.5 h-2.5 inline mr-0.5" />
-                                      {job.time}
-                                    </span>
+                            {(crew.jobs || []).slice(0, 4).map((job) => {
+                              const { city, zip } = parseCityZip(job.address)
+                              const cityZip = [city, zip].filter(Boolean).join(" ")
+                              return (
+                                <div
+                                  key={job.id}
+                                  data-testid="team-schedule-job-card"
+                                  className="text-[11px] text-zinc-300 leading-tight rounded px-1 py-0.5 hover:bg-zinc-800/50"
+                                >
+                                  <div className="flex items-center gap-1">
+                                    {job.time && (
+                                      <span className="text-zinc-500 shrink-0">
+                                        <Clock className="w-2.5 h-2.5 inline mr-0.5" />
+                                        {job.time}
+                                      </span>
+                                    )}
+                                    <span className="truncate">{job.customer_name}</span>
+                                  </div>
+                                  {cityZip && (
+                                    <div className="flex items-center gap-1 text-[10px] text-zinc-500 truncate">
+                                      <MapPin className="w-2.5 h-2.5 shrink-0" />
+                                      <span className="truncate">{cityZip}</span>
+                                    </div>
                                   )}
-                                  <span className="truncate">{job.customer_name}</span>
                                 </div>
-                              </div>
-                            ))}
+                              )
+                            })}
                             {(crew.jobs?.length ?? 0) > 4 && (
                               <div className="text-[10px] text-zinc-500">
                                 +{(crew.jobs?.length ?? 0) - 4} more

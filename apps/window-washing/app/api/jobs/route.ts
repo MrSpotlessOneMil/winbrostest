@@ -229,6 +229,10 @@ export async function PATCH(request: NextRequest) {
     if (body.status !== undefined) updates.status = body.status
     if (body.notes !== undefined) updates.notes = body.notes
     if (body.phone_number !== undefined) updates.phone_number = body.phone_number
+    // PRD #7 — admin can return a scheduled job to the unassigned bucket
+    // by PATCHing cleaner_id=null + date=null. Customer is NOT re-notified
+    // (this is an internal scheduling action, not a reschedule).
+    if (body.cleaner_id !== undefined) updates.cleaner_id = body.cleaner_id
 
     // Update linked customer record if customer fields provided
     if (oldJob?.customer_id && (body.customer_name !== undefined || body.customer_email !== undefined || body.customer_phone !== undefined || body.customer_address !== undefined)) {

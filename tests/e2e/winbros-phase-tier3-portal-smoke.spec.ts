@@ -71,9 +71,12 @@ const TEAM_LEAD_EXTRA: RoutePlan[] = [
   { name: 'Payroll', href: '/payroll' },
 ]
 
-/** Words in a button label that mean "DON'T click this in a smoke test". */
+/** Words in a button label that mean "DON'T click this in a smoke test"
+ *  because the click would mutate real data, send a customer SMS, or
+ *  charge a card. Matched at the start of the trimmed label,
+ *  case-insensitive. */
 const DESTRUCTIVE_LABEL_RE =
-  /^(delete|remove|approve|deny|send|charge|cancel|pause|enable|disable|sign out|log out|logout|book|confirm|complete|close|fire|run|trigger|migrate|import|export|drop|reset)/i
+  /^(delete|remove|approve|deny|send|charge|cancel|pause|enable|disable|sign out|log out|logout|book|confirm|complete|close|fire|run|trigger|migrate|import|export|drop|reset|save|submit|post|update|edit|on my way|in progress|started|stopped|finished|done|checkout|pay|refund|void|sync|publish|unpublish|undo|retry|resend)/i
 
 interface PageReport {
   href: string
@@ -161,28 +164,41 @@ async function visitAndProbe(
   let buttonsClicked = 0
   let buttonsSkippedDestructive = 0
 
-  // Click up to 5 safe buttons per page. Higher counts trigger
-  // FullCalendar / drawer / sheet states that hang subsequent navs.
-  for (const btn of buttons.slice(0, 5)) {
+  // Click EVERY safe button. Destructive labels filtered. Modal-openers
+  // are clicked too — we just dismiss with Escape afterward to avoid
+  // leaving the page in a wedged state for the next route.
+  // Cap per-route runtime so one heavy page doesn't burn the whole budget.
+  const PER_ROUTE_BUDGET_MS = 90_000
+  const routeStart = Date.now()
+  for (const btn of buttons) {
+    if (Date.now() - routeStart > PER_ROUTE_BUDGET_MS) {
+      buttonsSkippedDestructive++
+      continue
+    }
     const label = ((await btn.textContent().catch(() => null)) || '').trim()
     if (!label || label.length === 0) {
-      buttonsSkippedDestructive++
+      // Could be an icon-only button (close X, settings gear). Try
+      // clicking by role anyway — if it opens a popover we dismiss.
+      try {
+        await btn.click({ timeout: 600, force: false })
+        buttonsClicked++
+        await page.keyboard.press('Escape').catch(() => {})
+        await page.waitForTimeout(40)
+      } catch {
+        buttonsSkippedDestructive++
+      }
       continue
     }
     if (DESTRUCTIVE_LABEL_RE.test(label)) {
       buttonsSkippedDestructive++
       continue
     }
-    // Skip buttons whose label suggests they navigate or open a modal
-    if (/new |create |add /i.test(label)) {
-      buttonsSkippedDestructive++
-      continue
-    }
     try {
-      await btn.click({ timeout: 800, force: false })
+      await btn.click({ timeout: 600, force: false })
       buttonsClicked++
+      // Dismiss any popover/sheet/drawer it opened
       await page.keyboard.press('Escape').catch(() => {})
-      await page.waitForTimeout(80)
+      await page.waitForTimeout(40)
     } catch {
       buttonsSkippedDestructive++
     }
@@ -254,13 +270,13 @@ async function setSessionCookie(page: Page, token: string) {
   ])
 }
 
-test.describe.configure({ mode: 'serial', timeout: 600_000 })
+test.describe.configure({ mode: 'serial', timeout: 1_800_000 })
 
 test.describe('Tier 3 — click-everything portal smoke', () => {
   test('admin portal: every sidebar tab loads + safe-clicks fire', async ({
     page,
   }) => {
-    test.setTimeout(600_000)
+    test.setTimeout(1_800_000) // 30 min — clicking every button on every route
     const adminToken = await mintAdminSession()
     try {
       await setSessionCookie(page, adminToken)
@@ -287,7 +303,7 @@ test.describe('Tier 3 — click-everything portal smoke', () => {
   test('salesman portal: every sidebar tab loads + tech-only routes are NOT in nav', async ({
     page,
   }) => {
-    test.setTimeout(600_000)
+    test.setTimeout(1_800_000) // 30 min — clicking every button on every route
     const salesmanToken = await mintCleanerSession(TEST_PERSONAS.salesman.cleanerId)
     try {
       await setSessionCookie(page, salesmanToken)
@@ -327,7 +343,7 @@ test.describe('Tier 3 — click-everything portal smoke', () => {
   test('technician portal: every sidebar tab loads + no admin tabs leak', async ({
     page,
   }) => {
-    test.setTimeout(600_000)
+    test.setTimeout(1_800_000) // 30 min — clicking every button on every route
     const techToken = await mintCleanerSession(TEST_PERSONAS.technician.cleanerId)
     try {
       await setSessionCookie(page, techToken)
@@ -367,7 +383,7 @@ test.describe('Tier 3 — click-everything portal smoke', () => {
   test('team-lead portal: tech base + Team Performance + Payroll', async ({
     page,
   }) => {
-    test.setTimeout(600_000)
+    test.setTimeout(1_800_000) // 30 min — clicking every button on every route
     const tlToken = await mintCleanerSession(TEST_PERSONAS.techLead.cleanerId)
     try {
       await setSessionCookie(page, tlToken)

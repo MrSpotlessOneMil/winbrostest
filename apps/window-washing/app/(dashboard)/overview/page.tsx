@@ -18,8 +18,11 @@ import {
   BarChart3,
   Wallet,
   RefreshCw,
+  FileText,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { QuoteBuilderSheet } from "@/components/winbros/quote-builder-sheet"
+import { useStartNewQuote } from "@/hooks/use-start-new-quote"
 
 interface DashboardData {
   revenue: {
@@ -96,10 +99,18 @@ const statusBadge: Record<string, { label: string; cls: string }> = {
 }
 
 export default function CommandCenterPage() {
-  const { user } = useAuth()
+  const { user, portalToken } = useAuth()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  // PRD #1 — Create Quote in Quick Actions opens the QuoteBuilderSheet
+  // inline rather than navigating, matching the unified Phase B contract.
+  const [quoteSheetId, setQuoteSheetId] = useState<string | null>(null)
+  const { start: startNewQuote, creating: creatingQuote } = useStartNewQuote(portalToken)
+  const handleNewQuoteClick = useCallback(async () => {
+    const id = await startNewQuote()
+    if (id) setQuoteSheetId(String(id))
+  }, [startNewQuote])
 
   const fetchDashboard = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
@@ -403,13 +414,25 @@ export default function CommandCenterPage() {
       {/* Quick Actions */}
       <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 p-5">
         <h2 className="text-sm font-semibold text-white mb-3">Quick Actions</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <QuickActionButton
+            icon={FileText}
+            label={creatingQuote ? "Creating…" : "Create Quote"}
+            accent="text-sky-400"
+            onClick={handleNewQuoteClick}
+            disabled={creatingQuote}
+          />
           <QuickAction href="/quotes" icon={Target} label="Pipeline" accent="text-orange-400" />
           <QuickAction href="/schedule" icon={CalendarDays} label="Schedule" accent="text-teal-400" />
           <QuickAction href="/payroll" icon={DollarSign} label="Payroll" accent="text-emerald-400" />
           <QuickAction href="/service-plan-hub" icon={Repeat} label="Service Plans" accent="text-purple-400" />
         </div>
       </div>
+      <QuoteBuilderSheet
+        quoteId={quoteSheetId}
+        open={!!quoteSheetId}
+        onClose={() => setQuoteSheetId(null)}
+      />
     </div>
   )
 }
@@ -463,5 +486,30 @@ function QuickAction({ href, icon: Icon, label, accent }: QuickActionProps) {
       </span>
       <ArrowRight className="h-3 w-3 text-zinc-600 group-hover:text-zinc-400 transition-colors ml-auto" />
     </Link>
+  )
+}
+
+interface QuickActionButtonProps {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  accent: string
+  onClick: () => void
+  disabled?: boolean
+}
+
+function QuickActionButton({ icon: Icon, label, accent, onClick, disabled }: QuickActionButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex items-center gap-3 rounded-lg bg-zinc-800/40 hover:bg-zinc-800/70 p-3 transition-colors group disabled:opacity-50 disabled:cursor-not-allowed text-left"
+    >
+      <Icon className={cn("h-4 w-4", accent)} />
+      <span className="text-sm font-medium text-zinc-300 group-hover:text-white transition-colors">
+        {label}
+      </span>
+      <ArrowRight className="h-3 w-3 text-zinc-600 group-hover:text-zinc-400 transition-colors ml-auto" />
+    </button>
   )
 }

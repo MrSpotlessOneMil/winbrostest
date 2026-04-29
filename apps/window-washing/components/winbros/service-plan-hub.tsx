@@ -335,26 +335,32 @@ export function ServicePlanHub({
               <div className="text-2xl font-bold text-white">{formatCurrency(totalArr)}</div>
             </div>
 
-            {/* Plan type breakdown */}
-            <div className="space-y-3">
+            {/* Plan type breakdown — PRD #6 each row links to that
+                plan type's filtered service-plan schedule view. */}
+            <div className="space-y-1">
               {planTypes.map(pt => {
                 const pct = totalArr > 0 ? ((pt.total_arr / totalArr) * 100).toFixed(0) : '0'
                 return (
-                  <div key={pt.type} className="flex items-center justify-between">
+                  <Link
+                    key={pt.type}
+                    href={`/service-plan-schedule?plan_type=${encodeURIComponent(pt.type)}`}
+                    className="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-zinc-900 transition-colors group"
+                  >
                     <div className="flex items-center gap-2">
                       <div
                         className="w-2.5 h-2.5 rounded-full shrink-0"
                         style={{ backgroundColor: pt.color }}
                       />
-                      <span className="text-sm text-zinc-300">{pt.label}</span>
+                      <span className="text-sm text-zinc-300 group-hover:text-white">{pt.label}</span>
                     </div>
                     <div className="text-right">
                       <span className="text-sm font-semibold text-white">
                         {formatCurrency(pt.total_arr)}
                       </span>
                       <span className="text-xs text-zinc-500 ml-2">{pct}%</span>
+                      <ArrowUpRight className="inline w-3 h-3 ml-1 text-zinc-600 group-hover:text-zinc-400" />
                     </div>
-                  </div>
+                  </Link>
                 )
               })}
             </div>

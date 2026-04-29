@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react"
 import { useAuth } from "@/lib/auth-context"
 import {
   ChevronLeft, ChevronRight, Loader2, ChevronDown,
-  Clock, MapPin, GripVertical, Plus, Package,
+  Clock, MapPin, GripVertical, Plus, Package, Undo2,
 } from "lucide-react"
 import {
   DndContext, DragOverlay, useDraggable, useDroppable,
@@ -122,11 +122,13 @@ function DraggableJobCard({
   fromDate,
   fromTLId,
   onCardClick,
+  onUnschedule,
 }: {
   job: ScheduleJob
   fromDate: string
   fromTLId: number | null
   onCardClick?: (jobId: number) => void
+  onUnschedule?: (jobId: number) => void
 }) {
   const colors = getJobColor(job)
   const statusStyle = STATUS_STYLE[job.status] || STATUS_STYLE.scheduled
@@ -139,8 +141,23 @@ function DraggableJobCard({
     <div
       ref={setNodeRef}
       onClick={() => onCardClick?.(job.id)}
-      className={`rounded px-1.5 py-1 border text-[10px] cursor-pointer hover:brightness-110 active:cursor-grabbing transition-opacity ${colors.card} ${isDragging ? "opacity-30" : ""}`}
+      className={`relative group rounded px-1.5 py-1 border text-[10px] cursor-pointer hover:brightness-110 active:cursor-grabbing transition-opacity ${colors.card} ${isDragging ? "opacity-30" : ""}`}
     >
+      {/* PRD #7 — Unschedule (return to bucket). Hover-only so it doesn't
+          fight the drag handle for click area. */}
+      {onUnschedule && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onUnschedule(job.id)
+          }}
+          className="absolute top-0.5 right-0.5 hidden group-hover:flex items-center justify-center size-4 rounded bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700"
+          title="Return to bucket (unschedule)"
+        >
+          <Undo2 className="size-2.5" />
+        </button>
+      )}
       {/* Drag handle row */}
       <div className="flex items-center gap-1" {...listeners} {...attributes}>
         <GripVertical className="size-2.5 opacity-40 shrink-0 cursor-grab" />
@@ -384,6 +401,26 @@ export default function SchedulePage() {
     if (data) setDragItem(data)
   }
 
+  // PRD #7 — return a scheduled job to the unassigned bucket. PATCHes
+  // both cleaner_id and date to null in one call. Customer is NOT
+  // re-notified (this is an internal scheduling action).
+  const unscheduleJob = useCallback(async (jobId: number) => {
+    if (!confirm('Return this job to the unassigned bucket? The customer will not be notified.')) return
+    setUpdating(true)
+    try {
+      await fetch('/api/jobs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: jobId, cleaner_id: null, date: null }),
+      })
+      fetchWeekData()
+      fetchBankJobs()
+    } catch {
+      // ignore
+    }
+    setUpdating(false)
+  }, [fetchWeekData, fetchBankJobs])
+
   const handleDragEnd = async (e: DragEndEvent) => {
     setDragItem(null)
     if (!e.over) return
@@ -617,6 +654,7 @@ export default function SchedulePage() {
                                 fromDate={dateStr}
                                 fromTLId={crew.team_lead_id}
                                 onCardClick={openJobDrawer}
+                                onUnschedule={unscheduleJob}
                               />
                             ))}
                             {crewJobs.length === 0 && (
@@ -680,6 +718,7 @@ export default function SchedulePage() {
                                 fromDate={dateStr}
                                 fromTLId={null}
                                 onCardClick={openJobDrawer}
+                                onUnschedule={unscheduleJob}
                               />
                             ))}
                           </div>
