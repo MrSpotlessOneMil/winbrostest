@@ -30,35 +30,44 @@ export const adminNav: NavEntry[] = [
   { name: "Control Center", href: "/control-center" },
 ]
 
-/** Field base set — every tech / team-lead sees these. Salesmen have a
- * different nav (see salesmanNav) — they don't run techs through Scheduling
- * and they don't need the FullCalendar Calendar; their day is appointments +
- * pipeline. */
-export const fieldNavBase: NavEntry[] = [
+/** Technician nav — they execute jobs, they don't schedule. Per PRD #10,
+ * Scheduling is hidden. Per PRD #11, the duplicate My Customers + Customers
+ * is collapsed to a single role-scoped Customers tab. */
+export const technicianNav: NavEntry[] = [
   { name: "Command Center", href: "/my-day" },
   { name: "Calendar", href: "/jobs" },
-  { name: "Scheduling", href: "/schedule" },
-  { name: "My Customers", href: "/my-customers" },
   { name: "Customers", href: "/customers" },
   { name: "Off Days", href: "/my-schedule" },
 ]
 
-/** Team-lead extras — appended on top of fieldNavBase for team leads only. */
+/** Team-lead nav — same as tech plus Scheduling (TLs do schedule), Team
+ * Performance, and Payroll. Per PRD #16 Customers is single, role-scoped
+ * to the team's customers. */
+export const teamLeadNav: NavEntry[] = [
+  { name: "Command Center", href: "/my-day" },
+  { name: "Calendar", href: "/jobs" },
+  { name: "Scheduling", href: "/schedule" },
+  { name: "Customers", href: "/customers" },
+  { name: "Off Days", href: "/my-schedule" },
+  { name: "Team Performance", href: "/performance" },
+  { name: "Payroll", href: "/payroll" },
+]
+
+/** @deprecated kept for back-compat with existing imports — equals technicianNav. */
+export const fieldNavBase: NavEntry[] = technicianNav
+
+/** @deprecated kept for back-compat — TL extras now live in teamLeadNav. */
 export const teamLeadOnlyNav: NavEntry[] = [
   { name: "Team Performance", href: "/performance" },
   { name: "Payroll", href: "/payroll" },
 ]
 
-/** Salesman portal — pipeline-first nav. My Pipeline replaces the techs'
- * Calendar entry (their day is appointments → quotes → jobs they own).
- * Team Schedules is read-only so they can see when crews are open before
- * promising a customer a date. My Customers is the chat inbox for every
- * non-closed lead/quote/job they own. */
+/** Salesman portal — pipeline-first nav. Per PRD #14 single Customers tab
+ * scoped to customers this salesman has quoted or closed. */
 export const salesmanNav: NavEntry[] = [
   { name: "Command Center", href: "/my-day" },
   { name: "My Pipeline", href: "/my-pipeline" },
   { name: "Team Schedules", href: "/team-schedules" },
-  { name: "My Customers", href: "/my-customers" },
   { name: "Customers", href: "/customers" },
   { name: "Off Days", href: "/my-schedule" },
 ]
@@ -78,7 +87,7 @@ export function selectNavigation(args: {
   employeeType?: 'technician' | 'salesman' | 'team_lead' | null
 }): NavEntry[] {
   if (args.isAdmin) return adminNav
-  if (args.isTeamLead) return [...fieldNavBase, ...teamLeadOnlyNav]
+  if (args.isTeamLead) return teamLeadNav
   if (args.employeeType === 'salesman') return salesmanNav
-  return fieldNavBase
+  return technicianNav
 }

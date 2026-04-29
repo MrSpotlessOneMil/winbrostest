@@ -65,19 +65,9 @@ export async function GET(request: NextRequest) {
   const client = getSupabaseServiceClient()
   const tenantId = authResult.tenant.id
 
-  const { data: appointments, error: jobsErr } = await client
-    .from('jobs')
-    .select(
-      'id, customer_id, phone_number, address, service_type, date, scheduled_at, end_time, price, status, crew_salesman_id, notes'
-    )
-    .eq('tenant_id', tenantId)
-    .gte('date', start)
-    .lte('date', end)
-    .order('date', { ascending: true })
-    .order('scheduled_at', { ascending: true })
-
-  if (jobsErr) return NextResponse.json({ error: jobsErr.message }, { status: 500 })
-
+  // PRD #2 — Sales Appointments must surface salesmen only. Resolve the
+  // tenant's salesmen first so we can constrain appointments to jobs
+  // assigned to a salesman (or unassigned).
   const { data: salesmen, error: salesmenErr } = await client
     .from('cleaners')
     .select('id, name, employee_type, is_team_lead')
@@ -88,6 +78,33 @@ export async function GET(request: NextRequest) {
     .order('name', { ascending: true })
 
   if (salesmenErr) return NextResponse.json({ error: salesmenErr.message }, { status: 500 })
+
+  const salesmanIds = (salesmen ?? []).map((s) => s.id)
+
+  let appointmentsQuery = client
+    .from('jobs')
+    .select(
+      'id, customer_id, phone_number, address, service_type, date, scheduled_at, end_time, price, status, crew_salesman_id, notes'
+    )
+    .eq('tenant_id', tenantId)
+    .gte('date', start)
+    .lte('date', end)
+    .order('date', { ascending: true })
+    .order('scheduled_at', { ascending: true })
+
+  // Constrain crew_salesman_id to NULL or IN (salesmen). This filters out
+  // any historical row where a technician was accidentally assigned.
+  if (salesmanIds.length > 0) {
+    appointmentsQuery = appointmentsQuery.or(
+      `crew_salesman_id.is.null,crew_salesman_id.in.(${salesmanIds.join(',')})`,
+    )
+  } else {
+    // No salesmen seeded for this tenant — only show unassigned slots
+    appointmentsQuery = appointmentsQuery.is('crew_salesman_id', null)
+  }
+
+  const { data: appointments, error: jobsErr } = await appointmentsQuery
+  if (jobsErr) return NextResponse.json({ error: jobsErr.message }, { status: 500 })
 
   return NextResponse.json({
     appointments: appointments ?? [],

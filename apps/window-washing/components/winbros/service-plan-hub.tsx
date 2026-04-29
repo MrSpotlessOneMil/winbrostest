@@ -10,6 +10,7 @@
 
 import { Badge } from '@/components/ui/badge'
 import { DollarSign, TrendingUp, BookOpen, ArrowUpRight } from 'lucide-react'
+import Link from 'next/link'
 
 interface PlanTypeARR {
   type: string
@@ -202,8 +203,11 @@ export function ServicePlanHub({
           )}
         </div>
 
-        {/* BOX 3: Pricing Hub */}
-        <div className="relative overflow-hidden rounded-xl border border-zinc-700/50 bg-gradient-to-br from-zinc-900 to-zinc-950 p-6 group cursor-pointer hover:border-zinc-600 transition-colors">
+        {/* BOX 3: Pricing Hub — PRD #8 routes to /service-book */}
+        <Link
+          href="/service-book"
+          className="relative overflow-hidden rounded-xl border border-zinc-700/50 bg-gradient-to-br from-zinc-900 to-zinc-950 p-6 group cursor-pointer hover:border-zinc-600 transition-colors block"
+        >
           <div className="flex items-center gap-2 mb-3">
             <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-800">
               <BookOpen className="w-4 h-4 text-zinc-400" />
@@ -215,7 +219,7 @@ export function ServicePlanHub({
           </div>
           <div className="text-sm text-zinc-500 mt-1">View & manage pricing</div>
           <ArrowUpRight className="absolute top-4 right-4 w-4 h-4 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
-        </div>
+        </Link>
       </div>
 
       {/* ========== MIDDLE + BOTTOM — Chart & Breakdown ========== */}

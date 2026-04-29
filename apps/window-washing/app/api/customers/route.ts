@@ -4,6 +4,7 @@ import { requireAuth, requireAuthWithTenant, getAuthTenant } from "@/lib/auth"
 import { syncCustomerToHCP } from "@/lib/hcp-job-sync"
 import { isHcpSyncEnabled } from "@/lib/tenant"
 import { toE164 } from "@/lib/phone-utils"
+import { scopeCustomerIdsForCleaner } from "@/lib/customers-scope"
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
@@ -264,16 +265,50 @@ export async function GET(request: NextRequest) {
     ? await getTenantScopedClient(tenant.id)
     : (await import("@/lib/supabase")).getSupabaseServiceClient()
 
+  // PRD §5.2 — role-scoped customers list. For cleaner sessions (tech /
+  // salesman / TL) we resolve the set of customer_ids they're allowed to
+  // see and constrain every fetch below to that set. Admin sessions get
+  // null and see all customers in the tenant.
+  const allowedCustomerIds = await scopeCustomerIdsForCleaner(
+    getSupabaseServiceClient(),
+    authResult.cleaner ?? null,
+  )
+  if (allowedCustomerIds && allowedCustomerIds.size === 0) {
+    // Cleaner with no scoped customers — return an empty result fast.
+    return NextResponse.json({
+      success: true,
+      data: { customers: [], messages: [], jobs: [], calls: [], leads: [], scheduledTasks: [], cleanerPhones: [] },
+    })
+  }
+
+  // Pre-resolve allowed phone numbers (from the allowed customer set) so
+  // the messages fetch can be scoped too — messages are keyed by phone,
+  // not customer_id.
+  let allowedPhoneNumbers: string[] | null = null
+  if (allowedCustomerIds) {
+    const { data: phoneRows } = await client
+      .from('customers')
+      .select('phone_number')
+      .in('id', Array.from(allowedCustomerIds))
+    allowedPhoneNumbers = (phoneRows ?? [])
+      .map((r: { phone_number: string | null }) => r.phone_number)
+      .filter((p: string | null): p is string => !!p)
+  }
+
   // Fetch messages first — needed to sort customers by last activity.
   // IMPORTANT: PostgREST enforces a server-side max of 1000 rows regardless of
   // the client .limit() value. Ordering DESC ensures we always get the NEWEST
   // 1000 messages (old ones beyond 1000 are dropped, which is acceptable).
   // We reverse the array afterward so display order is chronological.
-  const { data: rawMessages, error: messagesError } = await client
+  let messagesQuery = client
     .from("messages")
     .select("*")
     .order("timestamp", { ascending: false })
     .limit(1000)
+  if (allowedPhoneNumbers) {
+    messagesQuery = messagesQuery.in('phone_number', allowedPhoneNumbers)
+  }
+  const { data: rawMessages, error: messagesError } = await messagesQuery
   const messages = rawMessages ? [...rawMessages].reverse() : []
 
   if (messagesError) {
@@ -285,6 +320,11 @@ export async function GET(request: NextRequest) {
     .from("customers")
     .select("*")
     .order("updated_at", { ascending: false })
+
+  // Role-scope filter (cleaner sessions only)
+  if (allowedCustomerIds) {
+    customersQuery = customersQuery.in('id', Array.from(allowedCustomerIds))
+  }
 
   if (searchQuery) {
     // Strip non-digits for phone search
@@ -399,28 +439,43 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const { data: jobs, error: jobsError } = await client
+  // Role-scope: every related fetch (jobs, calls, leads) constrains to
+  // customer_ids in our scoped set so a tech / salesman / TL can't see
+  // jobs / threads they shouldn't.
+  let jobsQuery = client
     .from("jobs")
     .select("*")
     .order("created_at", { ascending: false })
+  if (allowedCustomerIds) {
+    jobsQuery = jobsQuery.in('customer_id', Array.from(allowedCustomerIds))
+  }
+  const { data: jobs, error: jobsError } = await jobsQuery
 
   if (jobsError) {
     return NextResponse.json({ success: false, error: jobsError.message }, { status: 500 })
   }
 
-  const { data: calls, error: callsError } = await client
+  let callsQuery = client
     .from("calls")
     .select("*")
     .order("created_at", { ascending: false })
+  if (allowedCustomerIds) {
+    callsQuery = callsQuery.in('customer_id', Array.from(allowedCustomerIds))
+  }
+  const { data: calls, error: callsError } = await callsQuery
 
   if (callsError) {
     return NextResponse.json({ success: false, error: callsError.message }, { status: 500 })
   }
 
-  const { data: leads, error: leadsError } = await client
+  let leadsQuery = client
     .from("leads")
     .select("*")
     .order("created_at", { ascending: false })
+  if (allowedCustomerIds) {
+    leadsQuery = leadsQuery.in('customer_id', Array.from(allowedCustomerIds))
+  }
+  const { data: leads, error: leadsError } = await leadsQuery
 
   if (leadsError) {
     return NextResponse.json({ success: false, error: leadsError.message }, { status: 500 })

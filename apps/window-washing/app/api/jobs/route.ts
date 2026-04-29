@@ -86,6 +86,40 @@ export async function GET(request: NextRequest) {
   if (status) query = query.eq("status", status === "in-progress" ? "in_progress" : status)
   if (team_id) query = query.eq("team_id", Number(team_id))
 
+  // PRD #9 / #15 — role-scope the calendar so a tech sees only their
+  // assigned jobs, a TL sees only their crew's jobs, a salesman sees
+  // only jobs they sold or were credited on. Admin gets the unfiltered
+  // view (authResult.cleaner is undefined for admin sessions).
+  const cleaner = (authResult as any).cleaner as
+    | { id: number; employee_type: string | null; is_team_lead: boolean }
+    | undefined
+  if (cleaner) {
+    if (cleaner.employee_type === 'salesman' && !cleaner.is_team_lead) {
+      query = query.or(
+        `salesman_id.eq.${cleaner.id},credited_salesman_id.eq.${cleaner.id}`,
+      )
+    } else if (cleaner.is_team_lead) {
+      // TL: own jobs + crew members' jobs (last 90 days of crew_days)
+      const cutoff = new Date()
+      cutoff.setDate(cutoff.getDate() - 90)
+      const cutoffISO = cutoff.toISOString().slice(0, 10)
+      const svc = getSupabaseServiceClient()
+      const { data: crewDays } = await svc
+        .from('crew_days')
+        .select('cleaner_id')
+        .eq('team_lead_id', cleaner.id)
+        .gte('date', cutoffISO)
+      const ids = new Set<number>([cleaner.id])
+      for (const cd of crewDays ?? []) {
+        if (cd.cleaner_id != null) ids.add(Number(cd.cleaner_id))
+      }
+      query = query.in('cleaner_id', Array.from(ids))
+    } else {
+      // Pure technician — strictly own assigned jobs
+      query = query.eq('cleaner_id', cleaner.id)
+    }
+  }
+
   const { data: rows, error, count } = await query.range(start, end)
   if (error) {
     const empty: PaginatedResponse<Job> = { data: [], total: 0, page, per_page, total_pages: 0 }

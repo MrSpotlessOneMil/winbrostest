@@ -13,8 +13,8 @@ import { describe, it, expect } from 'vitest'
 import {
   selectNavigation,
   adminNav,
-  fieldNavBase,
-  teamLeadOnlyNav,
+  technicianNav,
+  teamLeadNav,
   salesmanNav,
 } from '@/apps/window-washing/components/dashboard/sidebar-nav'
 import { deriveRoleLabel } from '@/apps/window-washing/lib/auth-context'
@@ -45,29 +45,44 @@ describe('selectNavigation — sidebar role gating', () => {
     expect(techSchedIdx).toBe(apptIdx + 1)
   })
 
-  it('team lead sees field base + Team Performance + Payroll', () => {
+  it('team lead nav: Calendar + Scheduling + single Customers + Team Performance + Payroll', () => {
+    // PRD #16: TL nav has ONE Customers tab (no separate "My Customers").
     const nav = selectNavigation({ isAdmin: false, isTeamLead: true })
+    expect(nav).toBe(teamLeadNav)
     const labels = nav.map(n => n.name)
     expect(labels).toContain('Command Center')
     expect(labels).toContain('Calendar')
     expect(labels).toContain('Scheduling')
-    expect(labels).toContain('My Customers')
     expect(labels).toContain('Customers')
     expect(labels).toContain('Off Days')
     expect(labels).toContain('Team Performance')
     expect(labels).toContain('Payroll')
-    expect(nav.length).toBe(fieldNavBase.length + teamLeadOnlyNav.length)
+    // PRD #16: no duplicate My Customers
+    expect(labels).not.toContain('My Customers')
   })
 
-  it('every field role sees My Customers (Phase C — per-customer chat inbox)', () => {
+  it('PRD #11/#14/#16: every non-admin role has ONE Customers tab, not "My Customers"', () => {
     for (const role of [
-      { isAdmin: false, isTeamLead: false },  // tech / salesman
-      { isAdmin: false, isTeamLead: true },   // team lead
+      { isAdmin: false, isTeamLead: false },
+      { isAdmin: false, isTeamLead: true },
+      { isAdmin: false, isTeamLead: false, employeeType: 'salesman' as const },
     ]) {
       const nav = selectNavigation(role)
-      expect(nav.map(n => n.name)).toContain('My Customers')
-      expect(nav.map(n => n.href)).toContain('/my-customers')
+      const labels = nav.map(n => n.name)
+      const hrefs = nav.map(n => n.href)
+      expect(labels).toContain('Customers')
+      expect(hrefs).toContain('/customers')
+      // No separate "My Customers" entry — collapsed into the role-scoped Customers tab
+      expect(labels).not.toContain('My Customers')
+      expect(hrefs).not.toContain('/my-customers')
     }
+  })
+
+  it('PRD #10: technician does NOT see Scheduling (they execute jobs, they do not schedule)', () => {
+    const nav = selectNavigation({ isAdmin: false, isTeamLead: false })
+    const labels = nav.map(n => n.name)
+    expect(labels).not.toContain('Scheduling')
+    expect(nav.map(n => n.href)).not.toContain('/schedule')
   })
 
   it('technician (not team lead) does NOT see Team Performance or Payroll', () => {
@@ -77,8 +92,7 @@ describe('selectNavigation — sidebar role gating', () => {
     expect(labels).not.toContain('Payroll')
     expect(labels).toContain('Command Center')
     expect(labels).toContain('Calendar')
-    expect(labels).toContain('Scheduling')
-    expect(nav.length).toBe(fieldNavBase.length)
+    expect(nav.length).toBe(technicianNav.length)
   })
 
   it('salesman (not team lead) does NOT see Team Performance or Payroll', () => {
@@ -90,16 +104,15 @@ describe('selectNavigation — sidebar role gating', () => {
     expect(labels).not.toContain('Payroll')
   })
 
-  it('salesman gets pipeline-first portal — My Pipeline + Team Schedules + My Customers', () => {
-    // Phase H: salesman lives in their own nav so the day reads
-    // appointments → pipeline → customer chats, not tech-style scheduling.
+  it('salesman portal — My Pipeline + Team Schedules + single Customers tab', () => {
+    // Phase H + PRD #14: salesman portal carries pipeline-first nav with
+    // a SINGLE role-scoped Customers tab (no duplicate My Customers).
     const nav = selectNavigation({ isAdmin: false, isTeamLead: false, employeeType: 'salesman' })
     expect(nav).toBe(salesmanNav)
     const labels = nav.map(n => n.name)
     expect(labels).toContain('Command Center')
     expect(labels).toContain('My Pipeline')
     expect(labels).toContain('Team Schedules')
-    expect(labels).toContain('My Customers')
     expect(labels).toContain('Customers')
     expect(labels).toContain('Off Days')
     // Salesmen don't run techs, so they don't get the daily Scheduling Gantt
@@ -109,43 +122,40 @@ describe('selectNavigation — sidebar role gating', () => {
     // And they never see admin-only entries.
     expect(labels).not.toContain('Team Performance')
     expect(labels).not.toContain('Payroll')
+    // PRD #14: no duplicate My Customers
+    expect(labels).not.toContain('My Customers')
   })
 
   it('salesman+team_lead hybrid → team-lead nav wins (crew duties dominate the day)', () => {
-    // A user that is both a salesman (employeeType='salesman') AND has
-    // is_team_lead=true should see the team-lead view, since running the
-    // crew is the more time-sensitive role on any given day.
     const nav = selectNavigation({ isAdmin: false, isTeamLead: true, employeeType: 'salesman' })
-    expect(nav.length).toBe(fieldNavBase.length + teamLeadOnlyNav.length)
+    expect(nav).toBe(teamLeadNav)
     const labels = nav.map(n => n.name)
     expect(labels).toContain('Team Performance')
     expect(labels).toContain('Payroll')
-    // No salesman-only entries leaked.
     expect(labels).not.toContain('My Pipeline')
     expect(labels).not.toContain('Team Schedules')
   })
 
-  it('technician with employeeType=technician still gets field base (not salesman portal)', () => {
+  it('technician with employeeType=technician gets technicianNav', () => {
     const nav = selectNavigation({ isAdmin: false, isTeamLead: false, employeeType: 'technician' })
-    expect(nav).toBe(fieldNavBase)
+    expect(nav).toBe(technicianNav)
   })
 
-  it('employeeType undefined falls back to field base (back-compat with old callers)', () => {
+  it('employeeType undefined falls back to technician nav', () => {
     const nav = selectNavigation({ isAdmin: false, isTeamLead: false })
-    expect(nav).toBe(fieldNavBase)
+    expect(nav).toBe(technicianNav)
   })
 
-  it('field nav puts Command Center first so post-login lands feel natural', () => {
-    const nav = selectNavigation({ isAdmin: false, isTeamLead: false })
-    expect(nav[0]?.name).toBe('Command Center')
-    expect(nav[0]?.href).toBe('/my-day')
-  })
-
-  it('"Scheduling" entry replaces the legacy "Jobs" label', () => {
-    const nav = selectNavigation({ isAdmin: false, isTeamLead: false })
-    const labels = nav.map(n => n.name)
-    expect(labels).toContain('Scheduling')
-    expect(labels).not.toContain('Jobs')
+  it('every nav puts Command Center first so post-login lands feel natural', () => {
+    for (const role of [
+      { isAdmin: false, isTeamLead: false },
+      { isAdmin: false, isTeamLead: true },
+      { isAdmin: false, isTeamLead: false, employeeType: 'salesman' as const },
+    ]) {
+      const nav = selectNavigation(role)
+      expect(nav[0]?.name).toBe('Command Center')
+      expect(nav[0]?.href).toBe('/my-day')
+    }
   })
 })
 
