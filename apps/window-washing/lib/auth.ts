@@ -85,24 +85,45 @@ export async function verifyPassword(
   if (type === 'email') {
     query = query.ilike('email', trimmed)
   } else if (type === 'phone') {
-    query = query.eq('phone', normalizePhone(trimmed))
+    // Match against every common stored format so input like "+13092411958",
+    // "13092411958", "3092411958", "(309) 241-1958", or "309-241-1958" all
+    // resolve to the same row regardless of how the manager's phone was saved.
+    const digits = trimmed.replace(/\D/g, '')
+    const last10 = digits.slice(-10)
+    const candidates = Array.from(new Set([
+      `+1${last10}`,
+      `1${last10}`,
+      last10,
+      `+${last10}`,
+      `+${digits}`,
+      digits,
+    ].filter(Boolean)))
+    query = query.in('phone', candidates)
   } else {
     query = query.eq('username', trimmed)
   }
 
-  const { data: user, error } = await query.single()
+  const { data: users, error } = await query.limit(5)
 
-  if (error || !user) {
+  if (error || !users || users.length === 0) {
     return null
   }
 
-  // Use the verify_password function we created in the schema
-  const { data: isValid, error: verifyError } = await client.rpc('verify_password', {
-    password_input: password,
-    password_hash: user.password_hash,
-  })
+  // Phone lookup may return multiple rows if the same person is stored under
+  // different formats. Pick the one whose password actually verifies.
+  let user: typeof users[number] | null = null
+  for (const candidate of users) {
+    const { data: isValid } = await client.rpc('verify_password', {
+      password_input: password,
+      password_hash: candidate.password_hash,
+    })
+    if (isValid) {
+      user = candidate
+      break
+    }
+  }
 
-  if (verifyError || !isValid) {
+  if (!user) {
     return null
   }
 
