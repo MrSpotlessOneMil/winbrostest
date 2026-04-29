@@ -460,8 +460,19 @@ export default function CustomersPage() {
         setLeads([])
       }
     } catch (error) {
-      console.error("Failed to fetch customers:", error)
-      // Network error — clear stale data
+      // "Failed to fetch" with no other detail = navigation aborted the
+      // request mid-flight (component unmount). That's expected; keep
+      // the noise out of the console. Real network errors surface with
+      // a different message (e.g. "NetworkError when attempting to
+      // fetch resource").
+      const msg = error instanceof Error ? error.message : String(error)
+      if (msg === 'Failed to fetch' || (error as Error)?.name === 'AbortError') {
+        // Quiet — page is unmounting
+      } else {
+        console.error("Failed to fetch customers:", error)
+      }
+      // Clear stale data either way so the next mount doesn't show
+      // another tenant's leftover state.
       setCustomers([])
       setMessages([])
       setJobs([])
