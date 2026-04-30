@@ -16,6 +16,7 @@ import { useAuth } from "@/lib/auth-context"
 import { ChevronLeft, ChevronRight, Loader2, Clock, MapPin } from "lucide-react"
 import Link from "next/link"
 import { parseCityZip } from "@/lib/address-utils"
+import { formatTimeRange } from "@/lib/format-time-range"
 
 interface ScheduleJob {
   id: number
@@ -257,7 +258,8 @@ export default function TeamSchedulesPage() {
                                     {job.time && (
                                       <span className="text-zinc-500 shrink-0">
                                         <Clock className="w-2.5 h-2.5 inline mr-0.5" />
-                                        {job.time}
+                                        {/* Phase L: human time format ("8 to 10am"). */}
+                                        {formatTimeRange(job.time, null)}
                                       </span>
                                     )}
                                     <span className="truncate">{job.customer_name}</span>

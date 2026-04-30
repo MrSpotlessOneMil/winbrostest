@@ -14,6 +14,7 @@ import {
 import { JobDetailDrawer } from "@/components/winbros/job-detail-drawer"
 import { QuoteBuilderSheet } from "@/components/winbros/quote-builder-sheet"
 import { useStartNewQuote } from "@/hooks/use-start-new-quote"
+import { formatTimeRange } from "@/lib/format-time-range"
 
 /* ─── Types ─── */
 interface ScheduleJob {
@@ -172,7 +173,8 @@ function DraggableJobCard({
       {job.time && (
         <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
           <Clock className="size-2 shrink-0" />
-          <span>{job.time}</span>
+          {/* Phase L: human time format ("8 to 10am" vs "08:00"). */}
+          <span>{formatTimeRange(job.time, null)}</span>
         </div>
       )}
       <div className="flex items-center justify-between mt-0.5">
@@ -627,20 +629,36 @@ export default function SchedulePage() {
                     const isExpanded = expandedTLs.has(tlKey)
                     const crewJobs = crew.jobs || []
                     const crewTotal = crew.daily_revenue || 0
+                    // Phase L (Blake 2026-04-29): empty crews need a yellow
+                    // border so admin spots which days still need filling.
+                    const isEmpty = crewJobs.length === 0
+                    const tlBorderClass = isEmpty
+                      ? "border border-yellow-500/40 bg-yellow-500/5"
+                      : ""
 
                     return (
                       <DroppableTLCell key={tlKey} id={`drop-${dateStr}-${crew.team_lead_id}`}>
                         {/* TL Header */}
                         <button
                           onClick={() => toggleTL(tlKey)}
-                          className="w-full flex items-center gap-1 px-1.5 py-1 rounded-md hover:bg-muted/50 text-left"
+                          data-empty-crew={isEmpty ? "true" : "false"}
+                          className={`w-full flex items-center gap-1 px-1.5 py-1 rounded-md hover:bg-muted/50 text-left ${tlBorderClass}`}
                         >
                           <span className="text-[9px] font-bold text-blue-400 bg-blue-500/15 px-1 rounded">TL</span>
                           <span className="text-[11px] font-semibold text-foreground truncate flex-1">
                             {crew.team_lead_name.split(" ")[0]}
+                            {/* Phase L: town of first job next to TL name. */}
+                            {crew.first_job_town && (
+                              <span className="text-muted-foreground font-normal ml-1">
+                                · {crew.first_job_town}
+                              </span>
+                            )}
                           </span>
                           {crewJobs.length > 0 && <span className="text-[9px] text-muted-foreground">{crewJobs.length}</span>}
                           {crewTotal > 0 && <span className="text-[9px] text-green-400 font-medium">${Math.round(crewTotal)}</span>}
+                          {isEmpty && (
+                            <span className="text-[9px] text-yellow-400 font-medium">open</span>
+                          )}
                           <ChevronDown className={`size-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
                         </button>
 
@@ -681,7 +699,7 @@ export default function SchedulePage() {
                             <div className="text-muted-foreground truncate">{apt.salesman_name}</div>
                             <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
                               <Clock className="size-2" />
-                              <span>{apt.time}</span>
+                              <span>{formatTimeRange(apt.time, null)}</span>
                               <span className="ml-auto text-amber-400 text-[8px] font-semibold uppercase">{apt.type}</span>
                             </div>
                           </div>
