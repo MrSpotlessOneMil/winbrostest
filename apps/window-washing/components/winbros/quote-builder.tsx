@@ -18,6 +18,7 @@ import {
   type Optionality,
   type QuoteLineItemLike,
 } from "@/lib/quote-totals"
+import { computePlanPrice } from "@/lib/quote-plan-pricing"
 import {
   CustomerPickerModal,
   customerDisplayName,
@@ -33,6 +34,10 @@ interface LineItem {
   optionality: Optionality
   is_upsell: boolean
   sort_order: number
+  /** Phase J (2026-04-29): mark a line as the exterior-windows section
+   * so service plan formulas (`exterior_multiplier`) can derive their
+   * recurring price from this line's qty × price. */
+  kind?: "standard" | "exterior_windows"
 }
 
 interface Plan {
@@ -76,6 +81,13 @@ interface PlanTemplate {
   agreement_pdf_url: string | null
   description: string | null
   sort_order: number
+  /** Phase J: pricing formula. Default {kind:"flat"} preserves existing
+   * Phase E behavior; admins can switch to exterior_multiplier via the
+   * Control Center plan editor. */
+  pricing_formula?:
+    | { kind: "flat" }
+    | { kind: "exterior_multiplier"; factor: number }
+    | null
 }
 
 const OPTION_CYCLE: Record<Optionality, Optionality> = {
@@ -180,6 +192,8 @@ export function QuoteBuilder({
           optionality: li.optionality ?? 'required',
           is_upsell: !!li.is_upsell,
           sort_order: li.sort_order ?? i,
+          // Phase J: persist the exterior-windows flag through reload.
+          kind: (li.kind === "exterior_windows" ? "exterior_windows" : "standard"),
         }))
       )
       setPlans(
@@ -259,6 +273,7 @@ export function QuoteBuilder({
         optionality: partial?.optionality ?? 'required',
         is_upsell: partial?.is_upsell ?? false,
         sort_order: prev.length,
+        kind: partial?.kind ?? 'standard',
       },
     ])
   }
@@ -299,12 +314,26 @@ export function QuoteBuilder({
   function addPlanFromTemplate(slug: string) {
     const tmpl = planTemplates.find(t => t.slug === slug)
     if (!tmpl) return
+    // Phase J (2026-04-29): if the template carries an
+    // `exterior_multiplier` formula, derive the recurring price from
+    // the quote's exterior_windows line. Falls back to flat
+    // template.recurring_price when there's no exterior windows line yet
+    // or the formula is `flat`.
+    const computed = computePlanPrice({
+      templateRecurringPrice: Number(tmpl.recurring_price) || 0,
+      formula: tmpl.pricing_formula ?? null,
+      lines: lineItems.map(li => ({
+        kind: li.kind === 'exterior_windows' ? 'exterior_windows' : 'standard',
+        price: Number(li.price) || 0,
+        quantity: Number(li.quantity) || 1,
+      })),
+    })
     setPlans(prev => [
       ...prev,
       {
         name: tmpl.name,
         discount_label: null,
-        recurring_price: Number(tmpl.recurring_price) || 0,
+        recurring_price: computed,
         first_visit_keeps_original_price: false,
         offered_to_customer: true,  // sensible default — admin tweaks if not
         sort_order: prev.length,
@@ -636,6 +665,27 @@ export function QuoteBuilder({
                       value={li.description ?? ''}
                       onChange={e => updateLine(i, { description: e.target.value })}
                     />
+                    {/* Phase J (2026-04-29): exterior-windows toggle.
+                        Marking a line drives service-plan auto-pricing
+                        when the template has an exterior_multiplier formula. */}
+                    <button
+                      type="button"
+                      onClick={() => updateLine(i, {
+                        kind: li.kind === 'exterior_windows' ? 'standard' : 'exterior_windows',
+                      })}
+                      data-testid="exterior-windows-toggle"
+                      aria-pressed={li.kind === 'exterior_windows'}
+                      title={li.kind === 'exterior_windows'
+                        ? 'This line drives service-plan multiplier formulas. Click to unmark.'
+                        : 'Mark this line as the exterior-windows section so service plans auto-price from it.'}
+                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                        li.kind === 'exterior_windows'
+                          ? 'border-sky-500/50 bg-sky-500/10 text-sky-300'
+                          : 'border-zinc-700 bg-zinc-800/40 text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      {li.kind === 'exterior_windows' ? '★ Exterior Windows' : 'Set as Exterior Windows'}
+                    </button>
                   </div>
                   <div className="flex items-center gap-2 sm:items-start">
                     <label className="flex items-center gap-1 text-xs text-zinc-500">

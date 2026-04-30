@@ -27,6 +27,9 @@ interface BodyLineItem {
   optionality?: 'required' | 'recommended' | 'optional'
   is_upsell?: boolean
   sort_order?: number
+  /** Phase J (2026-04-29): 'exterior_windows' marks the row whose qty ×
+   * price drives service-plan multiplier formulas. */
+  kind?: 'standard' | 'exterior_windows'
 }
 
 interface BodyPlan {
@@ -232,6 +235,9 @@ export async function PATCH(
         is_upsell:
           item.optionality === 'recommended' || item.optionality === 'optional',
         sort_order: typeof item.sort_order === 'number' ? item.sort_order : index,
+        // Phase J (2026-04-29): persist exterior-windows flag so the
+        // service-plan multiplier formula can read it on reload.
+        kind: item.kind === 'exterior_windows' ? 'exterior_windows' : 'standard',
       }))
 
     if (rows.length > 0) {

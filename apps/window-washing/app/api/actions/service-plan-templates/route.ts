@@ -25,6 +25,9 @@ interface PlanTemplate {
   description: string | null
   sort_order: number
   commission_rule: Record<string, unknown> | null
+  /** Phase J (2026-04-29): pricing formula. Default {kind:"flat"}; admins
+   * can switch to exterior_multiplier via Control Center plan editor. */
+  pricing_formula: Record<string, unknown> | null
 }
 
 export async function GET(request: NextRequest) {
@@ -35,7 +38,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await client
     .from('service_plan_templates')
     .select(
-      'id, slug, name, recurring_price, recurrence, agreement_pdf_url, description, sort_order, commission_rule'
+      'id, slug, name, recurring_price, recurrence, agreement_pdf_url, description, sort_order, commission_rule, pricing_formula'
     )
     .eq('tenant_id', authResult.tenant.id)
     .eq('active', true)
