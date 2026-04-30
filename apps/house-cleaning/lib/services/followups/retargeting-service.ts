@@ -214,7 +214,7 @@ export async function runWinBackStep(input: RunWinBackInput): Promise<{ sent: bo
   // 1. Hard-gate eligibility
   const { data: cust } = await supabase
     .from('customers')
-    .select('id, first_name, phone_number, unsubscribed_at, sms_opt_out, retargeting_active, last_retargeting_template_key, bedrooms, bathrooms, human_takeover_until')
+    .select('id, first_name, phone_number, unsubscribed_at, sms_opt_out, retargeting_active, last_retargeting_template_key, bedrooms, bathrooms, human_takeover_until, auto_response_paused, manual_takeover_at')
     .eq('id', payload.customer_id)
     .eq('tenant_id', tenantId)
     .maybeSingle()
@@ -229,6 +229,7 @@ export async function runWinBackStep(input: RunWinBackInput): Promise<{ sent: bo
   if (!cust.retargeting_active) {
     return { sent: false, reason: 'not_active' }
   }
+  // Active human takeover (canonical signal: human_takeover_until)
   if (cust.human_takeover_until && new Date(cust.human_takeover_until).getTime() > Date.now()) {
     // Reschedule self for 1h later — let human finish
     const reschedRunAt = new Date(Date.now() + 60 * 60 * 1000)
@@ -241,6 +242,23 @@ export async function runWinBackStep(input: RunWinBackInput): Promise<{ sent: bo
       maxAttempts: 2,
     })
     return { sent: false, reason: 'rescheduled_human_takeover' }
+  }
+  // Defense-in-depth: auto_response_paused + recent manual_takeover_at means an
+  // owner is in the thread even if human_takeover_until wasn't set. Same behavior.
+  if (cust.auto_response_paused === true) {
+    const recentManualMs = cust.manual_takeover_at ? Date.now() - new Date(cust.manual_takeover_at).getTime() : Infinity
+    if (recentManualMs < 30 * 60 * 1000) {
+      const reschedRunAt = new Date(Date.now() + 60 * 60 * 1000)
+      await scheduleTask({
+        tenantId,
+        taskType: 'retargeting.win_back',
+        taskKey: `rt:${payload.customer_id}:resched:${Date.now()}`,
+        scheduledFor: reschedRunAt,
+        payload,
+        maxAttempts: 2,
+      })
+      return { sent: false, reason: 'rescheduled_human_takeover_paused' }
+    }
   }
 
   // 2. Render + send

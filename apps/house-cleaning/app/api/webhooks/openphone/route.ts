@@ -475,7 +475,7 @@ async function processOpenPhoneWebhook(request: NextRequest): Promise<NextRespon
       // Find customer
       const { data: customer } = await client
         .from("customers")
-        .select("id, retargeting_sequence, retargeting_completed_at")
+        .select("id, retargeting_sequence, retargeting_completed_at, retargeting_active")
         .eq("phone_number", toE164)
         .eq("tenant_id", tenant?.id)
         .maybeSingle()
@@ -616,15 +616,20 @@ async function processOpenPhoneWebhook(request: NextRequest): Promise<NextRespon
 
         // Manual takeover: pause AI, cancel retargeting, record timestamp (skip for automated outbound)
         if (customer?.id && tenant && !isBroadcast && !isAgentOutreach && !isRetargeting && !isSystemSent) {
+          // 10-minute takeover window — v2 ghost-chase + retargeting handlers
+          // gate on human_takeover_until > now(). Setting it here closes the
+          // gap between manual outbound and queued follow-ups firing.
+          const takeoverUntil = new Date(Date.now() + 10 * 60 * 1000).toISOString()
           await client
             .from("customers")
             .update({
               auto_response_paused: true,
               manual_takeover_at: new Date().toISOString(),
+              human_takeover_until: takeoverUntil,
             })
             .eq("id", customer.id)
 
-          // Cancel pending retargeting tasks if sequence is active
+          // Cancel pending LEGACY retargeting tasks if sequence is active
           if (customer.retargeting_sequence && !customer.retargeting_completed_at) {
             await client
               .from("scheduled_tasks")
@@ -641,7 +646,25 @@ async function processOpenPhoneWebhook(request: NextRequest): Promise<NextRespon
               })
               .eq("id", customer.id)
 
-            console.log(`[OpenPhone] Cancelled retargeting for customer ${customer.id} due to manual takeover`)
+            console.log(`[OpenPhone] Cancelled legacy retargeting for customer ${customer.id} due to manual takeover`)
+          }
+
+          // v2: cancel pending followup.ghost_chase + retargeting.win_back rows
+          // task_type-based cancel covers all step rows + any rescheduled-self rows
+          await client
+            .from("scheduled_tasks")
+            .update({ status: "cancelled", last_error: "cancelled: manual_takeover" })
+            .eq("tenant_id", tenant.id)
+            .eq("status", "pending")
+            .in("task_type", ["followup.ghost_chase", "retargeting.win_back"])
+            .filter("payload->>customer_id", "eq", String(customer.id))
+
+          // Halt active retargeting sequence (v2 column)
+          if (customer.retargeting_active) {
+            await client
+              .from("customers")
+              .update({ retargeting_active: false })
+              .eq("id", customer.id)
           }
 
           // Also pause lead follow-ups

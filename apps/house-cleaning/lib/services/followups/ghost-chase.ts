@@ -219,7 +219,7 @@ export async function runGhostChaseStep(input: RunGhostStepInput): Promise<{ sen
   // 1. Hard-gate: is the customer unsubscribed or paused?
   const { data: cust } = await supabase
     .from('customers')
-    .select('id, first_name, phone_number, unsubscribed_at, sms_opt_out, auto_response_disabled, human_takeover_until')
+    .select('id, first_name, phone_number, unsubscribed_at, sms_opt_out, auto_response_disabled, human_takeover_until, auto_response_paused, manual_takeover_at')
     .eq('id', payload.customer_id)
     .eq('tenant_id', tenantId)
     .maybeSingle()
@@ -239,6 +239,15 @@ export async function runGhostChaseStep(input: RunGhostStepInput): Promise<{ sen
     // Human is in this thread right now — don't fire follow-up.
     // We don't cancel; the next pending step will re-check.
     return { sent: false, reason: 'human_takeover_active' }
+  }
+  // Defense-in-depth: even if the webhook missed setting human_takeover_until,
+  // auto_response_paused + recent manual_takeover_at means an owner is in the
+  // thread. Treat the same way: skip without cancelling.
+  if (cust.auto_response_paused === true) {
+    const recentManualMs = cust.manual_takeover_at ? Date.now() - new Date(cust.manual_takeover_at).getTime() : Infinity
+    if (recentManualMs < 30 * 60 * 1000) {
+      return { sent: false, reason: 'human_takeover_active_paused' }
+    }
   }
 
   // 2. Re-check ghost status of the entity
