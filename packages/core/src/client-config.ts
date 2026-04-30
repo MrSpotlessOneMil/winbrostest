@@ -88,7 +88,14 @@ export function getClientConfig(brandOverride?: BrandMode): ClientConfig {
     cleanerHourlyRate: parseFloat(process.env.CLEANER_HOURLY_RATE || '25'),
     depositPercent: parseFloat(process.env.DEPOSIT_PERCENT || '50'),
     processingFeePct: parseFloat(process.env.PROCESSING_FEE_PCT || '3'),
-    domain: process.env.NEXT_PUBLIC_DOMAIN || process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'),
+    // CRITICAL: never fall back to VERCEL_URL — that's the per-deployment
+    // hostname (e.g. osiris-house-cleaning-abc123-mrspotlessonemils-projects
+    // .vercel.app) and looks like a phishing link to customers receiving an
+    // SMS quote URL. Always anchor to the production canonical domain.
+    domain: process.env.NEXT_PUBLIC_DOMAIN
+      || process.env.NEXT_PUBLIC_APP_URL
+      || process.env.NEXT_PUBLIC_SITE_URL
+      || (process.env.NODE_ENV === 'production' ? 'https://cleanmachine.live' : 'http://localhost:3000'),
     reviewLink: process.env.REVIEW_LINK,
     brandMode,
     openphonePhoneId,

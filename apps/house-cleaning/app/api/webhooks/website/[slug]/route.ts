@@ -286,9 +286,51 @@ export async function POST(
 
   const sdrName = tenant.sdr_persona || "Mary"
 
-  // Check for promo campaign (shared config — single source of truth)
+  // Check for promo campaign (shared config — single source of truth).
+  // Pass `booking_data` through so the promo gate can refuse to downgrade
+  // a customer who used the regular booking widget into a $149 promo just
+  // because their URL had a stale utm_campaign tag (Ebony g, 2026-04-30).
   const { getPromoConfig } = await import('@/lib/promo-config')
-  const promoConfig = getPromoConfig({ utm_campaign: body.utm_campaign, source_detail: sourceDetail, service_type: serviceType })
+  const promoConfig = getPromoConfig({
+    utm_campaign: body.utm_campaign,
+    source_detail: sourceDetail,
+    service_type: serviceType,
+    booking_data: body.booking_data,
+  })
+
+  // ── 5-minute auto-intro dedup ───────────────────────────────────
+  // The widget on spotlessscrubbers.org has historically double-fired (Judy
+  // 4/28, Crystal 4/26) — once with service=deep, once with service=standard,
+  // 2-3 minutes apart. The customer sees the same `Hey {name}, it's Sarah...`
+  // intro twice with different service labels, looks janky. Suppress a second
+  // auto-intro within 5 minutes for the same phone+tenant.
+  let suppressIntroDup = false
+  try {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const { count: recentAutoIntros } = await client
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id)
+      .eq('phone_number', phone)
+      .eq('direction', 'outbound')
+      .eq('source', 'website_lead_auto')
+      .gte('created_at', fiveMinAgo)
+    if (recentAutoIntros && recentAutoIntros > 0) {
+      suppressIntroDup = true
+      console.log(`[Website Webhook] Suppressing duplicate auto-intro for ${phone} (already sent within 5 min)`)
+      await logSystemEvent({
+        tenant_id: tenant.id,
+        source: 'website',
+        event_type: 'WEBSITE_INTRO_DUPE_SUPPRESSED',
+        message: `Duplicate website-lead auto-intro suppressed for ${phone}`,
+        phone_number: phone,
+        metadata: { recent_auto_intros: recentAutoIntros },
+      })
+    }
+  } catch (dupErr) {
+    // Non-blocking — if the dedup check fails, fall through to normal send.
+    console.error('[Website Webhook] Intro dedup check failed (non-blocking):', dupErr)
+  }
 
   // ── Upfront quote (full-info form submission) ───────────────────
   // When the form supplies enough to price a job (email + address + bed/bath)
@@ -305,6 +347,13 @@ export async function POST(
   if (hasQuoteableInfo && !isWindowCleaningTenant) {
     const svcType = (serviceType || '').toLowerCase()
     const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
+    // Pre-select tier from form so the quote page matches what the customer
+    // asked for (and what AI quoted in SMS) instead of dropping them on a
+    // blank tier picker.
+    const formTier: 'deep' | 'standard' | null =
+      svcType.includes('deep') ? 'deep'
+      : svcType.includes('standard') ? 'standard'
+      : null
     const isMetaPromo = !!promoConfig
 
     const { data: newQuote, error: quoteError } = await client
@@ -320,7 +369,7 @@ export async function POST(
         bathrooms,
         square_footage: null,
         service_category: quoteCategory,
-        selected_tier: promoConfig?.tier || null,
+        selected_tier: promoConfig?.tier || formTier,
         custom_base_price: promoConfig?.price || null,
         selected_addons: promoConfig?.addons || [],
         service_date: null,
@@ -464,11 +513,13 @@ export async function POST(
 
   // sendSMS pre-inserts its own messages row (via the `source` option) and
   // cleans it up on failure, so no manual insert is needed here.
-  const smsResult = await sendSMS(tenant, phone, smsMessage, {
-    skipDedup: true,
-    source: 'website_lead_auto',
-    customerId: customer?.id ?? null,
-  })
+  const smsResult = suppressIntroDup
+    ? { success: true, messageId: 'suppressed:duplicate_intro_within_5min' }
+    : await sendSMS(tenant, phone, smsMessage, {
+        skipDedup: true,
+        source: 'website_lead_auto',
+        customerId: customer?.id ?? null,
+      })
 
   if (!smsResult.success) {
     console.error(`[Website Webhook] SMS send failed for ${phone}:`, smsResult.error)

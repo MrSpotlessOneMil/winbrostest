@@ -124,9 +124,23 @@ export const PROMO_CAMPAIGNS: Record<string, PromoConfig> = {
 /**
  * Look up promo config from a lead's form_data.
  * Returns null if this is not a promo lead.
+ *
+ * HARD GATE — added 2026-04-30 after Ebony g incident:
+ * If the form payload includes `booking_data` (the regular booking widget
+ * with bed/bath/address), the customer is treating Spotless as a normal
+ * cleaning service. They must NEVER be silently downgraded to a $149
+ * diluted-deep promo just because their URL had a stale `utm_campaign=
+ * 149-deep-clean` tag they didn't even know about. Promo only applies to
+ * the dedicated promo claim form (no booking_data).
  */
 export function getPromoConfig(formData: Record<string, unknown> | null | undefined): PromoConfig | null {
   if (!formData) return null
+
+  // Hard gate: full booking widget = regular lead, never promo.
+  if (formData.booking_data && typeof formData.booking_data === 'object') {
+    return null
+  }
+
   const campaign = formData.utm_campaign as string | undefined
   if (campaign && PROMO_CAMPAIGNS[campaign]) {
     return PROMO_CAMPAIGNS[campaign]
