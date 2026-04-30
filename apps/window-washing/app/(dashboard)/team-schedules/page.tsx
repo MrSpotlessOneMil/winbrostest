@@ -35,6 +35,8 @@ interface CrewSchedule {
   daily_revenue: number
   jobs: ScheduleJob[]
   members?: string[]
+  /** Phase P (2026-04-29): salesman assigned to this crew on this date. */
+  crew_salesman_id?: number | null
 }
 
 interface DaySchedule {
@@ -76,10 +78,16 @@ function formatDayHeader(d: Date): { day: string; date: string } {
 }
 
 export default function TeamSchedulesPage() {
-  const { authenticated } = useAuth()
+  const { authenticated, user, isSalesman } = useAuth()
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()))
   const [weekData, setWeekData] = useState<DaySchedule[]>([])
   const [loading, setLoading] = useState(true)
+  // Phase P (Blake call 2026-04-29): salesmen need their assigned crew
+  // visually distinguished from everyone else's so "fill MY team's gaps"
+  // is the dominant action. Match by user.id since the API now exposes
+  // crew_salesman_id per crew per date.
+  const myCleanerId = isSalesman ? Number((user as { cleaner_id?: number | null } | null)?.cleaner_id ?? 0) || null : null
+  const [showMyTeamOnly, setShowMyTeamOnly] = useState(false)
 
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
@@ -140,6 +148,21 @@ export default function TeamSchedulesPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Phase P: salesmen can collapse to just their assigned crew. */}
+            {isSalesman && myCleanerId != null && (
+              <button
+                onClick={() => setShowMyTeamOnly((v) => !v)}
+                data-testid="team-schedule-my-team-toggle"
+                aria-pressed={showMyTeamOnly}
+                className={`px-3 py-2 rounded-md border text-xs font-medium transition-colors ${
+                  showMyTeamOnly
+                    ? "border-amber-500/50 bg-amber-500/10 text-amber-200"
+                    : "border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-zinc-300"
+                }`}
+              >
+                {showMyTeamOnly ? "★ My team only" : "All teams"}
+              </button>
+            )}
             <button
               onClick={goPrev}
               className="p-2 rounded-md border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-zinc-300"
@@ -229,13 +252,28 @@ export default function TeamSchedulesPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {day.crews.map((crew) => (
+                      {day.crews
+                        .filter((crew) =>
+                          !showMyTeamOnly ||
+                          (myCleanerId != null && crew.crew_salesman_id === myCleanerId)
+                        )
+                        .map((crew) => {
+                          const isMyTeam =
+                            myCleanerId != null && crew.crew_salesman_id === myCleanerId
+                          return (
                         <div
                           key={`${day.date}-${crew.team_lead_id ?? "unassigned"}`}
-                          className="rounded-md border border-zinc-800 bg-zinc-900/60 p-2"
+                          data-testid="team-schedule-crew"
+                          data-my-team={isMyTeam ? "true" : "false"}
+                          className={`rounded-md border p-2 ${
+                            isMyTeam
+                              ? "border-amber-500/50 bg-amber-500/10 ring-1 ring-amber-500/30"
+                              : "border-zinc-800 bg-zinc-900/60"
+                          }`}
                         >
                           <div className="flex items-center justify-between gap-2 mb-1">
-                            <span className="text-xs font-semibold text-zinc-200 truncate">
+                            <span className={`text-xs font-semibold truncate ${isMyTeam ? "text-amber-100" : "text-zinc-200"}`}>
+                              {isMyTeam && <span className="mr-1">★</span>}
                               {crew.team_lead_name || "Unassigned"}
                             </span>
                             {crew.daily_revenue > 0 && (
@@ -280,7 +318,8 @@ export default function TeamSchedulesPage() {
                             )}
                           </div>
                         </div>
-                      ))}
+                          )
+                        })}
                     </div>
                   )}
                 </div>

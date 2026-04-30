@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { selectPerformanceSections } from "@/lib/performance-scope"
 import {
   BarChart3,
   Loader2,
@@ -81,7 +82,10 @@ function periodLabel(period: Period, start: string, end: string): string {
 /* ── Component ────────────────────────────────────────────────────────────── */
 
 export default function PerformancePage() {
-  const { user, isAdmin } = useAuth()
+  // Phase P (Blake call 2026-04-29) — Team Performance is split by role:
+  // TLs see other TLs only; salesmen see other salesmen only; admins
+  // still see both. Same data API, different render gate.
+  const { user, isAdmin, isTeamLead, isSalesman } = useAuth()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [period, setPeriod] = useState<Period>("week")
@@ -193,11 +197,18 @@ export default function PerformancePage() {
         const visibleTeamLeads = data.team_leads
         const visibleSales = data.sales
 
-        // Non-admin: show the section that's relevant to them (or both if they appear in both)
+        // Phase P split: TLs see TLs only; salesmen see salesmen only.
+        // Admins keep the full view. Dual-role accounts (TL + salesman)
+        // get both. See selectPerformanceSections for the truth table.
         const myTeamLeadRow = data.team_leads.find((r) => nameMatch(r.name))
         const mySalesRow = data.sales.find((r) => nameMatch(r.name))
-        const showTeamLeads = isAdmin || myTeamLeadRow !== undefined || (!mySalesRow)
-        const showSales = isAdmin || mySalesRow !== undefined || visibleSales.length > 0
+        const { showTeamLeads, showSales } = selectPerformanceSections({
+          isAdmin,
+          isTeamLead,
+          isSalesman,
+          myTeamLeadRow: myTeamLeadRow !== undefined,
+          mySalesRow: mySalesRow !== undefined,
+        })
 
         return (
         <div className={`grid grid-cols-1 ${showTeamLeads && showSales ? "lg:grid-cols-2" : ""} gap-5`}>

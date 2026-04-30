@@ -37,6 +37,24 @@ export async function GET(request: NextRequest) {
 
   const teamLeadMap = new Map((teamLeads || []).map((tl: any) => [tl.id, tl.name]))
 
+  // Phase P (Blake call 2026-04-29): pull the assigned salesman for each
+  // TL's crew on this date so the team-schedules view can highlight
+  // "my team" for the logged-in salesman. crew_days carries one row per
+  // (date, team_lead_id), and crew_day_members.role='salesman' is the
+  // single salesman attached to that crew.
+  const { data: crewDays } = await client
+    .from('crew_days')
+    .select('team_lead_id, crew_day_members!inner(cleaner_id, role)')
+    .eq('tenant_id', tenantId)
+    .eq('date', date)
+  const salesmanByTL = new Map<number, number>()
+  for (const cd of (crewDays || [])) {
+    const tlId = cd.team_lead_id as number
+    const members = (cd as any).crew_day_members as Array<{ cleaner_id: number; role: string }> | undefined
+    const salesmanMember = members?.find((m) => m.role === 'salesman')
+    if (salesmanMember) salesmanByTL.set(tlId, salesmanMember.cleaner_id)
+  }
+
   // Group jobs by assigned cleaner (team lead), plus an "Unassigned" bucket
   const grouped: Record<string, any[]> = { unassigned: [] }
   for (const tl of (teamLeads || [])) {
@@ -84,6 +102,9 @@ export async function GET(request: NextRequest) {
       first_job_town: firstJobTown,
       daily_revenue: dailyRevenue,
       members: [],
+      // Phase P: salesman_id of the salesman assigned to this TL on this
+      // date, for "my team" highlighting in /team-schedules.
+      crew_salesman_id: salesmanByTL.get(tl.id) ?? null,
       jobs: crewJobs.map(mapJob),
     })
   }

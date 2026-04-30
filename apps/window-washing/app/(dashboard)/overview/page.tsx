@@ -99,7 +99,7 @@ const statusBadge: Record<string, { label: string; cls: string }> = {
 }
 
 export default function CommandCenterPage() {
-  const { user, portalToken } = useAuth()
+  const { user, portalToken, isAdmin } = useAuth()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -111,6 +111,30 @@ export default function CommandCenterPage() {
     const id = await startNewQuote()
     if (id) setQuoteSheetId(String(id))
   }, [startNewQuote])
+
+  // Phase P (Blake call 2026-04-29) — surface pending day-off requests on
+  // admin Command Center. Blake said he'd want it here so he doesn't have
+  // to walk over to /my-schedule to clear the queue. Tech/salesman/TL
+  // never see this banner; the API returns the same row to admins
+  // (status=pending across the tenant).
+  const [pendingDayOffCount, setPendingDayOffCount] = useState<number | null>(null)
+  useEffect(() => {
+    if (!isAdmin) return
+    let cancelled = false
+    fetch("/api/actions/time-off?status=pending", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { entries: [] }))
+      .then((j) => {
+        if (cancelled) return
+        const count = Array.isArray(j.entries) ? j.entries.length : 0
+        setPendingDayOffCount(count)
+      })
+      .catch(() => {
+        if (!cancelled) setPendingDayOffCount(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isAdmin])
 
   const fetchDashboard = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
@@ -184,6 +208,23 @@ export default function CommandCenterPage() {
           Refresh
         </button>
       </div>
+
+      {/* Phase P: pending day-off banner (admin only). Walks admin straight
+          to /my-schedule where the approval queue lives. */}
+      {isAdmin && pendingDayOffCount != null && pendingDayOffCount > 0 && (
+        <Link
+          href="/my-schedule"
+          data-testid="overview-pending-dayoff-banner"
+          className="block rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-200 hover:bg-amber-500/15 transition-colors"
+        >
+          <span className="font-semibold">
+            {pendingDayOffCount} pending day-off request{pendingDayOffCount === 1 ? "" : "s"}
+          </span>
+          <span className="text-amber-300/80 ml-2">
+            — review &amp; approve →
+          </span>
+        </Link>
+      )}
 
       {/* Revenue Row - 3 cards */}
       <div className="grid gap-3 sm:grid-cols-3">
