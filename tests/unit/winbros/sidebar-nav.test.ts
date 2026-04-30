@@ -91,6 +91,14 @@ describe('selectNavigation — sidebar role gating', () => {
     expect(nav.map(n => n.href)).not.toContain('/schedule')
   })
 
+  it('Phase O: admin sidebar no longer shows Tech Upsells (lives in Price Book)', () => {
+    const nav = selectNavigation({ isAdmin: true, isTeamLead: false })
+    const labels = nav.map(n => n.name)
+    const hrefs = nav.map(n => n.href)
+    expect(labels).not.toContain('Tech Upsells')
+    expect(hrefs).not.toContain('/tech-upsells')
+  })
+
   it('technician (not team lead) does NOT see Team Performance or Payroll', () => {
     const nav = selectNavigation({ isAdmin: false, isTeamLead: false })
     const labels = nav.map(n => n.name)

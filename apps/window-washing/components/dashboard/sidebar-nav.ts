@@ -26,7 +26,11 @@ export const adminNav: NavEntry[] = [
   { name: "Service Plan Hub", href: "/service-plan-hub" },
   { name: "Team Performance", href: "/performance" },
   { name: "Payroll", href: "/payroll" },
-  { name: "Tech Upsells", href: "/tech-upsells" },
+  // Phase O (Blake call 2026-04-29): "Tech Upsells" admin tab removed —
+  // the catalog of upsell items lives in the Price Book now (one source
+  // of truth). The /tech-upsells route still exists for backward compat
+  // with bookmarked links; admin gets there via Service Plan Hub →
+  // Price Book → "Upsells" filter.
   { name: "Insights", href: "/insights" },
   { name: "Control Center", href: "/control-center" },
 ]
