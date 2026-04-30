@@ -28,6 +28,12 @@ export type SystemEventSource =
   | 'offers'
   | 'ghost_watchdog'
   | 'meta'
+  // Build 2 (HC follow-ups + retargeting rebuild)
+  // Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md
+  | 'ghost-chase'
+  | 'retargeting'
+  | 'unsubscribe'
+  | 'legacy-flush'
 
 export type SystemEventType =
   | 'CALL_COMPLETED'
@@ -201,6 +207,22 @@ export type SystemEventType =
   | 'OUTREACH_AUDIT_CRITICAL'
   | 'RETARGETING_VOICE_NOTE_QUEUED'
   | 'RETARGETING_EMAIL_DEFERRED'
+  // Build 2 (HC follow-ups + retargeting rebuild)
+  // Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md
+  | 'GHOST_CHASE_SCHEDULED'
+  | 'GHOST_CHASE_WIRED'
+  | 'GHOST_CHASE_CANCELLED'
+  | 'GHOST_CHASE_CANCEL_ERROR'
+  | 'GHOST_CHASE_MESSAGE_SENT'
+  | 'RETARGETING_ENROLLED'
+  | 'RETARGETING_ENROLLED_FROM_JOB'
+  | 'RETARGETING_HALTED'
+  | 'RETARGETING_HALT_ERROR'
+  | 'RETARGETING_MESSAGE_SENT'
+  | 'CUSTOMER_UNSUBSCRIBED'
+  | 'CUSTOMER_REOPT_IN'
+  | 'LEGACY_FOLLOWUPS_FLUSHED'
+  | 'LEAD_FOLLOWUP_V2_GATED'
 
 export interface SystemEventInput {
   tenant_id?: string

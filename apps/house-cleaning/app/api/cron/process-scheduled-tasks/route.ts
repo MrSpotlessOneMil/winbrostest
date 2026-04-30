@@ -290,6 +290,28 @@ async function processTask(task: ScheduledTask): Promise<void> {
     }
   }
 
+  // v2 cutover: when followup_rebuild_v2_enabled is on for this tenant, the
+  // legacy lead_followup / quote_followup_urgent / retargeting handlers
+  // self-cancel — v2 ghost chase + win_back take over via wire.ts hooks.
+  // Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md
+  const v2EnabledForTenant = !!(tenant?.workflow_config && (tenant.workflow_config as Record<string, unknown>).followup_rebuild_v2_enabled)
+  const LEGACY_GATED_BY_V2 = new Set(['lead_followup', 'quote_followup_urgent', 'retargeting'])
+  if (v2EnabledForTenant && LEGACY_GATED_BY_V2.has(task_type)) {
+    const supabase = getSupabaseServiceClient()
+    await supabase
+      .from('scheduled_tasks')
+      .update({ status: 'cancelled', last_error: 'cancelled: v2_replaces_legacy' })
+      .eq('id', task.id)
+    await logSystemEvent({
+      source: 'cron',
+      event_type: 'LEAD_FOLLOWUP_V2_GATED',
+      tenant_id: tenant_id || tenant?.id,
+      message: `Legacy ${task_type} task ${task.id} cancelled — tenant has v2 enabled`,
+      metadata: { task_id: task.id, task_type, tenant_slug: tenant?.slug },
+    })
+    return
+  }
+
   switch (task_type) {
     case 'lead_followup':
       await processLeadFollowup(payload, tenant, tenant_id)

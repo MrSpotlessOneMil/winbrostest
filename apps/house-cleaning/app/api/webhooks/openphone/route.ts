@@ -3036,6 +3036,26 @@ async function processOpenPhoneWebhook(request: NextRequest): Promise<NextRespon
               scheduledFor: new Date(Date.now() + 5 * 60 * 1000),
               payload: { customerId: customer.id, customerPhone: phone, tenantId: tenant.id },
             })
+
+            // v2 follow-up wiring: schedule a quote ghost chase if a quote is
+            // active for this customer. Idempotent.
+            // Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md
+            try {
+              const wireMod = await import('@/lib/services/followups/wire')
+              const quoteId = await wireMod.getActiveQuoteIdForCustomer(tenant.id, customer.id)
+              if (quoteId) {
+                await wireMod.wireFollowupsAfterOutbound({
+                  tenant: tenant as Parameters<typeof wireMod.wireFollowupsAfterOutbound>[0]['tenant'],
+                  customer: { id: customer.id, phone_number: phone },
+                  quoteJustSent: true,
+                  activeLeadId: assignedLead.id,
+                  quoteId,
+                  source: 'openphone_assigned_lead',
+                })
+              }
+            } catch (err) {
+              console.warn('[ghost-chase wire] assigned-lead path failed:', err)
+            }
           }
         }
       }
@@ -3392,6 +3412,30 @@ async function processOpenPhoneWebhook(request: NextRequest): Promise<NextRespon
               import('@/lib/assistant-memory').then(mem =>
                 mem.extractAndStoreFacts(tenant.id, customer.id, '', recentMsgs)
               ).catch(err => console.warn('[Memory] Fact extraction failed:', err))
+            }
+
+            // v2 follow-up wiring: schedule the right ghost chase if the tenant
+            // has v2 enabled. Idempotent — safe to call after every AI response.
+            // Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md
+            if (tenant && customer?.id && sendResult.success) {
+              try {
+                const wireMod = await import('@/lib/services/followups/wire')
+                const quoteJustSent = !!autoResponse.bookingComplete
+                let quoteId: number | null = null
+                if (quoteJustSent) {
+                  quoteId = await wireMod.getActiveQuoteIdForCustomer(tenant.id, customer.id)
+                }
+                await wireMod.wireFollowupsAfterOutbound({
+                  tenant: tenant as Parameters<typeof wireMod.wireFollowupsAfterOutbound>[0]['tenant'],
+                  customer: { id: customer.id, phone_number: phone },
+                  quoteJustSent,
+                  activeLeadId: existingLead.id,
+                  quoteId,
+                  source: 'openphone_existing_lead',
+                })
+              } catch (err) {
+                console.warn('[ghost-chase wire] existing-lead path failed:', err)
+              }
             }
 
             if (!sendResult.success) {

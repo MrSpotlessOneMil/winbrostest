@@ -687,6 +687,30 @@ export async function executeCompleteJob(jobId: string): Promise<{
     }).catch(err => console.error(`[complete-job] Satisfaction check error for job ${jobId}:`, err))
   }
 
+  // v2: enroll one-time customer in retargeting after job completion.
+  // No-op if v2 flag off OR customer is on a recurring/membership plan.
+  // Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md
+  if (tenant && job.customer_id && !job.membership_id) {
+    try {
+      // Pull lifecycle status for the gate
+      const { data: lifecycleRow } = await serviceClient
+        .from('customers')
+        .select('lifecycle_status')
+        .eq('id', job.customer_id)
+        .eq('tenant_id', tenant.id)
+        .maybeSingle()
+      const wireMod = await import('@/lib/services/followups/wire')
+      await wireMod.wireRetargetingOnJobComplete({
+        tenant: tenant as Parameters<typeof wireMod.wireRetargetingOnJobComplete>[0]['tenant'],
+        customerId: Number(job.customer_id),
+        lifecycleStatus: lifecycleRow?.lifecycle_status ?? null,
+        source: 'complete_job',
+      })
+    } catch (err) {
+      console.warn(`[complete-job] retargeting wire failed for job ${jobId}:`, err)
+    }
+  }
+
   return {
     success: true,
     jobId,
