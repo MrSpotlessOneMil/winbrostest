@@ -11,6 +11,10 @@ import {
   PointerSensor, TouchSensor, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent,
 } from "@dnd-kit/core"
+import {
+  filterPlanJobsForView,
+  isCellOutOfDisplayedMonth,
+} from "@/lib/service-plan-schedule-filters"
 
 /* ─── Types ─── */
 interface PlanJob {
@@ -21,6 +25,12 @@ interface PlanJob {
   target_week: number
   status: string
   price?: number | null
+  // Phase M (2026-04-29): stamped from the grouping key when the page
+  // flattens the API response, so filterPlanJobsForView can bucket by
+  // displayed period (month or week) instead of showing every customer
+  // for the whole year.
+  scheduled_month: number
+  scheduled_year?: number | null
 }
 
 interface ScheduleJob {
@@ -197,7 +207,7 @@ function DroppableCell({ id, children }: { id: string; children: React.ReactNode
 export default function ServicePlanSchedulePage() {
   const { user } = useAuth()
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
-  const [viewMode, setViewMode] = useState<"week" | "day">("week")
+  const [viewMode, setViewMode] = useState<"day" | "week" | "month">("week")
   const [selectedDay, setSelectedDay] = useState(() => toDateStr(new Date()))
   const [loading, setLoading] = useState(true)
   const [weekData, setWeekData] = useState<WeekDayData[]>([])
@@ -236,7 +246,16 @@ export default function ServicePlanSchedulePage() {
       const res = await fetch(`/api/actions/service-plan-jobs?year=${currentYear}`)
       if (res.ok) {
         const grouped: Record<number, PlanJob[]> = await res.json()
-        const all = Object.values(grouped).flat().filter(j => j.status === "unscheduled")
+        // Phase M: stamp scheduled_month + year onto each row so the
+        // bucket-per-displayed-period filter can find them after flatten.
+        const all: PlanJob[] = Object.entries(grouped).flatMap(
+          ([monthKey, monthJobs]) =>
+            monthJobs.map((j) => ({
+              ...j,
+              scheduled_month: Number(monthKey),
+              scheduled_year: currentYear,
+            }))
+        ).filter(j => j.status === "unscheduled")
         setBankJobs(all)
         const types = new Set(all.map(j => j.plan_type))
         setExpandedBankPlans(types)
@@ -510,18 +529,35 @@ export default function ServicePlanSchedulePage() {
     setAutoScheduling(false)
   }
 
-  // Group bank jobs by plan type
+  // Phase M (2026-04-29): bucket the bank by displayed period so a
+  // recurring customer appears once per cycle, not once per future visit.
+  const visibleBankJobs = useMemo(
+    () => filterPlanJobsForView(bankJobs, viewMode, weekStart),
+    [bankJobs, viewMode, weekStart]
+  )
+
+  // Group bank jobs by plan type (post-filter so the per-plan headers
+  // reflect the displayed period, not the full year).
   const bankByPlan = useMemo(() => {
     const map = new Map<string, PlanJob[]>()
-    for (const j of bankJobs) {
+    for (const j of visibleBankJobs) {
       if (!map.has(j.plan_type)) map.set(j.plan_type, [])
       map.get(j.plan_type)!.push(j)
     }
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b))
-  }, [bankJobs])
+  }, [visibleBankJobs])
 
   const monthName = weekStart.toLocaleString("en-US", { month: "long" })
-  const daysToShow = viewMode === "week" ? weekDays : [weekDays.find(d => toDateStr(d) === selectedDay) || weekDays[0]]
+  // Phase M: month view collapses the day grid to a single "month-bank"
+  // view (no calendar — admin scrolls the unscheduled bank above and
+  // drops into specific weeks via the week view). Day & week keep their
+  // existing day list.
+  const daysToShow =
+    viewMode === "week"
+      ? weekDays
+      : viewMode === "day"
+        ? [weekDays.find((d) => toDateStr(d) === selectedDay) || weekDays[0]]
+        : []
 
   const allLoading = loading || bankLoading
 
@@ -542,8 +578,14 @@ export default function ServicePlanSchedulePage() {
             <h1 className="text-lg font-bold text-foreground">Service Plan Scheduling</h1>
             <p className="text-xs text-muted-foreground">
               {monthName} {weekStart.getFullYear()}
-              {bankJobs.length > 0 && (
-                <span className="text-amber-400 font-medium ml-2">{bankJobs.length} unscheduled</span>
+              {/* Phase M: count reflects displayed-period filter, not full year. */}
+              {visibleBankJobs.length > 0 && (
+                <span className="text-amber-400 font-medium ml-2">{visibleBankJobs.length} unscheduled</span>
+              )}
+              {viewMode !== "month" && bankJobs.length > visibleBankJobs.length && (
+                <span className="text-muted-foreground ml-2">
+                  ({bankJobs.length - visibleBankJobs.length} more in other weeks)
+                </span>
               )}
             </p>
           </div>
@@ -569,7 +611,7 @@ export default function ServicePlanSchedulePage() {
               </button>
             </div>
             <div className="flex rounded-md border border-border overflow-hidden">
-              {(["day", "week"] as const).map(v => (
+              {(["day", "week", "month"] as const).map(v => (
                 <button
                   key={v}
                   onClick={() => { setViewMode(v); if (v === "day" && !selectedDay) setSelectedDay(todayStr) }}
@@ -599,7 +641,7 @@ export default function ServicePlanSchedulePage() {
         )}
 
         {/* ═══ UNSCHEDULED BANK ═══ */}
-        {bankJobs.length > 0 && (
+        {visibleBankJobs.length > 0 && (
           <div className="border-b border-border shrink-0 max-h-[200px] overflow-y-auto">
             <div className="px-3 py-1.5 bg-amber-500/5 border-b border-amber-500/10 flex items-center gap-2">
               <Calendar className="size-3.5 text-amber-400" />
@@ -639,7 +681,24 @@ export default function ServicePlanSchedulePage() {
         )}
 
         {/* ═══ CALENDAR GRID ═══ */}
-        <div className={`flex-1 overflow-auto grid ${viewMode === "week" ? "grid-cols-7" : "grid-cols-1"} gap-px bg-border`}>
+        {viewMode === "month" && (
+          <div className="flex-1 overflow-auto p-6 text-center text-sm text-muted-foreground">
+            <Calendar className="size-6 mx-auto mb-2 text-muted-foreground/60" />
+            <p className="font-medium text-foreground">
+              {monthName} {weekStart.getFullYear()} — month overview
+            </p>
+            <p className="mt-1">
+              {visibleBankJobs.length} customer{visibleBankJobs.length === 1 ? "" : "s"} need scheduling this month.
+            </p>
+            <p className="mt-3 text-[11px]">
+              Switch to <span className="font-bold">Week</span> to drag a customer onto a specific day.
+              Each customer only appears in the week of their next due cycle.
+            </p>
+          </div>
+        )}
+        <div
+          className={`flex-1 overflow-auto grid ${viewMode === "week" ? "grid-cols-7" : "grid-cols-1"} gap-px bg-border ${viewMode === "month" ? "hidden" : ""}`}
+        >
           {daysToShow.map(day => {
             const dateStr = toDateStr(day)
             const isToday = dateStr === todayStr
@@ -657,9 +716,18 @@ export default function ServicePlanSchedulePage() {
 
             const spTotal = servicePlanCrews.reduce((s, c) => c.jobs.reduce((js, j) => js + j.price, 0) + s, 0)
 
+            // Phase M: don't allow scheduling an in-month customer into a
+            // cell that crosses into the next month — would shift their
+            // recurrence cadence forward by a month.
+            const outOfMonth = isCellOutOfDisplayedMonth(day, weekStart)
+
             return (
-              <DroppableCell key={dateStr} id={`drop-${dateStr}`}>
-                <div className={`bg-background flex flex-col h-full ${isToday ? "ring-1 ring-primary/30 ring-inset" : ""}`}>
+              <DroppableCell key={dateStr} id={outOfMonth ? `drop-blocked-${dateStr}` : `drop-${dateStr}`}>
+                <div
+                  data-out-of-month={outOfMonth ? "true" : "false"}
+                  className={`bg-background flex flex-col h-full ${isToday ? "ring-1 ring-primary/30 ring-inset" : ""} ${outOfMonth ? "opacity-40 pointer-events-none" : ""}`}
+                  title={outOfMonth ? "Next month — schedule via the next-month view to avoid shifting customers' recurrence cadence." : undefined}
+                >
                   {/* Day header */}
                   <div className={`px-2 py-1.5 border-b border-border flex items-center justify-between shrink-0 ${isToday ? "bg-primary/5" : ""}`}>
                     <div>
