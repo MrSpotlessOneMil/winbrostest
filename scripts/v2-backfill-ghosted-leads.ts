@@ -26,12 +26,15 @@
  *   BACKFILL_LIVE=true        — actually enroll customers
  *   BACKFILL_TENANT=slug      — limit to a single tenant slug (default: spotless-scrubbers)
  *   BACKFILL_LOOKBACK_DAYS=N  — only customers contacted in last N days (default 60)
- *   MAX_ENROLLS_PER_RUN=N     — cap (default 200)
+ *   BACKFILL_SOURCES=a,b,c    — lead.source whitelist (default: meta,website)
+ *   MAX_ENROLLS_PER_RUN=N     — cap (default 50)
+ *   JITTER_SECONDS=N          — spread between enrolls so SMS dont fire same minute (default 60)
  *
  * Usage:
- *   pnpm tsx scripts/v2-backfill-ghosted-leads.ts             # dry run, spotless, 200 cap
+ *   pnpm tsx scripts/v2-backfill-ghosted-leads.ts             # dry run, spotless, 50 cap, meta+website
  *   BACKFILL_LIVE=true pnpm tsx scripts/v2-backfill-ghosted-leads.ts
  *   BACKFILL_TENANT=cedar-rapids BACKFILL_LIVE=true pnpm tsx scripts/v2-backfill-ghosted-leads.ts
+ *   BACKFILL_SOURCES=meta,website,google_lsa pnpm tsx scripts/v2-backfill-ghosted-leads.ts
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -45,7 +48,10 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const LIVE = process.env.BACKFILL_LIVE === 'true'
 const TENANT_SLUG = process.env.BACKFILL_TENANT || 'spotless-scrubbers'
 const LOOKBACK_DAYS = parseInt(process.env.BACKFILL_LOOKBACK_DAYS || '60', 10)
-const MAX_ENROLLS = parseInt(process.env.MAX_ENROLLS_PER_RUN || '200', 10)
+const MAX_ENROLLS = parseInt(process.env.MAX_ENROLLS_PER_RUN || '50', 10)
+const JITTER_SECONDS = parseInt(process.env.JITTER_SECONDS || '60', 10)
+const SOURCE_WHITELIST = (process.env.BACKFILL_SOURCES || 'meta,website')
+  .split(',').map(s => s.trim()).filter(Boolean)
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env var')
@@ -62,22 +68,50 @@ interface BackfillCandidate {
   outbound_count: number
   inbound_count: number
   most_recent_outbound: string
+  lead_source: string
 }
 
 async function findCandidates(tenantId: string): Promise<BackfillCandidate[]> {
   const since = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
-  // Find customers with outbound but no inbound, not unsubscribed, not in retargeting
-  const { data: customers, error } = await supabase
-    .from('customers')
-    .select('id, first_name, phone_number, retargeting_active, unsubscribed_at, sms_opt_out, auto_response_disabled, created_at')
+  // STEP 1: pull leads with whitelisted source within lookback. This is the
+  // primary filter — we only backfill paid-acquisition / form-fill leads,
+  // never inbound calls / manual entries / sms-only contacts.
+  const { data: leads, error: leadsErr } = await supabase
+    .from('leads')
+    .select('id, customer_id, source, created_at')
     .eq('tenant_id', tenantId)
     .gte('created_at', since)
+    .in('source', SOURCE_WHITELIST)
+    .not('customer_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(5000)
+
+  if (leadsErr) throw leadsErr
+  if (!leads || leads.length === 0) return []
+
+  // Dedup customers — keep most recent lead per customer
+  const customerToLead = new Map<number, { lead_source: string; created_at: string }>()
+  for (const l of leads) {
+    if (l.customer_id == null) continue
+    if (!customerToLead.has(l.customer_id)) {
+      customerToLead.set(l.customer_id, { lead_source: l.source, created_at: l.created_at })
+    }
+  }
+
+  const customerIds = Array.from(customerToLead.keys())
+  if (customerIds.length === 0) return []
+
+  // STEP 2: pull customer state for those ids and apply eligibility gates
+  const { data: customers, error } = await supabase
+    .from('customers')
+    .select('id, first_name, phone_number, retargeting_active, unsubscribed_at, sms_opt_out, auto_response_disabled')
+    .eq('tenant_id', tenantId)
+    .in('id', customerIds)
     .is('unsubscribed_at', null)
     .neq('sms_opt_out', true)
     .neq('retargeting_active', true)
     .neq('auto_response_disabled', true)
-    .limit(2000)
 
   if (error) throw error
   if (!customers) return []
@@ -87,7 +121,7 @@ async function findCandidates(tenantId: string): Promise<BackfillCandidate[]> {
   for (const c of customers) {
     if (!c.phone_number) continue
 
-    // Count messages for this customer
+    // Count messages
     const { data: msgs } = await supabase
       .from('messages')
       .select('direction, created_at')
@@ -101,11 +135,9 @@ async function findCandidates(tenantId: string): Promise<BackfillCandidate[]> {
     const outbound = msgs.filter(m => m.direction === 'outbound')
     const inbound = msgs.filter(m => m.direction === 'inbound')
 
-    // Eligibility: at least one outbound (we tried to engage), zero inbound (never replied)
     if (outbound.length === 0) continue
     if (inbound.length > 0) continue
 
-    // Not too recent — give it 24h to be a real ghost
     const mostRecentOutbound = outbound[0].created_at
     if (Date.now() - new Date(mostRecentOutbound).getTime() < 24 * 60 * 60 * 1000) continue
 
@@ -129,15 +161,17 @@ async function findCandidates(tenantId: string): Promise<BackfillCandidate[]> {
       outbound_count: outbound.length,
       inbound_count: 0,
       most_recent_outbound: mostRecentOutbound,
+      lead_source: customerToLead.get(c.id)!.lead_source,
     })
   }
 
   return candidates
 }
 
-async function enrollOne(candidate: BackfillCandidate): Promise<{ enrolled: boolean; reason: string }> {
-  // Schedule a retargeting.win_back at +24h, step 1, structured phase
-  const scheduledFor = new Date(Date.now() + 24 * 60 * 60 * 1000)
+async function enrollOne(candidate: BackfillCandidate, indexInRun: number): Promise<{ enrolled: boolean; reason: string }> {
+  // Schedule at +24h + (index * jitter) so 200 enrolls dont fire same minute.
+  // 60s jitter * 50 customers = ~50 minutes of spread.
+  const scheduledFor = new Date(Date.now() + 24 * 60 * 60 * 1000 + indexInRun * JITTER_SECONDS * 1000)
   const taskKey = `rt:${candidate.customer_id}:backfill:${Date.now()}`
 
   const { error } = await supabase.from('scheduled_tasks').insert({
@@ -183,7 +217,9 @@ async function main() {
   console.log(`Mode:          ${LIVE ? 'LIVE (will write)' : 'DRY-RUN (no writes)'}`)
   console.log(`Tenant:        ${TENANT_SLUG}`)
   console.log(`Lookback:      ${LOOKBACK_DAYS} days`)
-  console.log(`Cap per run:   ${MAX_ENROLLS}\n`)
+  console.log(`Sources:       ${SOURCE_WHITELIST.join(', ')}`)
+  console.log(`Cap per run:   ${MAX_ENROLLS}`)
+  console.log(`Jitter:        ${JITTER_SECONDS}s between enrolls\n`)
 
   const { data: tenant, error } = await supabase
     .from('tenants')
@@ -227,16 +263,18 @@ async function main() {
     process.exit(0)
   }
 
-  // LIVE mode: enroll up to MAX_ENROLLS
+  // LIVE mode: enroll up to MAX_ENROLLS, jittered scheduled_for
   const toEnroll = candidates.slice(0, MAX_ENROLLS)
-  console.log(`Enrolling ${toEnroll.length} customers...\n`)
+  const totalSpreadMin = Math.round((toEnroll.length * JITTER_SECONDS) / 60)
+  console.log(`Enrolling ${toEnroll.length} customers (first message in 24h, spread over ~${totalSpreadMin} min)...\n`)
 
   let enrolled = 0
   let skipped = 0
   let errored = 0
 
-  for (const c of toEnroll) {
-    const res = await enrollOne(c)
+  for (let i = 0; i < toEnroll.length; i++) {
+    const c = toEnroll[i]
+    const res = await enrollOne(c, i)
     if (res.enrolled) enrolled++
     else if (res.reason === 'already_enrolled') skipped++
     else {
