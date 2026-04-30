@@ -20,6 +20,7 @@ export const adminNav: NavEntry[] = [
   { name: "Pipeline", href: "/quotes" },
   { name: "Calendar", href: "/jobs" },
   { name: "Sales Appointments", href: "/appointments" },
+  { name: "Crew Assignment", href: "/crew-assignment" },
   { name: "Technician Scheduling", href: "/schedule" },
   { name: "Service Plan Scheduling", href: "/service-plan-schedule" },
   { name: "Service Plan Hub", href: "/service-plan-hub" },

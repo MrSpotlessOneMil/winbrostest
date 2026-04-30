@@ -20,7 +20,7 @@ import {
 import { deriveRoleLabel } from '@/apps/window-washing/lib/auth-context'
 
 describe('selectNavigation — sidebar role gating', () => {
-  it('admin sees the full owner nav with Calendar above Sales Appointments', () => {
+  it('admin sees the full owner nav with Calendar above Sales Appointments and Crew Assignment', () => {
     const nav = selectNavigation({ isAdmin: true, isTeamLead: false })
     expect(nav).toBe(adminNav)
     const labels = nav.map(n => n.name)
@@ -38,11 +38,17 @@ describe('selectNavigation — sidebar role gating', () => {
     // 2026-04-27: Dominic asked Calendar to sit ABOVE Sales Appointments
     // — high-level "what's the day look like" before "who's booking sales
     // calls". Technician Scheduling stays right after Sales Appointments.
+    // Phase K (2026-04-29): Crew Assignment slots between Sales Appointments
+    // and Technician Scheduling — admin assigns the crew BEFORE laying out
+    // the day's jobs across them.
     const calendarIdx = labels.indexOf('Calendar')
     const apptIdx = labels.indexOf('Sales Appointments')
+    const crewIdx = labels.indexOf('Crew Assignment')
     const techSchedIdx = labels.indexOf('Technician Scheduling')
     expect(apptIdx).toBe(calendarIdx + 1)
-    expect(techSchedIdx).toBe(apptIdx + 1)
+    expect(crewIdx).toBe(apptIdx + 1)
+    expect(techSchedIdx).toBe(crewIdx + 1)
+    expect(nav.find(n => n.name === 'Crew Assignment')?.href).toBe('/crew-assignment')
   })
 
   it('team lead nav: Calendar + Scheduling + single Customers + Team Performance + Payroll', () => {

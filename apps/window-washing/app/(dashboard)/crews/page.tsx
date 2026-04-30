@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation"
 
 /**
- * Legacy /crews route — superseded by /appointments (WinBros Round 2 task 4+5).
- * Preserved as a thin redirect so any bookmarked links or sidebar caches
- * still land users in the right place. Original implementation lives alongside
- * as `_legacy-page.tsx` for reference.
+ * Legacy /crews route — Round-2-Wave-2 retired this in favor of
+ * /appointments, then Phase K (Blake call 2026-04-28) restored the daily
+ * crew-roster UI under /crew-assignment. Both old bookmarks and old sidebar
+ * caches land here, so we forward straight to the new route.
  */
 export default function CrewsRedirectPage(): never {
-  redirect("/appointments")
+  redirect("/crew-assignment")
 }
