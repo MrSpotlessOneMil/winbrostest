@@ -5,21 +5,29 @@
  *
  * Plan: ~/.claude/plans/a-remeber-i-said-drifting-manatee.md
  *
- * Eligibility (all must be true):
- *   - tenant has followup_rebuild_v2_enabled = true (gate)
- *   - customer has at least one outbound message older than 24 hours
- *   - customer has ZERO inbound messages (truly never replied)
- *   - not unsubscribed
- *   - not currently retargeting_active
- *   - no pending followup.ghost_chase or retargeting.win_back rows
+ * Two modes (BACKFILL_MODE):
+ *   "ghosted" (default) — paid-acquisition / form-fill leads who got the
+ *      initial AI message but never replied. Filtered by lead.source
+ *      whitelist (BACKFILL_SOURCES) and recent activity (BACKFILL_LOOKBACK_DAYS).
+ *   "broad" — every customer who has gone quiet AND is not currently
+ *      active. Includes:
+ *        a) past clients (had a completed job)
+ *        b) ghosted leads (outbound > 0, inbound = 0)
+ *        c) engaged but unconverted (had inbound, never booked)
+ *      Excluded: bulk-imported "manual" / "phone" / "email" sources
+ *      (no SMS consent confirmed). Excluded: customers in active
+ *      lifecycle states (recurring, scheduled, in_service, awaiting_payment).
+ *
+ * Always-on hard gates (regardless of mode):
+ *   - tenant has followup_rebuild_v2_enabled = true
+ *   - customer has phone_number
+ *   - not unsubscribed_at, not sms_opt_out, not auto_response_disabled
+ *   - not already retargeting_active
+ *   - no pending followup.ghost_chase / retargeting.win_back row
  *
  * Action: enroll each in retargeting (single retargeting.win_back at +24h,
- * structured phase). Idempotent — partial unique index on scheduled_tasks
- * prevents double-enrollment.
- *
- * Throttle: caps total enrolls at MAX_ENROLLS_PER_RUN. Run multiple times
- * across days if needed. Each enroll fires 24h later, so the practical
- * SMS load is spread by Twilio + the per-minute cron tick.
+ * structured phase). Partial unique index on scheduled_tasks prevents
+ * double-enrollment.
  *
  * Modes:
  *   default (DRY-RUN)         — counts + samples, no DB writes
@@ -50,8 +58,14 @@ const TENANT_SLUG = process.env.BACKFILL_TENANT || 'spotless-scrubbers'
 const LOOKBACK_DAYS = parseInt(process.env.BACKFILL_LOOKBACK_DAYS || '60', 10)
 const MAX_ENROLLS = parseInt(process.env.MAX_ENROLLS_PER_RUN || '50', 10)
 const JITTER_SECONDS = parseInt(process.env.JITTER_SECONDS || '60', 10)
+const MODE = (process.env.BACKFILL_MODE || 'ghosted').toLowerCase() as 'ghosted' | 'broad'
 const SOURCE_WHITELIST = (process.env.BACKFILL_SOURCES || 'meta,website')
   .split(',').map(s => s.trim()).filter(Boolean)
+// Sources we trust for SMS consent in BROAD mode (excludes manual / bulk imports / inbound calls)
+const CONSENT_SOURCES = (process.env.CONSENT_SOURCES || 'meta,website,google_lsa,sms,housecall_pro')
+  .split(',').map(s => s.trim()).filter(Boolean)
+const QUIET_DAYS = parseInt(process.env.QUIET_DAYS || '7', 10)
+const ACTIVE_JOB_GRACE_DAYS = parseInt(process.env.ACTIVE_JOB_GRACE_DAYS || '14', 10)
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env var')
@@ -72,11 +86,16 @@ interface BackfillCandidate {
 }
 
 async function findCandidates(tenantId: string): Promise<BackfillCandidate[]> {
+  if (MODE === 'broad') {
+    return findCandidatesBroad(tenantId)
+  }
+  return findCandidatesGhosted(tenantId)
+}
+
+async function findCandidatesGhosted(tenantId: string): Promise<BackfillCandidate[]> {
   const since = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
-  // STEP 1: pull leads with whitelisted source within lookback. This is the
-  // primary filter — we only backfill paid-acquisition / form-fill leads,
-  // never inbound calls / manual entries / sms-only contacts.
+  // STEP 1: leads with whitelisted source within lookback
   const { data: leads, error: leadsErr } = await supabase
     .from('leads')
     .select('id, customer_id, source, created_at')
@@ -90,7 +109,6 @@ async function findCandidates(tenantId: string): Promise<BackfillCandidate[]> {
   if (leadsErr) throw leadsErr
   if (!leads || leads.length === 0) return []
 
-  // Dedup customers — keep most recent lead per customer
   const customerToLead = new Map<number, { lead_source: string; created_at: string }>()
   for (const l of leads) {
     if (l.customer_id == null) continue
@@ -98,11 +116,9 @@ async function findCandidates(tenantId: string): Promise<BackfillCandidate[]> {
       customerToLead.set(l.customer_id, { lead_source: l.source, created_at: l.created_at })
     }
   }
-
   const customerIds = Array.from(customerToLead.keys())
   if (customerIds.length === 0) return []
 
-  // STEP 2: pull customer state for those ids and apply eligibility gates
   const { data: customers, error } = await supabase
     .from('customers')
     .select('id, first_name, phone_number, retargeting_active, unsubscribed_at, sms_opt_out, auto_response_disabled')
@@ -112,16 +128,12 @@ async function findCandidates(tenantId: string): Promise<BackfillCandidate[]> {
     .neq('sms_opt_out', true)
     .neq('retargeting_active', true)
     .neq('auto_response_disabled', true)
-
   if (error) throw error
   if (!customers) return []
 
   const candidates: BackfillCandidate[] = []
-
   for (const c of customers) {
     if (!c.phone_number) continue
-
-    // Count messages
     const { data: msgs } = await supabase
       .from('messages')
       .select('direction, created_at')
@@ -129,43 +141,138 @@ async function findCandidates(tenantId: string): Promise<BackfillCandidate[]> {
       .eq('customer_id', c.id)
       .order('created_at', { ascending: false })
       .limit(50)
-
     if (!msgs) continue
-
     const outbound = msgs.filter(m => m.direction === 'outbound')
     const inbound = msgs.filter(m => m.direction === 'inbound')
-
     if (outbound.length === 0) continue
     if (inbound.length > 0) continue
-
     const mostRecentOutbound = outbound[0].created_at
     if (Date.now() - new Date(mostRecentOutbound).getTime() < 24 * 60 * 60 * 1000) continue
-
-    // Skip if already has pending v2 task
-    const { data: pending } = await supabase
-      .from('scheduled_tasks')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'pending')
-      .in('task_type', ['followup.ghost_chase', 'retargeting.win_back'])
-      .filter('payload->>customer_id', 'eq', String(c.id))
-      .limit(1)
-
-    if (pending && pending.length > 0) continue
-
+    if (await hasPendingV2Task(tenantId, c.id)) continue
     candidates.push({
-      customer_id: c.id,
-      tenant_id: tenantId,
-      first_name: c.first_name,
-      phone_number: c.phone_number,
-      outbound_count: outbound.length,
-      inbound_count: 0,
+      customer_id: c.id, tenant_id: tenantId,
+      first_name: c.first_name, phone_number: c.phone_number,
+      outbound_count: outbound.length, inbound_count: 0,
       most_recent_outbound: mostRecentOutbound,
       lead_source: customerToLead.get(c.id)!.lead_source,
     })
   }
-
   return candidates
+}
+
+async function findCandidatesBroad(tenantId: string): Promise<BackfillCandidate[]> {
+  // BROAD: every customer who consented (paid-acquisition lead OR completed job),
+  // is not currently active (no scheduled/in-service job, no recurring lifecycle),
+  // and has gone quiet for QUIET_DAYS.
+
+  // Step 1: customers who consented to SMS contact
+  const { data: leadCustomers } = await supabase
+    .from('leads').select('customer_id, source')
+    .eq('tenant_id', tenantId)
+    .in('source', CONSENT_SOURCES)
+    .not('customer_id', 'is', null)
+    .limit(20000)
+
+  const { data: jobCustomers } = await supabase
+    .from('jobs').select('customer_id, status')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'completed')
+    .not('customer_id', 'is', null)
+    .limit(20000)
+
+  const customerSourceMap = new Map<number, string>()
+  for (const l of leadCustomers || []) {
+    if (l.customer_id != null && !customerSourceMap.has(l.customer_id)) {
+      customerSourceMap.set(l.customer_id, l.source as string)
+    }
+  }
+  for (const j of jobCustomers || []) {
+    if (j.customer_id != null && !customerSourceMap.has(j.customer_id)) {
+      customerSourceMap.set(j.customer_id, 'past_client')
+    }
+  }
+  const consentingIds = Array.from(customerSourceMap.keys())
+  if (consentingIds.length === 0) return []
+
+  const candidates: BackfillCandidate[] = []
+  // Process in chunks of 200 to avoid massive .in() filter
+  const chunkSize = 200
+  for (let i = 0; i < consentingIds.length; i += chunkSize) {
+    const chunk = consentingIds.slice(i, i + chunkSize)
+    const { data: customers } = await supabase
+      .from('customers')
+      .select('id, first_name, phone_number, retargeting_active, unsubscribed_at, sms_opt_out, auto_response_disabled, lifecycle_state')
+      .eq('tenant_id', tenantId)
+      .in('id', chunk)
+      .is('unsubscribed_at', null)
+      .neq('sms_opt_out', true)
+      .neq('retargeting_active', true)
+      .neq('auto_response_disabled', true)
+
+    for (const c of customers || []) {
+      if (!c.phone_number) continue
+      // Exclude active lifecycle states
+      if (c.lifecycle_state && ['recurring', 'scheduled', 'in_service', 'awaiting_payment'].includes(c.lifecycle_state)) continue
+
+      // Recent active job grace period
+      const { data: activeJobs } = await supabase
+        .from('jobs')
+        .select('id, created_at')
+        .eq('tenant_id', tenantId)
+        .eq('customer_id', c.id)
+        .in('status', ['scheduled', 'in_progress'])
+        .gte('created_at', new Date(Date.now() - ACTIVE_JOB_GRACE_DAYS * 24 * 60 * 60 * 1000).toISOString())
+        .limit(1)
+      if (activeJobs && activeJobs.length > 0) continue
+
+      // Quiet period — no inbound or outbound in last QUIET_DAYS
+      const { data: recentMsg } = await supabase
+        .from('messages')
+        .select('id, created_at, direction')
+        .eq('tenant_id', tenantId)
+        .eq('customer_id', c.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      const lastMsgAge = recentMsg && recentMsg.length > 0
+        ? Date.now() - new Date(recentMsg[0].created_at).getTime()
+        : Infinity
+      if (lastMsgAge < QUIET_DAYS * 24 * 60 * 60 * 1000) continue
+
+      if (await hasPendingV2Task(tenantId, c.id)) continue
+
+      // Count msgs for sample/output
+      const { data: allMsgs } = await supabase
+        .from('messages')
+        .select('direction')
+        .eq('tenant_id', tenantId)
+        .eq('customer_id', c.id)
+        .limit(100)
+      const outboundCount = (allMsgs || []).filter(m => m.direction === 'outbound').length
+      const inboundCount = (allMsgs || []).filter(m => m.direction === 'inbound').length
+
+      candidates.push({
+        customer_id: c.id, tenant_id: tenantId,
+        first_name: c.first_name, phone_number: c.phone_number,
+        outbound_count: outboundCount, inbound_count: inboundCount,
+        most_recent_outbound: recentMsg && recentMsg.length > 0 ? recentMsg[0].created_at : '',
+        lead_source: customerSourceMap.get(c.id)!,
+      })
+    }
+  }
+  return candidates
+}
+
+async function hasPendingV2Task(tenantId: string, customerId: number): Promise<boolean> {
+  const { data: pending } = await supabase
+    .from('scheduled_tasks')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'pending')
+    .in('task_type', ['followup.ghost_chase', 'retargeting.win_back'])
+    .filter('payload->>customer_id', 'eq', String(customerId))
+    .limit(1)
+  return !!pending && pending.length > 0
 }
 
 async function enrollOne(candidate: BackfillCandidate, indexInRun: number): Promise<{ enrolled: boolean; reason: string }> {
@@ -215,9 +322,8 @@ async function main() {
   console.log(`v2 BACKFILL — ghosted leads / customers who never replied`)
   console.log(`${'='.repeat(60)}\n`)
   console.log(`Mode:          ${LIVE ? 'LIVE (will write)' : 'DRY-RUN (no writes)'}`)
+  console.log(`Cohort:        ${MODE} ${MODE === 'broad' ? '(consenting customers, quiet for ' + QUIET_DAYS + 'd)' : '(ghosts, last ' + LOOKBACK_DAYS + 'd, sources: ' + SOURCE_WHITELIST.join(',') + ')'}`)
   console.log(`Tenant:        ${TENANT_SLUG}`)
-  console.log(`Lookback:      ${LOOKBACK_DAYS} days`)
-  console.log(`Sources:       ${SOURCE_WHITELIST.join(', ')}`)
   console.log(`Cap per run:   ${MAX_ENROLLS}`)
   console.log(`Jitter:        ${JITTER_SECONDS}s between enrolls\n`)
 
