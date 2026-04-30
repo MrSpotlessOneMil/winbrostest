@@ -70,6 +70,11 @@ interface SalesmanPayrollEntry {
  * Strictly exclusive: pay_mode='hourly' pays ONLY hours * rate + OT.
  * pay_mode='percentage' pays ONLY revenue * percentage.
  * Round 2 — never both. `null` pay_mode defaults to 'hourly' as the safe floor.
+ *
+ * Phase N (2026-04-29): when `commissionUpsellPct` is provided, the percentage
+ * branch splits revenue: base pays at `payPercentage`, upsell pays at
+ * `commissionUpsellPct`. Falls back to single-rate when upsell pct is null
+ * (legacy weeks or fresh installs that haven't set the rate yet).
  */
 export function calculateTechPay(
   revenueCompleted: number,
@@ -78,12 +83,21 @@ export function calculateTechPay(
   hoursWorked: number,
   overtimeHours: number,
   hourlyRate: number | null,
-  overtimeRate: number = 1.5
+  overtimeRate: number = 1.5,
+  revenueUpsell: number = 0,
+  commissionUpsellPct: number | null = null
 ): number {
   const mode: PayMode = payMode ?? 'hourly'
 
   if (mode === 'percentage') {
     const pct = payPercentage ?? 0
+    if (commissionUpsellPct != null && revenueUpsell > 0) {
+      // Split: base = (revenueCompleted - revenueUpsell) × pct,
+      //        upsell = revenueUpsell × commissionUpsellPct.
+      const base = Math.max(0, revenueCompleted - revenueUpsell)
+      const total = base * (pct / 100) + revenueUpsell * (commissionUpsellPct / 100)
+      return Math.round(total * 100) / 100
+    }
     return Math.round(revenueCompleted * (pct / 100) * 100) / 100
   }
 
@@ -143,6 +157,7 @@ export interface VisitForSalesmanPayroll {
     id?: number
     salesman_id?: number | null
     credited_salesman_id?: number | null
+    quotes?: { is_appointment_quote?: boolean | null } | null
     service_plan_jobs?: Array<{
       service_plans?: {
         recurrence?: Record<string, unknown> | null
@@ -153,6 +168,23 @@ export interface VisitForSalesmanPayroll {
     price: number
     revenue_type?: 'original_quote' | 'technician_upsell' | null
   }> | null
+}
+
+/**
+ * Phase N revenue bucket — door-knock vs appointment-converted.
+ *
+ * `is_appointment_quote=true` means the salesman used the "Convert
+ * appointment → quote" button, so commission pays at 12.5% (and the
+ * 12.5% credit was already logged via Phase F's
+ * salesman_appointment_credits ledger — the payroll engine routes the
+ * actual payout through that ledger, not through this bucket).
+ *
+ * `is_appointment_quote=false` (door-knock) → 20% on the original quote
+ * revenue. This bucket settles directly through payroll_entries.
+ */
+export interface SalesmanRevenueByOrigin {
+  doorknock: number
+  appointment: number
 }
 
 /**
@@ -174,6 +206,11 @@ export function classifyPlanBucket(
  * Mutates `salesmanRevenue` with the original_quote revenue from one visit,
  * routed to the admin-override `credited_salesman_id` if set, else the
  * quote's `salesman_id`.
+ *
+ * Phase N (2026-04-29): legacy buckets (onetime/triannual/quarterly)
+ * are preserved so historical payroll weeks render correctly. New weeks
+ * settle via `accumulateSalesmanRevenueByOrigin` instead, which buckets
+ * by `is_appointment_quote` (door-knock 20% vs appointment 12.5%).
  *
  * Pure — tests can call this directly without a Supabase stub.
  */
@@ -202,6 +239,68 @@ export function accumulateSalesmanRevenue(
     salesmanRevenue[attributedTo] ||
     (salesmanRevenue[attributedTo] = { onetime: 0, triannual: 0, quarterly: 0 })
   existing[bucket] += originalQuoteTotal
+}
+
+/**
+ * Phase N replacement for accumulateSalesmanRevenue.
+ *
+ * Buckets a visit's original_quote revenue into door-knock vs appointment
+ * based on `quotes.is_appointment_quote`. Skips appointment quotes entirely
+ * because Phase F's salesman_appointment_credits ledger already accrues a
+ * frozen 12.5% credit at appointment-set time and settles via
+ * aggregateEarnedCreditsBySalesman in generatePayrollWeek.
+ *
+ * Door-knock revenue accumulates here and pays out at 20% (or whatever the
+ * worker's commission_doorknock_pct is set to) inside calculateSalesmanPayN.
+ *
+ * Pure — tests can call this directly without a Supabase stub.
+ */
+export function accumulateSalesmanRevenueByOrigin(
+  visit: VisitForSalesmanPayroll,
+  byOrigin: Record<number, SalesmanRevenueByOrigin>
+): void {
+  const job = visit.jobs
+  if (!job) return
+  const attributedTo = job.credited_salesman_id ?? job.salesman_id
+  if (!attributedTo) return
+
+  let originalQuoteTotal = 0
+  for (const item of visit.visit_line_items ?? []) {
+    if (item.revenue_type === 'original_quote') {
+      originalQuoteTotal += Number(item.price) || 0
+    }
+  }
+  if (originalQuoteTotal === 0) return
+
+  const isAppt = job.quotes?.is_appointment_quote === true
+  const existing =
+    byOrigin[attributedTo] ||
+    (byOrigin[attributedTo] = { doorknock: 0, appointment: 0 })
+  if (isAppt) {
+    existing.appointment += originalQuoteTotal
+  } else {
+    existing.doorknock += originalQuoteTotal
+  }
+}
+
+/**
+ * Phase N salesman commission calculator.
+ *
+ * Door-knock revenue × commission_doorknock_pct (default 20).
+ * Appointment revenue is NOT multiplied here — that pays out via Phase F's
+ * salesman_appointment_credits ledger at the frozen rate logged on the
+ * appointment-set event. The `appointmentEarnedAmount` arg is the already-
+ * computed sum from `aggregateEarnedCreditsBySalesman`, folded in for one
+ * convenient total.
+ */
+export function calculateSalesmanPayN(args: {
+  revenueDoorknock: number
+  commissionDoorknockPct: number
+  appointmentEarnedAmount: number
+}): number {
+  const doorknockPay = args.revenueDoorknock * (args.commissionDoorknockPct / 100)
+  const total = doorknockPay + args.appointmentEarnedAmount
+  return Math.round(total * 100) / 100
 }
 
 /**
@@ -305,6 +404,7 @@ export async function generatePayrollWeek(
       id, technicians, started_at, stopped_at,
       jobs(
         id, crew_salesman_id, cleaner_id, salesman_id, credited_salesman_id,
+        quotes(is_appointment_quote),
         service_plan_jobs(service_plans(recurrence))
       ),
       visit_line_items(price, revenue_type, added_by_cleaner_id)
@@ -321,7 +421,8 @@ export async function generatePayrollWeek(
   // Used by 'percentage' workers (irrelevant for their pay) and as the
   // fallback when an 'hourly' worker has no time_entries (legacy data).
   const visitTimerHours: Record<number, number> = {}
-  const salesmanRevenue: Record<number, { onetime: number; triannual: number; quarterly: number }> = {}
+  // Phase N: door-knock vs appointment buckets (replacing onetime/triannual/quarterly).
+  const salesmanRevenueByOrigin: Record<number, SalesmanRevenueByOrigin> = {}
 
   for (const visit of visits || []) {
     // Calculate hours worked from timer
@@ -335,9 +436,9 @@ export async function generatePayrollWeek(
     }
 
     accumulateVisitRevenue(visit as VisitForPayroll, techSold, techUpsell)
-    accumulateSalesmanRevenue(
+    accumulateSalesmanRevenueByOrigin(
       visit as unknown as VisitForSalesmanPayroll,
-      salesmanRevenue
+      salesmanRevenueByOrigin
     )
   }
 
@@ -396,14 +497,24 @@ export async function generatePayrollWeek(
       const visitTimer = visitTimerHours[rate.cleaner_id] || 0
       const hours = mode === 'hourly' ? (clock > 0 ? clock : visitTimer) : visitTimer
       const otHours = Math.max(0, hours - 40) // 40hr work week
+      // Phase N: tech upsell pays at a separate rate from base.
+      const upsellPct = (rate as { commission_upsell_pct?: number | null })
+        .commission_upsell_pct
       const totalPay = calculateTechPay(
         revenue,
         rate.pay_mode,
         rate.pay_percentage,
         hours,
         otHours,
-        rate.hourly_rate
+        rate.hourly_rate,
+        1.5,
+        upsell,
+        upsellPct ?? null
       )
+      const upsellAmount =
+        mode === 'percentage' && upsellPct != null && upsell > 0
+          ? Math.round(upsell * (upsellPct / 100) * 100) / 100
+          : 0
 
       entries.push({
         payroll_week_id: week.id,
@@ -420,38 +531,54 @@ export async function generatePayrollWeek(
         overtime_rate: 1.5,
         hourly_rate: rate.hourly_rate,
         review_count: 0,
+        commission_upsell_pct: upsellPct ?? null,
+        commission_upsell_amount: upsellAmount,
         total_pay: totalPay,
       })
     } else if (rate.role === 'salesman') {
-      const rev = salesmanRevenue[rate.cleaner_id] || { onetime: 0, triannual: 0, quarterly: 0 }
+      // Phase N: door-knock vs appointment buckets.
+      const byOrigin = salesmanRevenueByOrigin[rate.cleaner_id] || {
+        doorknock: 0,
+        appointment: 0,
+      }
       const apptTotals = apptByeSalesman[rate.cleaner_id]
       const apptCommissionPct = Number(
-        (rate as { commission_appointment_pct?: number | null }).commission_appointment_pct ?? 12.5
+        (rate as { commission_appointment_pct?: number | null })
+          .commission_appointment_pct ?? 12.5
       )
       const apptAmount = apptTotals?.amount ?? 0
       const apptRevenueSet = apptTotals?.revenueSet ?? 0
 
-      const conversionPay = calculateSalesmanPay(
-        rev.onetime,
-        rev.triannual,
-        rev.quarterly,
-        rate.commission_1time_pct || 0,
-        rate.commission_triannual_pct || 0,
-        rate.commission_quarterly_pct || 0
+      const doorknockPct = Number(
+        (rate as { commission_doorknock_pct?: number | null })
+          .commission_doorknock_pct ?? 20
       )
-      const totalPay = Math.round((conversionPay + apptAmount) * 100) / 100
+      const totalPay = calculateSalesmanPayN({
+        revenueDoorknock: byOrigin.doorknock,
+        commissionDoorknockPct: doorknockPct,
+        appointmentEarnedAmount: apptAmount,
+      })
+      const doorknockAmount =
+        Math.round(byOrigin.doorknock * (doorknockPct / 100) * 100) / 100
 
       entries.push({
         payroll_week_id: week.id,
         tenant_id: tenantId,
         cleaner_id: rate.cleaner_id,
         role: 'salesman',
-        revenue_1time: rev.onetime,
-        revenue_triannual: rev.triannual,
-        revenue_quarterly: rev.quarterly,
+        // Legacy columns kept for historical-week compatibility — zero on
+        // new weeks because we no longer split by frequency.
+        revenue_1time: 0,
+        revenue_triannual: 0,
+        revenue_quarterly: 0,
         commission_1time_pct: rate.commission_1time_pct,
         commission_triannual_pct: rate.commission_triannual_pct,
         commission_quarterly_pct: rate.commission_quarterly_pct,
+        // Phase N door-knock split.
+        revenue_doorknock: byOrigin.doorknock,
+        commission_doorknock_pct: doorknockPct,
+        commission_doorknock_amount: doorknockAmount,
+        // Phase F appointment ledger (already settling separately).
         commission_appointment_pct: apptCommissionPct,
         commission_appointment_amount: apptAmount,
         revenue_appointments_set: apptRevenueSet,

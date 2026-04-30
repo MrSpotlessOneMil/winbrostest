@@ -86,7 +86,15 @@ export async function POST(
     total_price: 0,
     salesman_id: salesmanId,
   }
-  if (appointmentJobId) insertRow.appointment_job_id = appointmentJobId
+  if (appointmentJobId) {
+    insertRow.appointment_job_id = appointmentJobId
+    // Phase N (2026-04-29): salesmen who launch a quote from /appointments
+    // are converting an appointment, so the resulting quote pays at 12.5%
+    // (handled via Phase F's salesman_appointment_credits ledger). Door-
+    // knock quotes — created without an appointment linkage — leave the
+    // flag false (default) and pay at 20%.
+    insertRow.is_appointment_quote = true
+  }
   if (customerId) insertRow.customer_id = customerId
 
   // Phase I validator — surface a clean 422 if the linkage is broken.

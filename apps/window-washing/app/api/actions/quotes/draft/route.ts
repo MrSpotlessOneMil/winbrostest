@@ -62,7 +62,14 @@ export async function POST(request: NextRequest) {
     customer_name: "New Quote",
     total_price: 0,
   }
-  if (appointmentJobId) insertRow.appointment_job_id = appointmentJobId
+  if (appointmentJobId) {
+    insertRow.appointment_job_id = appointmentJobId
+    // Phase N (2026-04-29): admin draft launched from an appointment is by
+    // definition an appointment-converted quote, so flag it for the 12.5%
+    // commission path. Direct admin drafts (no appointment) stay at the
+    // default `false` and pay nothing on the salesman side.
+    insertRow.is_appointment_quote = true
+  }
   if (customerId) insertRow.customer_id = customerId
   if (salesmanId) insertRow.salesman_id = salesmanId
 

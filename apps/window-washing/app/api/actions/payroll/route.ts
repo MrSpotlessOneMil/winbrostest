@@ -169,6 +169,10 @@ export async function GET(request: NextRequest) {
         revenue_appointments_set: Number((e as { revenue_appointments_set?: number | null }).revenue_appointments_set ?? 0),
         appointment_pending_amount: pending.amount,
         appointment_pending_count: pending.count,
+        // Phase N (2026-04-29) — door-knock revenue + frozen rate.
+        revenue_doorknock: Number((e as { revenue_doorknock?: number | null }).revenue_doorknock ?? 0),
+        commission_doorknock_pct: Number((e as { commission_doorknock_pct?: number | null }).commission_doorknock_pct ?? 20),
+        commission_doorknock_amount: Number((e as { commission_doorknock_amount?: number | null }).commission_doorknock_amount ?? 0),
         total_pay: Number(e.total_pay || 0),
       }
     })

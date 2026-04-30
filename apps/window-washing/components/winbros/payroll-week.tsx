@@ -32,6 +32,10 @@ interface TechEntry {
   overtime_hours: number
   hourly_rate: number
   review_count: number
+  /** Phase N (2026-04-29): tech upsell pays at a separate rate from base. */
+  commission_upsell_pct?: number | null
+  /** Phase N: revenue_upsell × commission_upsell_pct / 100. */
+  commission_upsell_amount?: number
   total_pay: number
 }
 
@@ -54,6 +58,12 @@ interface SalesmanEntry {
   appointment_pending_amount?: number
   /** Phase F: count of pending credits (e.g. "3 in flight"). */
   appointment_pending_count?: number
+  /** Phase N (2026-04-29): door-knock revenue (non-appointment quotes). */
+  revenue_doorknock?: number
+  /** Phase N: frozen door-knock commission rate (%) — default 20. */
+  commission_doorknock_pct?: number
+  /** Phase N: revenue_doorknock × commission_doorknock_pct / 100. */
+  commission_doorknock_amount?: number
   total_pay: number
 }
 
@@ -345,6 +355,9 @@ export function PayrollWeek({
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Triannual Revenue</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Quarterly Revenue</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Commission</th>
+                <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide" title="Phase N: door-knock revenue × commission_doorknock_pct (default 20%). Quotes flagged is_appointment_quote=false.">
+                  Door&#8209;knock&nbsp;$
+                </th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide" title="Earned appointment-set commission this week (12.5% of appt quoted price). Pending credits show below in italics until they convert.">
                   Appt&nbsp;$
                 </th>
@@ -354,7 +367,7 @@ export function PayrollWeek({
             <tbody className="divide-y divide-zinc-900">
               {salesmen.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-zinc-600 text-sm">
+                  <td colSpan={9} className="px-4 py-8 text-center text-zinc-600 text-sm">
                     No salesman data for this week
                   </td>
                 </tr>
@@ -430,6 +443,20 @@ export function PayrollWeek({
                           {$(totalComm)}
                         </td>
                         <td className="px-4 py-3 text-right">
+                          {(s.commission_doorknock_amount ?? 0) > 0 ? (
+                            <span className="text-sky-300 font-medium" title={`${s.commission_doorknock_pct ?? 20}% × ${$(s.revenue_doorknock ?? 0)}`}>
+                              {$(s.commission_doorknock_amount ?? 0)}
+                            </span>
+                          ) : (
+                            <span className="text-zinc-600">--</span>
+                          )}
+                          {(s.revenue_doorknock ?? 0) > 0 && (
+                            <div className="text-[10px] text-zinc-500 mt-0.5">
+                              on {$(s.revenue_doorknock ?? 0)}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right">
                           {(s.commission_appointment_amount ?? 0) > 0 ? (
                             <span className="text-emerald-400 font-medium">
                               {$(s.commission_appointment_amount ?? 0)}
@@ -463,6 +490,9 @@ export function PayrollWeek({
                       {$(salesmen.reduce((s, e) => s + e.revenue_quarterly, 0))}
                     </td>
                     <td className="px-4 py-2.5"></td>
+                    <td className="px-4 py-2.5 text-right text-xs font-semibold text-sky-300">
+                      {$(salesmen.reduce((s, e) => s + (e.commission_doorknock_amount ?? 0), 0))}
+                    </td>
                     <td className="px-4 py-2.5 text-right text-xs font-semibold text-emerald-400">
                       {$(salesmen.reduce((s, e) => s + (e.commission_appointment_amount ?? 0), 0))}
                     </td>
