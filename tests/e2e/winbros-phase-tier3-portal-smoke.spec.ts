@@ -332,12 +332,18 @@ test.describe('Tier 3 — click-everything portal smoke', () => {
       // Verify the salesman cannot see the admin/tech-only Calendar tab
       // when on /my-day. Sidebar should NOT contain a link to /jobs.
       await page.goto(`${BASE}/my-day`)
-      await page.waitForTimeout(500)
+      // Wait for auth-context to hydrate so the sidebar swaps from the
+      // default technicianNav (its initial-state fallback) to salesmanNav.
+      // The /my-pipeline link is salesman-only — its presence is the signal.
+      await page
+        .locator('nav a[href="/my-pipeline"]')
+        .first()
+        .waitFor({ state: 'attached', timeout: 15_000 })
       const sidebarHrefs = await page.locator('nav a').evaluateAll((els) =>
         (els as HTMLAnchorElement[]).map((a) => a.getAttribute('href') || ''),
       )
-      // Salesman nav has /my-pipeline, /team-schedules, /my-customers,
-      // /customers, /my-schedule, /my-day. Must NOT have /jobs.
+      // Salesman nav has /my-pipeline, /team-schedules, /customers,
+      // /my-schedule, /my-day. Must NOT have /jobs (Calendar is tech-only).
       expect(
         sidebarHrefs.some((h) => h === '/jobs' || h === '/jobs/'),
         `salesman sidebar should NOT have /jobs (saw ${sidebarHrefs.join(', ')})`,

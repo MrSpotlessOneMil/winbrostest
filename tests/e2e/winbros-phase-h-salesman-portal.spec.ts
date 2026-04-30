@@ -103,8 +103,11 @@ test.describe('Phase H — salesman portal', () => {
     // Salesman-only entries must be present.
     await expect(sidebar.getByRole('link', { name: /^My Pipeline$/ })).toBeVisible({ timeout: 15000 })
     await expect(sidebar.getByRole('link', { name: /^Team Schedules$/ })).toBeVisible()
-    await expect(sidebar.getByRole('link', { name: /^My Customers$/ })).toBeVisible()
+    // PRD #14 (commit 7bfc7304): the duplicate "My Customers" tab was collapsed
+    // into a single role-scoped "Customers" tab. Salesmen no longer see two
+    // customers entries — just one.
     await expect(sidebar.getByRole('link', { name: /^Customers$/ })).toBeVisible()
+    expect(await sidebar.getByRole('link', { name: /^My Customers$/ }).count()).toBe(0)
     await expect(sidebar.getByRole('link', { name: /^Off Days$/ })).toBeVisible()
 
     // Tech-only entries must be HIDDEN. Salesmen don't run the daily
