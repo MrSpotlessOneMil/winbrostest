@@ -137,6 +137,21 @@ export async function getPricingAddons(tenantId?: string): Promise<PricingAddon[
 /**
  * Get a specific pricing row by bedrooms/bathrooms/service type
  */
+/**
+ * Round all price fields on a PricingRow to whole dollars. Without this, a
+ * pricing_tiers row of 362.50 surfaces as "$363" on the voice call (Intl
+ * formatter, maximumFractionDigits:0) but "$362.50" on the quote page (default
+ * fraction digits) — the customer notices the inconsistency.
+ */
+function roundRowPrice(row: PricingRow): PricingRow {
+  return {
+    ...row,
+    price: Math.round(row.price),
+    price_min: row.price_min == null ? row.price_min : Math.round(row.price_min),
+    price_max: row.price_max == null ? row.price_max : Math.round(row.price_max),
+  }
+}
+
 export async function getPricingRow(
   serviceType: PricingTier,
   bedrooms: number,
@@ -161,7 +176,7 @@ export async function getPricingRow(
         .sort((a, b) => a.bathrooms - b.bathrooms)
       if (sameBedHigherBath.length > 0) {
         console.log(`[pricing-db] No exact match for ${bedrooms}bed/${bathrooms}bath — rounding up to ${sameBedHigherBath[0].bedrooms}bed/${sameBedHigherBath[0].bathrooms}bath ($${sameBedHigherBath[0].price})`)
-        return sameBedHigherBath[0]
+        return roundRowPrice(sameBedHigherBath[0])
       }
 
       // 2. Same bedrooms, lower bathroom (e.g. 3bed/1bath when only 3bed/2bath exists)
@@ -170,7 +185,7 @@ export async function getPricingRow(
         .sort((a, b) => Math.abs(a.bathrooms - bathrooms) - Math.abs(b.bathrooms - bathrooms))
       if (sameBedLowerBath.length > 0) {
         console.log(`[pricing-db] No exact match for ${bedrooms}bed/${bathrooms}bath — closest same-bed tier: ${sameBedLowerBath[0].bedrooms}bed/${sameBedLowerBath[0].bathrooms}bath ($${sameBedLowerBath[0].price})`)
-        return sameBedLowerBath[0]
+        return roundRowPrice(sameBedLowerBath[0])
       }
 
       // 3. Next larger tier overall (higher bedrooms)
@@ -182,7 +197,7 @@ export async function getPricingRow(
         })
       if (larger.length > 0) {
         console.log(`[pricing-db] No exact match for ${bedrooms}bed/${bathrooms}bath — next larger tier: ${larger[0].bedrooms}bed/${larger[0].bathrooms}bath ($${larger[0].price})`)
-        return larger[0]
+        return roundRowPrice(larger[0])
       }
 
       // 4. Last resort: largest available tier
@@ -192,7 +207,7 @@ export async function getPricingRow(
         return b.max_sq_ft - a.max_sq_ft
       })
       console.log(`[pricing-db] No close match for ${bedrooms}bed/${bathrooms}bath — using largest tier: ${sorted[0].bedrooms}bed/${sorted[0].bathrooms}bath ($${sorted[0].price})`)
-      return sorted[0]
+      return roundRowPrice(sorted[0])
     }
     // No DB rows at all for this service type — use formula fallback
     const formulaStd = Math.max(100 * bedrooms + 35 * bathrooms, 200)
@@ -201,7 +216,7 @@ export async function getPricingRow(
     const hours = Math.max(3, bedrooms * 0.75 + bathrooms * 0.5 + 1.5)
     const cleaners = bedrooms >= 3 ? 2 : 1
     console.warn(`⚠️ [PRICING FALLBACK] No pricing_tiers rows for ${bedrooms}bed/${bathrooms}bath ${pricingTier} — using generic formula: $${price}. This likely means pricing tiers were never seeded for this tenant. Run admin onboard or insert manually.`)
-    return { service_type: pricingTier, bedrooms, bathrooms, max_sq_ft: 9999, price, price_min: price, price_max: price, labor_hours: Math.round(hours * 10) / 10, cleaners, hours_per_cleaner: Math.round((hours / cleaners) * 10) / 10 }
+    return roundRowPrice({ service_type: pricingTier, bedrooms, bathrooms, max_sq_ft: 9999, price, price_min: price, price_max: price, labor_hours: Math.round(hours * 10) / 10, cleaners, hours_per_cleaner: Math.round((hours / cleaners) * 10) / 10 })
   }
 
   // Sort by max_sq_ft ascending
@@ -210,11 +225,11 @@ export async function getPricingRow(
   // If square footage provided, find the appropriate tier
   if (squareFootage && squareFootage > 0) {
     const found = sorted.find((row) => row.max_sq_ft >= squareFootage)
-    return found || sorted[sorted.length - 1]
+    return roundRowPrice(found || sorted[sorted.length - 1])
   }
 
   // Default to largest tier
-  return sorted[sorted.length - 1]
+  return roundRowPrice(sorted[sorted.length - 1])
 }
 
 /**
