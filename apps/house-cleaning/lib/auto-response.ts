@@ -1360,7 +1360,7 @@ export async function generateEmailResponse(
   const { detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
 
   const isWinBros = tenantUsesFeature(tenant, 'use_hcp_mirror')
-  const systemPrompt = isWinBros ? buildWinBrosEmailPrompt(tenant) : buildEmailBotSystemPrompt(tenant)
+  const systemPrompt = isWinBros ? buildWinBrosEmailPrompt(tenant) : await buildEmailBotSystemPrompt(tenant)
   const sdrName = tenant.sdr_persona || 'Sarah'
 
   const historyContext = conversationHistory?.length

@@ -12,13 +12,34 @@
  */
 
 import type { Tenant } from './tenant'
-import { getTenantServiceDescription } from './tenant'
+import { getTenantServiceDescription, formatTenantCurrency, getCurrencySymbol } from './tenant'
+import { getPricingTiers } from './pricing-db'
 
-export function buildEmailBotSystemPrompt(tenant: Tenant): string {
+export async function buildEmailBotSystemPrompt(tenant: Tenant): Promise<string> {
   const businessName = tenant.business_name_short || tenant.business_name || tenant.name
   const sdrName = tenant.sdr_persona || 'Sarah'
   const serviceArea = tenant.service_area || 'your area'
   const serviceType = getTenantServiceDescription(tenant) || 'house cleaning'
+  const sym = getCurrencySymbol(tenant)
+  const fmt = (n: number) => formatTenantCurrency(tenant, n)
+
+  const tiers = await getPricingTiers(tenant.id)
+  const stdRows = tiers['standard'] || []
+  const deepRows = tiers['deep'] || []
+  const moveRows = tiers['move'] || []
+
+  const buildTable = (rows: Array<{ bedrooms: number; bathrooms: number; price: number }>) =>
+    rows.length
+      ? rows.map(r => `- ${r.bedrooms} bed / ${r.bathrooms} bath: ${fmt(r.price)}`).join('\n')
+      : '- (no tiers configured — use the quote link)'
+
+  const stdTable = buildTable(stdRows)
+  const deepTable = buildTable(deepRows)
+  const moveTable = buildTable(moveRows)
+
+  const stdPrices = stdRows.map(r => r.price)
+  const stdMin = stdPrices.length ? fmt(Math.min(...stdPrices)) : `${sym}200`
+  const stdMax = stdPrices.length ? fmt(Math.max(...stdPrices)) : `${sym}470`
 
   return `You are ${sdrName}, a friendly and efficient booking specialist for ${businessName}, a professional ${serviceType} service in ${serviceArea}.
 
@@ -91,27 +112,25 @@ Ask for ALL missing items at once in your first reply. Use a numbered list so it
 
 **NOTE**: Since the customer emailed you, we ALREADY HAVE their email address. You do NOT need to ask for it or confirm it. Never mention their email address in your response. Just ask for their phone number directly.
 
-## PRICING
-Never dodge a pricing question. Give them a number.
+## PRICING -- THIS IS CRITICAL
+Never dodge a pricing question. Give them a number. ALL prices below come from our pricing system. Do NOT invent, interpolate, or use any other formula.
 
-PRICING FORMULA (how to calculate any size home):
-- STANDARD CLEAN: $100 per bedroom + $35 per bathroom (minimum $200)
-- DEEP CLEAN / MOVE IN-OUT: $125 per bedroom + $50 per bathroom (minimum $250)
+STANDARD CLEAN PRICES:
+${stdTable}
 
-QUICK REFERENCE (common combos, Standard / Deep):
-- 1 bed / 1 bath: $200 / $250
-- 2 bed / 1 bath: $235 / $300
-- 2 bed / 2 bath: $270 / $350
-- 3 bed / 2 bath: $370 / $475
-- 3 bed / 3 bath: $405 / $525
-- 4 bed / 2 bath: $470 / $600
-- 4 bed / 3 bath: $505 / $650
+DEEP CLEAN PRICES:
+${deepTable}
 
-If the customer asks "how much does it cost?" before you have their home details:
-- Give a range: "Standard cleans usually run $200-470 depending on the size of your home. Deep cleans and move-in/move-out start a bit higher. Once I have a few details about your space, I can give you exact pricing!"
+MOVE IN/OUT PRICES:
+${moveTable}
 
-If they ask about pricing AFTER you have their details:
-- Calculate using the formula and give them the number.
+HOW TO USE THESE:
+- If the "INFO ALREADY ON FILE" section above lists an "Estimated price", that is the price this customer was already shown. ALWAYS quote that exact number — never override it with the table above. Switching the price on a customer mid-funnel destroys trust.
+- Otherwise, if you know their bed/bath: look for an EXACT match in the price list above and quote that number.
+- If their bed/bath combo is NOT in the list (unusual bathroom count, very large home, etc.): do NOT make up a price. Give the range and tell them the exact quote will come via email/link. e.g. "Standard cleans usually run ${stdMin}-${stdMax} depending on the size — I'll send your exact quote shortly."
+- If they ask "how much" before you have bed/bath: "Standard cleans usually run ${stdMin}-${stdMax} depending on the size of your home. Deep cleans and move-in/move-out start a bit higher. Once I have a few details, I can give you exact pricing!"
+- NEVER guess or interpolate a price. Only quote prices that are EXACTLY in the list above (or the on-file estimated price).
+- NEVER offer discounts, deals, or promotional pricing. You have NO authority to change prices.
 
 If they ask about payment:
 - Say: "We accept most major credit cards. You'll pay fifty percent upfront as a deposit, and the rest after the job is completed. We'll send you a payment link directly to your email."
