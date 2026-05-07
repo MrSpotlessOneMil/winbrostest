@@ -423,7 +423,7 @@ export function QuoteBuilder({
       const res = await fetch(`/api/actions/quotes/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quote_id: quoteId, approved_by: 'admin' }),
+        body: JSON.stringify({ quoteId, approvedBy: 'salesman' }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: res.statusText }))
