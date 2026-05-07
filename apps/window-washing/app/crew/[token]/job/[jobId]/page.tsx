@@ -291,6 +291,10 @@ export default function CrewJobVisitPage() {
   // Upsell catalog picker (Q1=C — no free-form upsells)
   const [showUpsellPicker, setShowUpsellPicker] = useState(false)
   const [upsellLoading, setUpsellLoading] = useState<number | null>(null)
+  // Per-catalog-item price draft (string so the input stays controlled even
+  // mid-edit). Hydrated lazily from catalog price on first render of each
+  // item so techs can adjust on-site without leaving the picker.
+  const [upsellPriceDrafts, setUpsellPriceDrafts] = useState<Record<number, string>>({})
 
   // Add checklist item
   const [showAddChecklist, setShowAddChecklist] = useState(false)
@@ -365,13 +369,31 @@ export default function CrewJobVisitPage() {
   }
 
   async function handleUpsellFromCatalog(catalogItemId: number) {
+    // Pull the tech's current price draft. If empty/blank/invalid, fall back
+    // to the catalog default (server applies it when price_override is omitted).
+    const draft = upsellPriceDrafts[catalogItemId]
+    const parsed = draft !== undefined && draft.trim() !== '' ? Number(draft) : NaN
+    const useOverride = Number.isFinite(parsed) && parsed >= 0
+    if (draft !== undefined && draft.trim() !== '' && !useOverride) {
+      alert("Enter a valid price (0 or higher) or clear the field to use the default.")
+      return
+    }
     setUpsellLoading(catalogItemId)
     const ok = await postAction({
       action: "upsell",
       catalog_item_id: catalogItemId,
       quantity: 1,
+      ...(useOverride ? { price_override: parsed } : {}),
     })
-    if (ok) setShowUpsellPicker(false)
+    if (ok) {
+      setShowUpsellPicker(false)
+      // Reset this item's draft so re-opening shows catalog default again,
+      // not the last value the tech entered for a different visit.
+      setUpsellPriceDrafts(prev => {
+        const { [catalogItemId]: _drop, ...rest } = prev
+        return rest
+      })
+    }
     setUpsellLoading(null)
   }
 
@@ -863,12 +885,21 @@ export default function CrewJobVisitPage() {
                     catalog.map((item) => {
                       const isLoading = upsellLoading === item.id
                       const disabled = upsellLoading !== null
+                      // Lazy-init draft to the catalog price, formatted to 2dp
+                      // so the input doesn't show "12" for a $12.00 item.
+                      const draftValue =
+                        upsellPriceDrafts[item.id] ?? item.price.toFixed(2)
+                      const isOverride =
+                        upsellPriceDrafts[item.id] !== undefined &&
+                        Number(upsellPriceDrafts[item.id]) !== item.price
                       return (
-                        <button
+                        <div
                           key={item.id}
-                          onClick={() => handleUpsellFromCatalog(item.id)}
-                          disabled={disabled}
-                          className="w-full text-left bg-zinc-800 border border-zinc-700 rounded-xl p-3 active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-between gap-3"
+                          className={`w-full bg-zinc-800 border ${
+                            isOverride ? 'border-emerald-500/40' : 'border-zinc-700'
+                          } rounded-xl p-3 transition-all ${
+                            disabled ? 'opacity-40' : ''
+                          } flex items-center gap-3`}
                         >
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium text-white truncate">{item.name}</p>
@@ -877,16 +908,39 @@ export default function CrewJobVisitPage() {
                             )}
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-sm font-semibold text-emerald-400">
-                              {formatCurrency(item.price, job.currency)}
-                            </span>
-                            {isLoading ? (
-                              <Loader2 className="size-4 animate-spin text-blue-400" />
-                            ) : (
-                              <Plus className="size-4 text-blue-400" />
-                            )}
+                            <div className="flex items-center bg-zinc-900 border border-zinc-700 rounded-lg px-2 py-1.5 focus-within:border-emerald-500">
+                              <span className="text-xs text-zinc-500 mr-0.5">$</span>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min={0}
+                                step="0.01"
+                                value={draftValue}
+                                onChange={(e) =>
+                                  setUpsellPriceDrafts((prev) => ({
+                                    ...prev,
+                                    [item.id]: e.target.value,
+                                  }))
+                                }
+                                disabled={disabled}
+                                aria-label={`Price for ${item.name}`}
+                                className="w-16 bg-transparent text-right text-sm font-semibold text-emerald-400 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            </div>
+                            <button
+                              onClick={() => handleUpsellFromCatalog(item.id)}
+                              disabled={disabled}
+                              aria-label={`Add ${item.name}`}
+                              className="size-9 rounded-lg bg-blue-600/20 border border-blue-500/40 flex items-center justify-center active:scale-[0.95] transition-all disabled:opacity-40"
+                            >
+                              {isLoading ? (
+                                <Loader2 className="size-4 animate-spin text-blue-400" />
+                              ) : (
+                                <Plus className="size-4 text-blue-400" />
+                              )}
+                            </button>
                           </div>
-                        </button>
+                        </div>
                       )
                     })
                   )}

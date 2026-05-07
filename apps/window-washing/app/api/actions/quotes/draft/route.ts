@@ -100,5 +100,26 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Every new quote opens with an Exterior Window Cleaning line already
+  // staged — it's the price WinBros wants on every quote regardless, and
+  // service-plan multiplier formulas key off lines flagged
+  // kind:'exterior_windows'. Soft-fail: a missing seed line is recoverable
+  // (admin can add it manually) so don't 500 the whole creation.
+  const { error: seedErr } = await supabase.from("quote_line_items").insert({
+    quote_id: quote.id,
+    tenant_id: tenant.id,
+    service_name: "Exterior Window Cleaning",
+    description: null,
+    price: 0,
+    quantity: 1,
+    optionality: "required",
+    is_upsell: false,
+    sort_order: 0,
+    kind: "exterior_windows",
+  })
+  if (seedErr) {
+    console.warn("[quotes/draft] exterior-windows seed failed:", seedErr.message)
+  }
+
   return NextResponse.json({ success: true, quoteId: quote.id })
 }

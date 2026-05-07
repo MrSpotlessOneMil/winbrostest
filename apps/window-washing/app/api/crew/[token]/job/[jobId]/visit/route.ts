@@ -441,11 +441,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   // Round 2 (Q1=C): tech picks from tech_upsell_catalog only — no free-form entry.
   // -----------------------------------------------------------------------
   if (action === 'upsell') {
-    const { catalog_item_id, quantity } = body
+    const { catalog_item_id, quantity, price_override } = body
     if (!catalog_item_id || typeof catalog_item_id !== 'number') {
       return NextResponse.json({ error: 'Missing or invalid catalog_item_id' }, { status: 400 })
     }
     const qty = typeof quantity === 'number' && quantity > 0 ? Math.floor(quantity) : 1
+
+    // Optional per-unit price override from the technician portal — lets the
+    // tech adjust the catalog price on-site (e.g. unusually small/large job)
+    // without leaving the catalog flow. Reject NaN / Infinity / negatives so
+    // a typo doesn't write a -$300 line. Round to cents.
+    let overridePerUnit: number | null = null
+    if (price_override !== undefined && price_override !== null) {
+      if (typeof price_override !== 'number' || !Number.isFinite(price_override) || price_override < 0) {
+        return NextResponse.json({ error: 'Invalid price_override' }, { status: 400 })
+      }
+      overridePerUnit = Math.round(price_override * 100) / 100
+    }
 
     // Look up catalog row (tenant-scoped)
     const { data: catalogItem } = await client
@@ -459,10 +471,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Catalog item not found or inactive' }, { status: 404 })
     }
 
+    const perUnit = overridePerUnit !== null ? overridePerUnit : Number(catalogItem.price)
+
     const result = await addUpsell(client, visit.id, {
       service_name: catalogItem.name,
       description: catalogItem.description || undefined,
-      price: Number(catalogItem.price) * qty,
+      price: perUnit * qty,
       added_by_cleaner_id: cleaner.id,
     })
 
