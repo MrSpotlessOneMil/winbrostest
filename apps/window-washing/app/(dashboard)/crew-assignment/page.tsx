@@ -310,10 +310,16 @@ export default function CrewAssignmentPage() {
     const cleaner = (e.active.data.current as any)?.cleaner as Cleaner
     if (!cleaner) return
 
-    // Droppable ID format: "tl-{date}-{teamLeadId}"
-    const [, dateStr, tlIdStr] = (e.over.id as string).split("-")
-    if (!dateStr || !tlIdStr) return
+    // Droppable ID format: "tl-{YYYY-MM-DD}-{teamLeadId}". The date itself
+    // contains two hyphens, so a naive split("-") splits the date apart and
+    // gives back garbage (dateStr="2026", tlIdStr="05"). Pull tlId from the
+    // last segment and reconstruct the date from everything in between.
+    const parts = (e.over.id as string).split("-")
+    if (parts[0] !== "tl" || parts.length < 5) return
+    const tlIdStr = parts[parts.length - 1]
+    const dateStr = parts.slice(1, -1).join("-")
     const tlId = Number(tlIdStr)
+    if (!dateStr || !Number.isFinite(tlId)) return
 
     // Add member to local assignments
     setLocalAssignments(prev => {

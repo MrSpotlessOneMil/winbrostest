@@ -642,24 +642,25 @@ export default function SchedulePage() {
                         <button
                           onClick={() => toggleTL(tlKey)}
                           data-empty-crew={isEmpty ? "true" : "false"}
-                          className={`w-full flex items-center gap-1 px-1.5 py-1 rounded-md hover:bg-muted/50 text-left ${tlBorderClass}`}
+                          className={`w-full flex flex-col gap-0.5 px-1.5 py-1 rounded-md hover:bg-muted/50 text-left ${tlBorderClass}`}
                         >
-                          <span className="text-[9px] font-bold text-blue-400 bg-blue-500/15 px-1 rounded">TL</span>
-                          <span className="text-[11px] font-semibold text-foreground truncate flex-1">
-                            {crew.team_lead_name.split(" ")[0]}
-                            {/* Phase L: town of first job next to TL name. */}
-                            {crew.first_job_town && (
-                              <span className="text-muted-foreground font-normal ml-1">
-                                · {crew.first_job_town}
-                              </span>
+                          <div className="flex items-center gap-1 w-full">
+                            <span className="text-[9px] font-bold text-blue-400 bg-blue-500/15 px-1 rounded">TL</span>
+                            <span className="text-[11px] font-semibold text-foreground truncate flex-1">
+                              {crew.team_lead_name.split(" ")[0]}
+                            </span>
+                            {crewJobs.length > 0 && <span className="text-[9px] text-muted-foreground">{crewJobs.length}</span>}
+                            {crewTotal > 0 && <span className="text-[9px] text-green-400 font-medium">${Math.round(crewTotal)}</span>}
+                            {isEmpty && (
+                              <span className="text-[9px] text-yellow-400 font-medium">open</span>
                             )}
-                          </span>
-                          {crewJobs.length > 0 && <span className="text-[9px] text-muted-foreground">{crewJobs.length}</span>}
-                          {crewTotal > 0 && <span className="text-[9px] text-green-400 font-medium">${Math.round(crewTotal)}</span>}
-                          {isEmpty && (
-                            <span className="text-[9px] text-yellow-400 font-medium">open</span>
+                            <ChevronDown className={`size-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                          </div>
+                          {crew.first_job_town && (
+                            <div className="text-[9px] text-muted-foreground truncate pl-[1.4rem]">
+                              {crew.first_job_town}
+                            </div>
                           )}
-                          <ChevronDown className={`size-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
                         </button>
 
                         {/* Expanded: Job cards */}

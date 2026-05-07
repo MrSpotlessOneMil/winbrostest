@@ -135,9 +135,9 @@ export function CustomerPickerModal({ open, onClose, onSelect, initialQuery = ""
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-lg bg-white p-4 shadow-lg">
+      <div className="w-full max-w-lg rounded-lg bg-white p-4 shadow-lg text-gray-900">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-medium">
+          <h2 className="text-lg font-medium text-gray-900">
             {createMode ? "Create Client" : "Select Client"}
           </h2>
           <button
@@ -166,7 +166,7 @@ export function CustomerPickerModal({ open, onClose, onSelect, initialQuery = ""
                   value={query}
                   onChange={e => setQuery(e.target.value)}
                   placeholder="Search by name or phone"
-                  className="w-full rounded border pl-8 pr-2 py-2 text-sm"
+                  className="w-full rounded border border-gray-300 pl-8 pr-2 py-2 text-sm text-gray-900 placeholder:text-gray-500"
                 />
               </div>
               <button
@@ -197,9 +197,9 @@ export function CustomerPickerModal({ open, onClose, onSelect, initialQuery = ""
                           onSelect(c)
                           onClose()
                         }}
-                        className="w-full px-2 py-2 text-left hover:bg-gray-50"
+                        className="w-full px-2 py-2 text-left text-gray-900 hover:bg-gray-50"
                       >
-                        <div className="font-medium">{customerDisplayName(c)}</div>
+                        <div className="font-medium text-gray-900">{customerDisplayName(c)}</div>
                         <div className="text-xs text-gray-600">
                           {c.phone_number || "no phone"}
                           {c.address ? ` · ${c.address}` : ""}
@@ -219,7 +219,7 @@ export function CustomerPickerModal({ open, onClose, onSelect, initialQuery = ""
               <label>
                 <span className="block text-xs text-gray-600">First name</span>
                 <input
-                  className="mt-1 w-full rounded border px-2 py-1"
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-gray-900 placeholder:text-gray-500"
                   value={createForm.first_name}
                   onChange={e =>
                     setCreateForm(f => ({ ...f, first_name: e.target.value }))
@@ -229,7 +229,7 @@ export function CustomerPickerModal({ open, onClose, onSelect, initialQuery = ""
               <label>
                 <span className="block text-xs text-gray-600">Last name</span>
                 <input
-                  className="mt-1 w-full rounded border px-2 py-1"
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-gray-900 placeholder:text-gray-500"
                   value={createForm.last_name}
                   onChange={e =>
                     setCreateForm(f => ({ ...f, last_name: e.target.value }))
@@ -241,7 +241,7 @@ export function CustomerPickerModal({ open, onClose, onSelect, initialQuery = ""
               <span className="block text-xs text-gray-600">Phone *</span>
               <input
                 required
-                className="mt-1 w-full rounded border px-2 py-1"
+                className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-gray-900 placeholder:text-gray-500"
                 value={createForm.phone_number}
                 onChange={e =>
                   setCreateForm(f => ({ ...f, phone_number: e.target.value }))
@@ -251,7 +251,7 @@ export function CustomerPickerModal({ open, onClose, onSelect, initialQuery = ""
             <label className="block">
               <span className="block text-xs text-gray-600">Email</span>
               <input
-                className="mt-1 w-full rounded border px-2 py-1"
+                className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-gray-900 placeholder:text-gray-500"
                 value={createForm.email}
                 onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))}
               />
@@ -259,7 +259,7 @@ export function CustomerPickerModal({ open, onClose, onSelect, initialQuery = ""
             <label className="block">
               <span className="block text-xs text-gray-600">Address</span>
               <input
-                className="mt-1 w-full rounded border px-2 py-1"
+                className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-gray-900 placeholder:text-gray-500"
                 value={createForm.address}
                 onChange={e =>
                   setCreateForm(f => ({ ...f, address: e.target.value }))
@@ -270,7 +270,7 @@ export function CustomerPickerModal({ open, onClose, onSelect, initialQuery = ""
               <button
                 type="button"
                 onClick={() => setCreateMode(false)}
-                className="rounded border px-3 py-1 text-sm"
+                className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-900 hover:bg-gray-50"
               >
                 Back to search
               </button>
