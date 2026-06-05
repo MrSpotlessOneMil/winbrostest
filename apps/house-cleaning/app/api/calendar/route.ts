@@ -30,15 +30,21 @@ export async function GET(request: NextRequest) {
     // Only show confirmed jobs on the calendar (not quotes or cancelled)
     query.in("status", ["scheduled", "in_progress", "completed"])
 
-    // Order by DATE (not created_at) and lift the cap. The old
-    // `created_at desc + limit(2000)` silently dropped the oldest-CREATED rows
-    // once a tenant/admin exceeded 2000 jobs — which includes far-future
-    // recurring appointments generated long ago, making them vanish from the
-    // calendar (and flicker back as the set shifted). Ordering by date means any
-    // future cut hits the oldest PAST dates first, never upcoming appointments.
+    // Bound the calendar to a window around today, ordered by date ascending.
+    // PostgREST caps responses at 1000 rows regardless of limit, so without a
+    // date window the recurring jobs that run years ahead would fill the payload
+    // and push the CURRENT month out of it (which would blank the calendar).
+    // The window (2 months back → 8 months ahead) is well under 1000 rows and
+    // always contains the view the user is looking at.
+    const horizonNow = new Date()
+    const windowStart = new Date(horizonNow); windowStart.setMonth(windowStart.getMonth() - 2)
+    const windowEnd = new Date(horizonNow); windowEnd.setMonth(windowEnd.getMonth() + 8)
+    const toISODate = (d: Date) => d.toISOString().split("T")[0]
+    query.gte("date", toISODate(windowStart)).lte("date", toISODate(windowEnd))
+
     const { data, error } = await query
-      .order("date", { ascending: false })
-      .limit(10000)
+      .order("date", { ascending: true })
+      .limit(2000)
 
     if (error) {
       throw error
