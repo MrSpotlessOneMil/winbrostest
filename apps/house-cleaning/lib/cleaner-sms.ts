@@ -113,6 +113,20 @@ export async function notifyCleanerAssignment(
     return { success: false, error: 'Cleaner has no phone number' }
   }
 
+  // Safety net: never send an assignment to a removed/deactivated cleaner,
+  // regardless of which upstream path called us. Stale cleaner_assignments rows
+  // (created while the cleaner was active) must not result in a live SMS.
+  if (cleaner.id != null) {
+    const { data: row } = await getSupabaseServiceClient()
+      .from('cleaners')
+      .select('active, deleted_at')
+      .eq('id', cleaner.id)
+      .maybeSingle()
+    if (row && (row.active === false || row.deleted_at)) {
+      return { success: false, error: 'Cleaner is inactive/removed — notification suppressed' }
+    }
+  }
+
   const date = formatDate(job.date)
   const time = formatTime(job.scheduled_at)
   const address = job.address || customer?.address || 'See details'

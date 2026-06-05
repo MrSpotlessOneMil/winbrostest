@@ -52,6 +52,7 @@ export interface WorkflowConfig {
 
   // Cleaner assignment
   cleaner_assignment_auto: boolean
+  notify_cleaners?: boolean // false = manual assignment mode: suppress auto-notifying/broadcasting jobs to cleaners (owner assigns by hand)
   require_deposit: boolean
   deposit_percentage: number
   cleaner_pay_percentage?: number // % of job revenue paid to cleaner (e.g. 40 = 40%)

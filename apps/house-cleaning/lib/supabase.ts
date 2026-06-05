@@ -2053,7 +2053,10 @@ export async function getJobsStartingSoon(
         const cleaner = await getCleanerById(String(assignment.cleaner_id))
         const customer = await getCustomerByPhone(job.phone_number)
 
-        if (cleaner) {
+        // Never remind a removed/deactivated cleaner. getCleanerById only filters
+        // soft-deletes (deleted_at), so a toggle-deactivated cleaner (active=false,
+        // deleted_at=null) would otherwise still receive job reminders.
+        if (cleaner && cleaner.active !== false) {
           results.push({
             job,
             assignment,

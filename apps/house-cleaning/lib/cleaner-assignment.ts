@@ -366,6 +366,17 @@ export async function triggerCleanerAssignment(
     const tenant = await getTenantById(jobTenantId)
 
     // ──────────────────────────────────────────────────────────────────────
+    // MANUAL ASSIGNMENT MODE — when a tenant turns cleaner notifications off
+    // (workflow_config.notify_cleaners === false), the owner assigns cleaners
+    // by hand and we must NOT auto-broadcast/route the job to any cleaner.
+    // Return success so callers treat the job as handled (not an error).
+    // ──────────────────────────────────────────────────────────────────────
+    if (tenant?.workflow_config?.notify_cleaners === false) {
+      console.log(`[cleaner-assignment] notify_cleaners disabled for tenant ${tenant.slug} — skipping auto-assignment for job ${jobId} (manual assignment)`)
+      return { success: true }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
     // RECURRING PREFERRED CLEANER — runs before broadcast/routing split.
     // If this is a recurring child job, try to assign the same cleaner
     // who did the most recent completed sibling in the same series.
