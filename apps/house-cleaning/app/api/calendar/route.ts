@@ -80,6 +80,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ jobs: enriched })
   } catch (error) {
     console.error("Failed to load calendar jobs:", error)
-    return NextResponse.json({ jobs: [] }, { status: 500 })
+    // Do NOT return `{ jobs: [] }` here — an empty array is indistinguishable
+    // from "this tenant genuinely has no appointments", which previously made a
+    // DB statement-timeout look like a blank-but-working calendar. Return an
+    // explicit error so the dashboard can show "couldn't load" instead.
+    const code = (error as { code?: string })?.code
+    const message = code === "57014"
+      ? "The calendar query timed out. The jobs table likely needs indexing/maintenance."
+      : "Failed to load calendar appointments. Please try again."
+    return NextResponse.json({ error: message, code }, { status: 500 })
   }
 }

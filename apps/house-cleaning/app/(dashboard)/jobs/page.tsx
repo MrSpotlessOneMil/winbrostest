@@ -431,6 +431,7 @@ export default function JobsPage() {
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
   const [loading, setLoading] = useState(true)
+  const [calendarError, setCalendarError] = useState<string | null>(null)
   const [jobServiceTypes, setJobServiceTypes] = useState<string[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -1067,8 +1068,16 @@ export default function JobsPage() {
           fetch("/api/calendar", { cache: "no-store" }),
           fetch("/api/actions/settings", { cache: "no-store" }),
         ])
-        const calData = await calRes.json()
-        setJobs(calData.jobs || [])
+        if (calRes.ok) {
+          const calData = await calRes.json()
+          setJobs(calData.jobs || [])
+          setCalendarError(null)
+        } else {
+          // Surface the failure instead of rendering a misleading empty calendar.
+          let msg = "Couldn't load appointments. Please retry."
+          try { const e = await calRes.json(); if (e?.error) msg = e.error } catch { /* non-JSON */ }
+          setCalendarError(msg)
+        }
 
         const settingsData = await settingsRes.json()
         const types = settingsData.job_service_types as string[] | null
@@ -1096,7 +1105,7 @@ export default function JobsPage() {
           if (merged.length > 0) setAddonsList(merged)
         }
       } catch {
-        setJobs([])
+        setCalendarError("Couldn't reach the server. Check your connection and retry.")
       } finally {
         setLoading(false)
       }
@@ -1382,9 +1391,18 @@ export default function JobsPage() {
   const refreshJobs = async () => {
     try {
       const res = await fetch("/api/calendar", { cache: "no-store" })
-      const data = await res.json()
-      setJobs(data.jobs || [])
-    } catch { /* ignore */ }
+      if (res.ok) {
+        const data = await res.json()
+        setJobs(data.jobs || [])
+        setCalendarError(null)
+      } else {
+        let msg = "Couldn't refresh appointments. Please retry."
+        try { const e = await res.json(); if (e?.error) msg = e.error } catch { /* non-JSON */ }
+        setCalendarError(msg)
+      }
+    } catch {
+      setCalendarError("Couldn't refresh appointments. Please retry.")
+    }
   }
 
   const saveJobTime = async (jobId: string, newStart: Date, hours: number): Promise<boolean> => {
@@ -2457,6 +2475,24 @@ export default function JobsPage() {
             Rainy Day Reschedule
           </button>
         </div>
+
+        {calendarError && (
+          <div
+            role="alert"
+            className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3"
+            style={{ flexShrink: 0 }}
+          >
+            <p className="text-sm text-red-400">
+              {calendarError}
+            </p>
+            <button
+              className="shrink-0 rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20"
+              onClick={() => { setCalendarError(null); refreshJobs() }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {loading ? <CubeLoader /> : <>
         {/* Schedule monitoring strip — at-a-glance daily summary */}
