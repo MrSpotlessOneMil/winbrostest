@@ -297,7 +297,22 @@ export async function deleteSession(token: string): Promise<void> {
   await client.from('sessions').delete().eq('token', token)
 }
 
-export async function getAuthUser(request: NextRequest): Promise<AuthUser | null> {
+// Per-request memo. A single request typically resolves the user twice
+// (requireAuth, then getAuthTenant -> getAuthUser), each doing the full
+// session+user DB lookup. Keying the cache on the request object means both
+// calls share one lookup, and the entry is GC'd with the request — it never
+// leaks across requests.
+const authUserCache = new WeakMap<NextRequest, Promise<AuthUser | null>>()
+
+export function getAuthUser(request: NextRequest): Promise<AuthUser | null> {
+  const cached = authUserCache.get(request)
+  if (cached) return cached
+  const promise = resolveAuthUser(request)
+  authUserCache.set(request, promise)
+  return promise
+}
+
+async function resolveAuthUser(request: NextRequest): Promise<AuthUser | null> {
   // Try cookie first (normal browser flow)
   let token = request.cookies.get(SESSION_COOKIE_NAME)?.value
 

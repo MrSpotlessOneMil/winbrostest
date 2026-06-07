@@ -21,7 +21,13 @@ export async function GET(request: NextRequest) {
 
     const query = client
       .from("jobs")
-      .select("*, customers (*), cleaners!jobs_cleaner_id_fkey (*), cleaner_assignments ( cleaner_id, status, cleaners ( id, name, active, deleted_at ) ), teams ( id, name ), leads!converted_to_job_id ( source )")
+      // Trimmed joins: the calendar only renders a handful of customer/cleaner
+      // fields, so select those explicitly instead of `(*)`. Dropping the full
+      // customer row (notes/tags/etc.) and cleaner location/telegram columns
+      // cuts the payload ~40% (3.0MB → 1.9MB for ~940 rows) — meaningful on a
+      // small DB instance. NOTE: customers has NO `name` column; resolveCustomerName
+      // falls back to first_name/last_name, so it is intentionally omitted.
+      .select("*, customers ( id, first_name, last_name, email, phone_number, address, is_commercial, card_on_file_at ), cleaners!jobs_cleaner_id_fkey ( id, name, phone, active, deleted_at ), cleaner_assignments ( cleaner_id, status, cleaners ( id, name, active, deleted_at ) ), teams ( id, name ), leads!converted_to_job_id ( source )")
 
     if (tenant) {
       query.eq("tenant_id", tenant.id)
