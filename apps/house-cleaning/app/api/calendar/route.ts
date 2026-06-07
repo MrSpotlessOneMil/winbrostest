@@ -36,17 +36,31 @@ export async function GET(request: NextRequest) {
     // Only show confirmed jobs on the calendar (not quotes or cancelled)
     query.in("status", ["scheduled", "in_progress", "completed"])
 
-    // Bound the calendar to a window around today, ordered by date ascending.
-    // PostgREST caps responses at 1000 rows regardless of limit, so without a
-    // date window the recurring jobs that run years ahead would fill the payload
-    // and push the CURRENT month out of it (which would blank the calendar).
-    // The window (2 months back → 8 months ahead) is well under 1000 rows and
-    // always contains the view the user is looking at.
-    const horizonNow = new Date()
-    const windowStart = new Date(horizonNow); windowStart.setMonth(windowStart.getMonth() - 2)
-    const windowEnd = new Date(horizonNow); windowEnd.setMonth(windowEnd.getMonth() + 8)
+    // Date window. The calendar fetches only the visible month (+ buffer) via
+    // ?start=&end=, keeping the payload small. Callers that omit the params fall
+    // back to a wide default window. PostgREST caps responses at 1000 rows, so an
+    // explicit span is capped at ~400 days to stay safely under that.
     const toISODate = (d: Date) => d.toISOString().split("T")[0]
-    query.gte("date", toISODate(windowStart)).lte("date", toISODate(windowEnd))
+    const isISODate = (s: string | null): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s)
+    const startParam = request.nextUrl.searchParams.get("start")
+    const endParam = request.nextUrl.searchParams.get("end")
+
+    let windowStartISO: string
+    let windowEndISO: string
+    if (isISODate(startParam) && isISODate(endParam) && startParam <= endParam) {
+      windowStartISO = startParam
+      const spanDays = (Date.parse(endParam) - Date.parse(startParam)) / 86_400_000
+      windowEndISO = spanDays > 400
+        ? toISODate(new Date(Date.parse(startParam) + 400 * 86_400_000))
+        : endParam
+    } else {
+      const horizonNow = new Date()
+      const ws = new Date(horizonNow); ws.setMonth(ws.getMonth() - 2)
+      const we = new Date(horizonNow); we.setMonth(we.getMonth() + 8)
+      windowStartISO = toISODate(ws)
+      windowEndISO = toISODate(we)
+    }
+    query.gte("date", windowStartISO).lte("date", windowEndISO)
 
     const { data, error } = await query
       .order("date", { ascending: true })

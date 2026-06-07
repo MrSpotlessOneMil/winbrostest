@@ -432,6 +432,11 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<CalendarJob[]>([])
   const [loading, setLoading] = useState(true)
   const [calendarError, setCalendarError] = useState<string | null>(null)
+  // Today's jobs power the at-a-glance strip, fetched independently of the
+  // calendar's visible range so the strip stays correct when navigating months.
+  const [todayJobs, setTodayJobs] = useState<CalendarJob[]>([])
+  // Last date range fetched for the calendar, for subset-dedupe + refresh.
+  const fetchedRangeRef = useRef<{ start: string; end: string } | null>(null)
   const [jobServiceTypes, setJobServiceTypes] = useState<string[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -1061,57 +1066,75 @@ export default function JobsPage() {
     []
   )
 
-  useEffect(() => {
-    async function fetchJobs() {
-      try {
-        const [calRes, settingsRes] = await Promise.all([
-          fetch("/api/calendar", { cache: "no-store" }),
-          fetch("/api/actions/settings", { cache: "no-store" }),
-        ])
-        if (calRes.ok) {
-          const calData = await calRes.json()
-          setJobs(calData.jobs || [])
-          setCalendarError(null)
-        } else {
-          // Surface the failure instead of rendering a misleading empty calendar.
-          let msg = "Couldn't load appointments. Please retry."
-          try { const e = await calRes.json(); if (e?.error) msg = e.error } catch { /* non-JSON */ }
-          setCalendarError(msg)
-        }
+  const toLocalISO = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 
-        const settingsData = await settingsRes.json()
+  // Fetch calendar jobs for a date range. Subset-dedupes against the last range
+  // fetched, so navigating within the already-loaded (buffered) window is free.
+  const fetchJobsForRange = useCallback(async (startISO: string, endISO: string, force = false) => {
+    const cur = fetchedRangeRef.current
+    if (!force && cur && startISO >= cur.start && endISO <= cur.end) return
+    fetchedRangeRef.current = { start: startISO, end: endISO }
+    try {
+      const res = await fetch(`/api/calendar?start=${startISO}&end=${endISO}`, { cache: "no-store" })
+      if (res.ok) {
+        const data = await res.json()
+        setJobs(data.jobs || [])
+        setCalendarError(null)
+      } else {
+        let msg = "Couldn't load appointments. Please retry."
+        try { const e = await res.json(); if (e?.error) msg = e.error } catch { /* non-JSON */ }
+        setCalendarError(msg)
+      }
+    } catch {
+      setCalendarError("Couldn't reach the server. Check your connection and retry.")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const fetchTodayJobs = useCallback(async () => {
+    const today = toLocalISO(new Date())
+    try {
+      const res = await fetch(`/api/calendar?start=${today}&end=${today}`, { cache: "no-store" })
+      if (res.ok) {
+        const data = await res.json()
+        setTodayJobs(data.jobs || [])
+      }
+    } catch { /* strip is non-critical */ }
+  }, [])
+
+  useEffect(() => {
+    // Settings load once on mount (not per navigation).
+    void (async () => {
+      try {
+        const res = await fetch("/api/actions/settings", { cache: "no-store" })
+        const settingsData = await res.json()
         const types = settingsData.job_service_types as string[] | null
-        if (types && Array.isArray(types) && types.length > 0) {
-          setJobServiceTypes(types)
-        }
+        if (types && Array.isArray(types) && types.length > 0) setJobServiceTypes(types)
 
         // Pre-load WinBros add-ons: merge quote add-ons + flat services into one list
         const customAddons = settingsData.winbros_addons as { addon_key: string; label: string; flat_price: number }[] | null
         const customFlat = settingsData.flat_services as { name: string; keywords: string[]; price: number }[] | null
         if (customAddons || customFlat) {
-          const addonEntries = (customAddons || []).map((a) => ({
-            addon_key: a.addon_key,
-            label: a.label,
-            flat_price: a.flat_price ?? 0,
-            minutes: 0,
-          }))
-          const flatEntries = (customFlat || []).map((f) => ({
-            addon_key: (f.keywords?.[0] || f.name.toLowerCase().replace(/\s+/g, "_")),
-            label: f.name,
-            flat_price: f.price ?? 0,
-            minutes: 0,
-          }))
+          const addonEntries = (customAddons || []).map((a) => ({ addon_key: a.addon_key, label: a.label, flat_price: a.flat_price ?? 0, minutes: 0 }))
+          const flatEntries = (customFlat || []).map((f) => ({ addon_key: (f.keywords?.[0] || f.name.toLowerCase().replace(/\s+/g, "_")), label: f.name, flat_price: f.price ?? 0, minutes: 0 }))
           const merged = [...addonEntries, ...flatEntries]
           if (merged.length > 0) setAddonsList(merged)
         }
-      } catch {
-        setCalendarError("Couldn't reach the server. Check your connection and retry.")
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchJobs()
-  }, [])
+      } catch { /* settings non-critical */ }
+    })()
+
+    fetchTodayJobs()
+
+    // Seed the initial visible range. FullCalendar is gated behind `loading`, so
+    // its datesSet can't drive the first fetch — seed it from the saved date here.
+    const savedStr = getSavedDate()
+    const anchor = savedStr ? new Date(savedStr) : new Date()
+    const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1); start.setDate(start.getDate() - 14)
+    const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0); end.setDate(end.getDate() + 14)
+    fetchJobsForRange(toLocalISO(start), toLocalISO(end))
+  }, [fetchJobsForRange, fetchTodayJobs])
 
   const cleanerColorMap = useMemo(() => {
     const names = [...new Set(
@@ -1389,20 +1412,9 @@ export default function JobsPage() {
   }
 
   const refreshJobs = async () => {
-    try {
-      const res = await fetch("/api/calendar", { cache: "no-store" })
-      if (res.ok) {
-        const data = await res.json()
-        setJobs(data.jobs || [])
-        setCalendarError(null)
-      } else {
-        let msg = "Couldn't refresh appointments. Please retry."
-        try { const e = await res.json(); if (e?.error) msg = e.error } catch { /* non-JSON */ }
-        setCalendarError(msg)
-      }
-    } catch {
-      setCalendarError("Couldn't refresh appointments. Please retry.")
-    }
+    const r = fetchedRangeRef.current
+    if (r) await fetchJobsForRange(r.start, r.end, true)
+    fetchTodayJobs()
   }
 
   const saveJobTime = async (jobId: string, newStart: Date, hours: number): Promise<boolean> => {
@@ -1974,9 +1986,7 @@ export default function JobsPage() {
       setRainResult(data.data)
       setRainStep("done")
       // Refresh calendar
-      const calRes = await fetch("/api/calendar")
-      const calData = await calRes.json()
-      setJobs(calData.jobs || [])
+      await refreshJobs()
     } catch {
       setRainError("Failed to connect to server")
       setRainStep("preview")
@@ -2497,11 +2507,6 @@ export default function JobsPage() {
         {loading ? <CubeLoader /> : <>
         {/* Schedule monitoring strip — at-a-glance daily summary */}
         {(() => {
-          const today = new Date().toISOString().split("T")[0]
-          const todayJobs = jobs.filter(j => {
-            const jobDate = j.date || j.scheduled_date || ""
-            return jobDate.startsWith(today)
-          })
           const totalScheduled = todayJobs.length
           const completed = todayJobs.filter(j => j.status === "completed").length
           const inProgress = todayJobs.filter(j => j.status === "in_progress").length
@@ -2651,6 +2656,10 @@ export default function JobsPage() {
                 setActiveFcView(info.view.type)
                 localStorage.setItem(STORAGE_KEY_VIEW, info.view.type)
                 localStorage.setItem(STORAGE_KEY_DATE, info.start.toISOString())
+                // Fetch only the visible range (+ ~2wk buffer); dedupes if already loaded.
+                const start = new Date(info.start); start.setDate(start.getDate() - 14)
+                const end = new Date(info.end); end.setDate(end.getDate() + 14)
+                fetchJobsForRange(toLocalISO(start), toLocalISO(end))
               }}
               eventDidMount={(info) => {
                 const titleEl = info.el.querySelector(".fc-event-title, .fc-list-event-title")
