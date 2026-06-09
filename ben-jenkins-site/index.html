@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ben Jenkins — CTO · CEO · Builder</title>
+<meta name="description" content="Ben Jenkins — CTO of PandaGuarantee, CEO of Censaas. Engineer, founder, and builder of high-leverage software." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #050508;
+    --bg-soft: #0a0a12;
+    --text: #e8e8f0;
+    --muted: #8a8a9e;
+    --accent: #00e5ff;
+    --accent-2: #7c4dff;
+    --accent-3: #00ffa3;
+    --glass: rgba(255, 255, 255, 0.04);
+    --glass-border: rgba(255, 255, 255, 0.09);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    overflow-x: hidden;
+    line-height: 1.6;
+  }
+
+  ::selection { background: var(--accent); color: #000; }
+
+  canvas#bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .noise {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  main { position: relative; z-index: 2; }
+
+  /* ---------- Nav ---------- */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 10;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.1rem 2.5rem;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    background: rgba(5, 5, 8, 0.55);
+    border-bottom: 1px solid var(--glass-border);
+  }
+
+  .logo {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+    font-size: 0.95rem;
+    letter-spacing: 0.05em;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .logo span { color: var(--accent); }
+
+  .nav-links { display: flex; gap: 2rem; }
+  .nav-links a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.85rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    transition: color 0.25s;
+  }
+  .nav-links a:hover { color: var(--accent); }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 0 1.5rem;
+  }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent-3);
+    border: 1px solid rgba(0, 255, 163, 0.25);
+    background: rgba(0, 255, 163, 0.05);
+    padding: 0.4rem 1rem;
+    border-radius: 999px;
+    margin-bottom: 2rem;
+    letter-spacing: 0.05em;
+  }
+  .status-pill::before {
+    content: '';
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent-3);
+    box-shadow: 0 0 10px var(--accent-3);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+
+  h1 {
+    font-size: clamp(3rem, 9vw, 6.5rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    background: linear-gradient(120deg, #fff 30%, var(--accent) 60%, var(--accent-2) 90%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-size: 200% auto;
+    animation: shimmer 6s linear infinite;
+  }
+  @keyframes shimmer {
+    to { background-position: 200% center; }
+  }
+
+  .tagline {
+    margin-top: 1.4rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: clamp(0.85rem, 2vw, 1.05rem);
+    color: var(--muted);
+  }
+  .tagline .role { color: var(--text); }
+  .tagline .co { color: var(--accent); }
+  .tagline .co2 { color: var(--accent-2); }
+
+  .typed-line {
+    margin-top: 0.6rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--accent-3);
+    min-height: 1.4em;
+  }
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    background: var(--accent-3);
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .hero-cta {
+    margin-top: 3rem;
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .btn {
+    padding: 0.85rem 2rem;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-decoration: none;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .btn-primary {
+    color: #000;
+    background: linear-gradient(120deg, var(--accent), var(--accent-3));
+  }
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0, 229, 255, 0.35);
+  }
+  .btn-ghost {
+    color: var(--text);
+    border: 1px solid var(--glass-border);
+    background: var(--glass);
+    backdrop-filter: blur(8px);
+  }
+  .btn-ghost:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent);
+  }
+
+  .scroll-hint {
+    position: absolute;
+    bottom: 2.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.2em;
+    animation: float 2.5s ease-in-out infinite;
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(8px); }
+  }
+
+  /* ---------- Sections ---------- */
+  section {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 7rem 1.5rem;
+  }
+
+  .section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+  }
+  .section-label::before { content: '// '; color: var(--muted); }
+
+  h2 {
+    font-size: clamp(1.8rem, 4vw, 2.6rem);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin-bottom: 2.5rem;
+  }
+
+  /* ---------- About ---------- */
+  .about-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 3rem;
+    align-items: start;
+  }
+  @media (max-width: 760px) { .about-grid { grid-template-columns: 1fr; } }
+
+  .about-text p {
+    color: var(--muted);
+    font-size: 1.05rem;
+    margin-bottom: 1.2rem;
+  }
+  .about-text strong { color: var(--text); font-weight: 600; }
+  .about-text .hl { color: var(--accent); }
+
+  .terminal {
+    background: var(--bg-soft);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  }
+  .terminal-bar {
+    display: flex;
+    gap: 0.45rem;
+    padding: 0.8rem 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--glass-border);
+  }
+  .terminal-bar i {
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .terminal-bar i:nth-child(1) { background: #ff5f57; }
+  .terminal-bar i:nth-child(2) { background: #febc2e; }
+  .terminal-bar i:nth-child(3) { background: #28c840; }
+  .terminal-body {
+    padding: 1.4rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    line-height: 1.9;
+  }
+  .terminal-body .key { color: var(--accent-2); }
+  .terminal-body .str { color: var(--accent-3); }
+  .terminal-body .punct { color: var(--muted); }
+
+  /* ---------- Ventures ---------- */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+  }
+  @media (max-width: 760px) { .cards { grid-template-columns: 1fr; } }
+
+  .card {
+    position: relative;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 18px;
+    padding: 2.2rem;
+    backdrop-filter: blur(10px);
+    transition: transform 0.3s, border-color 0.3s;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--c, var(--accent)), transparent);
+    opacity: 0.8;
+  }
+  .card:hover {
+    transform: translateY(-6px);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+  .card .role-chip {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    color: var(--c, var(--accent));
+    border: 1px solid;
+    border-radius: 6px;
+    padding: 0.25rem 0.7rem;
+    margin-bottom: 1.2rem;
+  }
+  .card h3 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 0.8rem;
+  }
+  .card p { color: var(--muted); font-size: 0.95rem; }
+
+  /* ---------- Stack ---------- */
+  .stack-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+  }
+  .chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+    border: 1px solid var(--glass-border);
+    background: var(--glass);
+    padding: 0.45rem 1rem;
+    border-radius: 999px;
+    transition: color 0.25s, border-color 0.25s, transform 0.25s;
+    cursor: default;
+  }
+  .chip:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+
+  /* ---------- Socials ---------- */
+  .socials {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.2rem;
+  }
+  .social-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    padding: 1.2rem 1.4rem;
+    text-decoration: none;
+    color: var(--text);
+    transition: transform 0.25s, border-color 0.25s;
+  }
+  .social-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--accent);
+  }
+  .social-card svg {
+    width: 22px; height: 22px;
+    fill: var(--accent);
+    flex-shrink: 0;
+  }
+  .social-card .label {
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+  .social-card .handle {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  /* ---------- Footer ---------- */
+  footer {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    padding: 3rem 1.5rem;
+    border-top: 1px solid var(--glass-border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  footer span { color: var(--accent); }
+
+  /* ---------- Reveal on scroll ---------- */
+  .reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+  .reveal.visible { opacity: 1; transform: none; }
+
+  @media (max-width: 600px) {
+    .nav-links { display: none; }
+    section { padding: 5rem 1.25rem; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="bg"></canvas>
+<div class="noise"></div>
+
+<nav>
+  <a class="logo" href="#">ben<span>@</span>jenkins<span>:~$</span></a>
+  <div class="nav-links">
+    <a href="#about">About</a>
+    <a href="#ventures">Ventures</a>
+    <a href="#stack">Stack</a>
+    <a href="#connect">Connect</a>
+  </div>
+</nav>
+
+<main>
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="status-pill">SYSTEMS ONLINE — BUILDING</div>
+    <h1>Ben Jenkins</h1>
+    <p class="tagline">
+      <span class="role">CTO</span> <span class="punct">@</span> <span class="co">PandaGuarantee</span>
+      &nbsp;·&nbsp;
+      <span class="role">CEO</span> <span class="punct">@</span> <span class="co2">Censaas</span>
+    </p>
+    <p class="typed-line"><span id="typed"></span><span class="cursor">&nbsp;</span></p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="#connect">Get in touch</a>
+      <a class="btn btn-ghost" href="#about">Who am I?</a>
+    </div>
+    <div class="scroll-hint">▼ SCROLL</div>
+  </header>
+
+  <!-- ================= ABOUT ================= -->
+  <section id="about" class="reveal">
+    <p class="section-label">about</p>
+    <h2>Operator at the intersection of code &amp; company.</h2>
+    <div class="about-grid">
+      <div class="about-text">
+        <p>
+          I'm <strong>Ben Jenkins</strong> — an engineer-turned-founder who likes shipping things that
+          actually move the needle. By day I run technology at <span class="hl">PandaGuarantee</span>,
+          where I own the architecture, the roadmap, and the uptime. By every other hour I'm building
+          <span class="hl">Censaas</span> from zero to one as CEO.
+        </p>
+        <p>
+          My happy place is the gap between <strong>deep technical systems</strong> and
+          <strong>business leverage</strong> — distributed systems, automation, AI-driven workflows,
+          and products that quietly do the work of a ten-person team.
+        </p>
+        <p>
+          I believe in small teams, sharp tools, and shipping fast without breaking trust.
+          If it can be automated, it will be. If it can't, I'll probably try anyway.
+        </p>
+      </div>
+      <div class="terminal">
+        <div class="terminal-bar"><i></i><i></i><i></i></div>
+        <div class="terminal-body">
+<span class="punct">$</span> whoami<br>
+<span class="punct">{</span><br>
+&nbsp;&nbsp;<span class="key">"name"</span><span class="punct">:</span> <span class="str">"Ben Jenkins"</span><span class="punct">,</span><br>
+&nbsp;&nbsp;<span class="key">"roles"</span><span class="punct">:</span> <span class="punct">[</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">"CTO @ PandaGuarantee"</span><span class="punct">,</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">"CEO @ Censaas"</span><br>
+&nbsp;&nbsp;<span class="punct">],</span><br>
+&nbsp;&nbsp;<span class="key">"mode"</span><span class="punct">:</span> <span class="str">"shipping"</span><span class="punct">,</span><br>
+&nbsp;&nbsp;<span class="key">"coffee"</span><span class="punct">:</span> <span class="str">"critical dependency"</span><br>
+<span class="punct">}</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= VENTURES ================= -->
+  <section id="ventures" class="reveal">
+    <p class="section-label">ventures</p>
+    <h2>What I'm building.</h2>
+    <div class="cards">
+      <div class="card" style="--c: var(--accent);">
+        <span class="role-chip">CTO</span>
+        <h3>PandaGuarantee</h3>
+        <p>
+          Leading engineering and technical strategy — architecture, platform reliability,
+          and a product velocity that keeps the rest of the org honest. Guarantees, delivered.
+        </p>
+      </div>
+      <div class="card" style="--c: var(--accent-2);">
+        <span class="role-chip">CEO</span>
+        <h3>Censaas</h3>
+        <p>
+          Founder-mode: vision, product, and go-to-market. Building SaaS that compounds —
+          lean team, high leverage, zero fluff.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= STACK ================= -->
+  <section id="stack" class="reveal">
+    <p class="section-label">stack</p>
+    <h2>Tools of the trade.</h2>
+    <div class="stack-row">
+      <span class="chip">TypeScript</span>
+      <span class="chip">Next.js</span>
+      <span class="chip">Node.js</span>
+      <span class="chip">PostgreSQL</span>
+      <span class="chip">Supabase</span>
+      <span class="chip">Stripe</span>
+      <span class="chip">AI / LLM pipelines</span>
+      <span class="chip">Vercel</span>
+      <span class="chip">CI/CD</span>
+      <span class="chip">Distributed systems</span>
+      <span class="chip">Automation</span>
+    </div>
+  </section>
+
+  <!-- ================= CONNECT ================= -->
+  <section id="connect" class="reveal">
+    <p class="section-label">connect</p>
+    <h2>Find me on the network.</h2>
+    <div class="socials">
+      <a class="social-card" href="https://www.linkedin.com/in/benjenkins" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24"><path d="M19 0h-14c-2.76 0-5 2.24-5 5v14c0 2.76 2.24 5 5 5h14c2.76 0 5-2.24 5-5v-14c0-2.76-2.24-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.27c-.97 0-1.75-.79-1.75-1.76s.78-1.76 1.75-1.76 1.75.79 1.75 1.76-.78 1.76-1.75 1.76zm13.5 12.27h-3v-5.6c0-3.37-4-3.11-4 0v5.6h-3v-11h3v1.77c1.4-2.59 7-2.78 7 2.48v6.75z"/></svg>
+        <div>
+          <div class="label">LinkedIn</div>
+          <div class="handle">/in/benjenkins</div>
+        </div>
+      </a>
+      <a class="social-card" href="https://github.com/benjenkins" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24"><path d="M12 0c-6.63 0-12 5.37-12 12 0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58 0-.28-.01-1.02-.02-2.01-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.33-1.76-1.33-1.76-1.09-.74.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49 1 .11-.78.42-1.31.76-1.61-2.66-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23.96-.27 1.98-.4 3-.4s2.04.13 3 .4c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.23 1.91 1.23 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22 0 1.61-.01 2.9-.01 3.29 0 .32.21.7.83.58 4.77-1.59 8.2-6.09 8.2-11.39 0-6.63-5.37-12-12-12z"/></svg>
+        <div>
+          <div class="label">GitHub</div>
+          <div class="handle">@benjenkins</div>
+        </div>
+      </a>
+      <a class="social-card" href="https://x.com/benjenkins" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.657l-5.214-6.817-5.966 6.817h-3.31l7.73-8.835-8.156-10.665h6.826l4.713 6.231 5.451-6.231zm-1.161 17.52h1.833l-11.83-15.644h-1.967l11.964 15.644z"/></svg>
+        <div>
+          <div class="label">X / Twitter</div>
+          <div class="handle">@benjenkins</div>
+        </div>
+      </a>
+      <a class="social-card" href="mailto:benjenk@hotmail.co.uk">
+        <svg viewBox="0 0 24 24"><path d="M12 12.713l-11.985-9.713h23.97l-11.985 9.713zm0 2.574l-12-9.725v15.438h24v-15.438l-12 9.725z"/></svg>
+        <div>
+          <div class="label">Email</div>
+          <div class="handle">benjenk@hotmail.co.uk</div>
+        </div>
+      </a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  © <span id="year"></span> Ben Jenkins — built with <span>caffeine</span> &amp; <span>type safety</span>.
+</footer>
+
+<script>
+  // ---------- Particle network background ----------
+  const canvas = document.getElementById('bg');
+  const ctx = canvas.getContext('2d');
+  let particles = [];
+  let mouse = { x: -9999, y: -9999 };
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const count = Math.min(110, Math.floor(canvas.width * canvas.height / 14000));
+    particles = Array.from({ length: count }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.35,
+      vy: (Math.random() - 0.5) * 0.35,
+      r: Math.random() * 1.6 + 0.4
+    }));
+  }
+
+  window.addEventListener('resize', resize);
+  window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  window.addEventListener('mouseleave', () => { mouse.x = -9999; mouse.y = -9999; });
+  resize();
+
+  function tick() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const LINK = 130;
+
+    for (const p of particles) {
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+      if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0, 229, 255, 0.45)';
+      ctx.fill();
+    }
+
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const a = particles[i], b = particles[j];
+        const dx = a.x - b.x, dy = a.y - b.y;
+        const d = Math.hypot(dx, dy);
+        if (d < LINK) {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.strokeStyle = `rgba(124, 77, 255, ${0.14 * (1 - d / LINK)})`;
+          ctx.lineWidth = 0.6;
+          ctx.stroke();
+        }
+      }
+      const p = particles[i];
+      const dm = Math.hypot(p.x - mouse.x, p.y - mouse.y);
+      if (dm < 180) {
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(mouse.x, mouse.y);
+        ctx.strokeStyle = `rgba(0, 255, 163, ${0.25 * (1 - dm / 180)})`;
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+  tick();
+
+  // ---------- Typewriter ----------
+  const phrases = [
+    'building systems that scale.',
+    'automating the boring parts.',
+    'shipping > talking.',
+    'from architecture to exit.',
+    'zero to one, on repeat.'
+  ];
+  const typedEl = document.getElementById('typed');
+  let pi = 0, ci = 0, deleting = false;
+
+  function type() {
+    const phrase = phrases[pi];
+    typedEl.textContent = phrase.slice(0, ci);
+    if (!deleting) {
+      if (ci < phrase.length) { ci++; setTimeout(type, 55); }
+      else { deleting = true; setTimeout(type, 2200); }
+    } else {
+      if (ci > 0) { ci--; setTimeout(type, 28); }
+      else { deleting = false; pi = (pi + 1) % phrases.length; setTimeout(type, 400); }
+    }
+  }
+  type();
+
+  // ---------- Scroll reveal ----------
+  const observer = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        observer.unobserve(e.target);
+      }
+    }
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  // ---------- Footer year ----------
+  document.getElementById('year').textContent = new Date().getFullYear();
+</script>
+</body>
+</html>
