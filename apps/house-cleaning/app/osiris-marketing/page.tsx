@@ -386,7 +386,9 @@ export default function OsirisMarketingPage() {
             No setup fees. No long-term contracts. Book a demo to get your quote.
           </p>
           <a
-            href="#demo"
+            href="https://calendly.com/dominic-theosirisai/cleaning-gameplan"
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-block bg-[#2195b4] px-8 py-3.5 text-white font-medium hover:bg-[#1a7a94] transition-colors text-sm"
           >
             Get a Quote
