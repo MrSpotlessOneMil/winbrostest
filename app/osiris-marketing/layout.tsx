@@ -52,7 +52,9 @@ export default function OsirisMarketingLayout({
                 Access free email guide
               </a>
               <a
-                href="#demo"
+                href="https://calendly.com/dominic-theosirisai/cleaning-gameplan"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="bg-[#2195b4] px-5 py-2 text-white text-sm font-medium hover:bg-[#1a7a94] transition-colors"
               >
                 Book a Demo
