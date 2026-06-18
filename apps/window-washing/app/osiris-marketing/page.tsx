@@ -183,7 +183,9 @@ export default function OsirisMarketingPage() {
           </p>
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
             <a
-              href="#demo"
+              href="https://calendly.com/dominic-theosirisai/cleaning-gameplan"
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-block bg-[#2195b4] px-8 py-3.5 text-white font-medium hover:bg-[#1a7a94] transition-colors text-sm"
             >
               Book a Demo
@@ -421,7 +423,9 @@ export default function OsirisMarketingPage() {
             Every missed call is revenue walking to the next cleaning company on Google.
           </p>
           <a
-            href="#demo"
+            href="https://calendly.com/dominic-theosirisai/cleaning-gameplan"
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-block bg-[#2195b4] px-8 py-3.5 text-white font-medium hover:bg-[#1a7a94] transition-colors text-sm"
           >
             Book a Demo
