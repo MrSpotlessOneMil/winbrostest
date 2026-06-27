@@ -11,7 +11,7 @@ import { test, expect } from '@playwright/test'
  *   1. HTTP 200 on direct request
  *   2. No console errors while rendering
  *   3. BookingForm or QuoteCalculator element visible
- *   4. POST /api/webhooks/website/spotless-scrubbers returns {success: true}
+ *   4. POST /api/robinline-lead/spotless-scrubbers returns {success: true}
  *
  * Test-lead cleanup: we tag leads with source='ci-smoke' so the nightly
  * cron scripts/ci/cleanup-smoke-leads.mjs can prune them.
@@ -70,7 +70,10 @@ for (const landing of LANDINGS) {
 
 test('BookingForm POST endpoint accepts a synthetic lead (end-to-end)', async ({ request }) => {
   const marker = `ci-smoke-${Date.now()}`
-  const res = await request.post(`${BASE}/api/webhooks/website/spotless-scrubbers`, {
+  // Forms now post to the Robin Line proxy. source='ci-smoke' makes the proxy
+  // short-circuit (returns { success: true }) WITHOUT forwarding to Robin Line,
+  // so CI validates the live endpoint without creating junk leads / fake texts.
+  const res = await request.post(`${BASE}/api/robinline-lead/spotless-scrubbers`, {
     data: {
       name: marker,
       phone: `+1555${String(Date.now()).slice(-7)}`,
@@ -82,7 +85,7 @@ test('BookingForm POST endpoint accepts a synthetic lead (end-to-end)', async ({
     },
   })
 
-  expect(res.ok(), `POST /api/webhooks/website/spotless-scrubbers returned ${res.status()}`).toBe(true)
+  expect(res.ok(), `POST /api/robinline-lead/spotless-scrubbers returned ${res.status()}`).toBe(true)
   const body = await res.json().catch(() => ({}))
-  expect(body?.success, 'BookingForm webhook should reply { success: true }').toBe(true)
+  expect(body?.success, 'Robin Line lead proxy should reply { success: true }').toBe(true)
 })

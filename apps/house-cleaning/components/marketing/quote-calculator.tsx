@@ -182,7 +182,8 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
     }
 
     try {
-      const res = await fetch("/api/webhooks/website/spotless-scrubbers", {
+      // Routes Spotless website leads to Robin Line (v2) via same-origin proxy.
+      const res = await fetch("/api/robinline-lead/spotless-scrubbers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
