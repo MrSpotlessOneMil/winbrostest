@@ -219,6 +219,96 @@ const SPOTLESS_TOPICS: BlogTopic[] = [
     topic: "First things to clean in your new LA home",
     category: "Home Care",
   },
+  // --- GEO cost guides (answer-first, table-friendly: the formats AI engines cite most) ---
+  {
+    keyword: "house cleaning cost santa monica",
+    topic: "How much house cleaning costs in Santa Monica in 2026, with a clear price table by home size and service type",
+    category: "Pricing",
+  },
+  {
+    keyword: "house cleaning cost beverly hills",
+    topic: "What house cleaning really costs in Beverly Hills, and what premium estates should expect to pay",
+    category: "Pricing",
+  },
+  {
+    keyword: "deep cleaning cost los angeles",
+    topic: "Deep cleaning prices in LA explained: what is included, what is an add-on, and the real cost ranges",
+    category: "Pricing",
+  },
+  {
+    keyword: "move out cleaning cost los angeles",
+    topic: "Move-out cleaning cost in LA and whether it actually gets your security deposit back",
+    category: "Pricing",
+  },
+  {
+    keyword: "airbnb cleaning fee los angeles",
+    topic: "What to charge for Airbnb cleaning in LA: setting a turnover fee that covers a same-day reset",
+    category: "Airbnb Hosting",
+  },
+  // --- Comparison / 'best' (high AI-citation formats) ---
+  {
+    keyword: "deep cleaning vs standard cleaning difference",
+    topic: "Deep clean vs standard clean: the real difference, when you need each, and the price gap",
+    category: "Comparisons",
+  },
+  {
+    keyword: "recurring vs one time cleaning los angeles",
+    topic: "Recurring vs one-time cleaning in LA: which actually saves you money over a year",
+    category: "Comparisons",
+  },
+  {
+    keyword: "solo cleaner vs cleaning company los angeles",
+    topic: "Hiring a solo cleaner vs a professional team in LA: trust, reliability, and the trade-offs",
+    category: "Comparisons",
+  },
+  // --- Westside city + service specific (hub-and-spoke to the area/service pages) ---
+  {
+    keyword: "move out cleaning culver city deposit",
+    topic: "The Culver City move-out cleaning checklist that protects your deposit",
+    category: "Home Care",
+  },
+  {
+    keyword: "airbnb turnover cleaning venice",
+    topic: "Same-day Airbnb turnover cleaning for Venice hosts, and why the turnover clean drives your reviews",
+    category: "Airbnb Hosting",
+  },
+  {
+    keyword: "house cleaning brentwood estate",
+    topic: "What estate-level house cleaning looks like in Brentwood and Bel Air",
+    category: "LA Living",
+  },
+  {
+    keyword: "listing photo cleaning los angeles realtor",
+    topic: "The pre-listing clean LA real estate agents book before the photographer arrives",
+    category: "Business",
+  },
+  {
+    keyword: "post construction cleaning los angeles remodel",
+    topic: "Post-renovation cleaning in LA: where construction dust hides and how pros remove it",
+    category: "Home Care",
+  },
+  // --- Trust / guilt-unlock (humanize the crew, insured + background-checked) ---
+  {
+    keyword: "are house cleaners insured background checked",
+    topic: "What insured and background-checked actually means when a stranger cleans your home",
+    category: "Business",
+  },
+  {
+    keyword: "tipping house cleaners los angeles etiquette",
+    topic: "Tipping your house cleaner in LA: what is normal, and how to treat the crew well",
+    category: "LA Living",
+  },
+  // --- Seasonal / local LA hooks ---
+  {
+    keyword: "spring deep cleaning los angeles",
+    topic: "A spring deep-cleaning game plan for LA homes after pollen and Santa Ana dust season",
+    category: "LA Living",
+  },
+  {
+    keyword: "holiday house cleaning los angeles hosting",
+    topic: "Getting your LA home guest-ready before holiday hosting, room by room",
+    category: "Home Care",
+  },
 ]
 
 // ============================================================================

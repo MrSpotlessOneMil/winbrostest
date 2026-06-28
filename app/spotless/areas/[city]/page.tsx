@@ -6,6 +6,7 @@ import {
   SPOTLESS_BUSINESS,
   getAreaBySlug,
   getAllAreaSlugs,
+  getLocalIntro,
 } from "@/lib/marketing/spotless-areas"
 import { SPOTLESS_SERVICES } from "@/lib/marketing/spotless-services"
 import {
@@ -90,15 +91,61 @@ export default async function CityPage({ params }: CityPageProps) {
         </div>
       </section>
 
+      {/* Answer-first block (GEO: LLMs cite self-contained ~50-word declarative chunks placed high) */}
+      <section className="max-w-4xl mx-auto px-4 sm:px-6 pt-10">
+        <div className="rounded-xl border border-[#a8e0ef] bg-[#a8e0ef]/15 p-5 sm:p-6">
+          <p className="text-base sm:text-lg text-slate-800 leading-relaxed">
+            <strong>Spotless Scrubbers</strong> provides professional house cleaning, deep
+            cleaning, move-in/move-out, and Airbnb turnover cleaning in {area.city}, CA. Our
+            cleaners are insured and background-checked, rated {SPOTLESS_BUSINESS.rating.toFixed(1)}{" "}
+            stars across 2,500+ cleanings, with same-day availability and 60-second booking.
+            Standard cleaning in {area.city} starts at $150. Text{" "}
+            <a href={`tel:${SPOTLESS_BUSINESS.phoneRaw}`} className="font-semibold text-[#155f73] underline">
+              {SPOTLESS_BUSINESS.phone}
+            </a>{" "}
+            for a quote in minutes.
+          </p>
+        </div>
+      </section>
+
+      {/* Pricing table (GEO: tables earn ~3x more AI citations; "cost" is the top local query) */}
+      <section className="max-w-4xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
+        <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-6">
+          House Cleaning Prices in {area.city}
+        </h2>
+        <div className="overflow-x-auto rounded-xl border border-slate-200">
+          <table className="w-full text-left text-sm sm:text-base">
+            <thead className="bg-slate-50 text-slate-700">
+              <tr>
+                <th className="px-4 py-3 font-semibold">Service</th>
+                <th className="px-4 py-3 font-semibold">Starting price in {area.city}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {SPOTLESS_SERVICES.map((service) => (
+                <tr key={service.slug}>
+                  <td className="px-4 py-3 text-slate-800">
+                    <Link href={`/services/${service.slug}/${area.slug}`} className="text-[#2195b4] hover:underline">
+                      {service.shortTitle}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">{service.priceRange}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-sm text-slate-500 mt-3">
+          Final price depends on home size and condition. Text {SPOTLESS_BUSINESS.phone} for an
+          exact {area.city} quote in minutes.
+        </p>
+      </section>
+
       {/* About Cleaning in This City */}
       <section className="max-w-4xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
         <div className="prose prose-slate max-w-none">
           <p className="text-lg text-slate-700 leading-relaxed">
-            {area.city} is one of our most popular service areas in {area.county}. Whether
-            you live near {area.neighborhoods[0]} or on the other side of town in{" "}
-            {area.neighborhoods[area.neighborhoods.length - 1]}, our team delivers
-            consistent, high-quality cleaning every visit. We use products that are
-            safe for your family and pets.
+            {getLocalIntro(area.slug)}
           </p>
           <p className="text-lg text-slate-700 leading-relaxed mt-4">
             From the busy streets near{" "}

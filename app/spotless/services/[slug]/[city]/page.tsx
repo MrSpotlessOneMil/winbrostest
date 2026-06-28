@@ -10,6 +10,7 @@ import type { SpotlessService } from "@/lib/marketing/spotless-services"
 import {
   getAreaBySlug,
   getAllAreaSlugs,
+  getLocalIntro,
   SPOTLESS_AREAS,
   SPOTLESS_BUSINESS,
 } from "@/lib/marketing/spotless-areas"
@@ -186,6 +187,7 @@ export default async function ServiceCityPage({
         {/* Content Paragraphs */}
         <section className="max-w-4xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
           <div className="prose prose-slate max-w-none space-y-4">
+            <p className="text-slate-700 leading-relaxed">{getLocalIntro(area.slug)}</p>
             <p className="text-slate-700 leading-relaxed">{paragraph1}</p>
             <p className="text-slate-700 leading-relaxed">{paragraph2}</p>
             <p className="text-slate-700 leading-relaxed">{paragraph3}</p>

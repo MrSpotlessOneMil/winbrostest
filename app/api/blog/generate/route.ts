@@ -224,11 +224,18 @@ Writing style rules (follow these exactly):
 - No corporate speak or marketing fluff
 - Write like you are talking to a friend who asked for advice
 - Short paragraphs, clear headings
-- Mention specific cities in the service area naturally
+- Mention specific cities and neighborhoods in the service area naturally
 - Include natural mentions of ${businessName} services (${serviceType} and related services)
 - End with a soft CTA${phone ? ` mentioning the phone number ${phone}` : ""}${website ? ` or the website ${website}` : ""}
-- Keep the word count between 600 and 900 words
+- Keep the word count between 900 and 1400 words
 - Use <h2> tags for main headings, <h3> for subheadings, <p> for paragraphs, <ul>/<li> for lists, <strong> for bold
+
+GEO / AI-search structure (these make the post get cited by ChatGPT, Gemini, Perplexity, and Google AI Overviews — follow them):
+- OPEN with a self-contained answer of about 40 to 60 words in plain declarative sentences that directly answers the title question, before any storytelling. AI engines quote this block, so it must stand alone.
+- Phrase your <h2> headings as the real questions people ask (for example "How much does a deep clean cost?"), not vague labels.
+- When the topic involves cost, comparison, or a checklist, include at least one HTML <table> with a clear header row (tables get cited far more often than paragraphs).
+- Near the end, add an FAQ section: an <h2>Frequently Asked Questions</h2> followed by 3 to 4 <h3> question headings each answered in 2 to 4 sentences.
+- Use real, specific numbers and price ranges where you can. Never invent fake reviews, customer names, or statistics.
 - Do not include the title in the body content (it will be rendered separately)
 - Do not start with "Hey folks" or "Hey everyone" every time. Vary your openings.
 - Use contractions naturally
