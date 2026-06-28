@@ -124,6 +124,13 @@ export function ServiceJsonLd({ service, city }: { service: SpotlessService; cit
       price,
     },
     serviceType: service.title,
+    aggregateRating: {
+      "@type": "AggregateRating",
+      ratingValue: SPOTLESS_BUSINESS.rating,
+      reviewCount: SPOTLESS_BUSINESS.reviewCount,
+      bestRating: 5,
+      worstRating: 1,
+    },
   }
 
   return <JsonLd data={data} />
