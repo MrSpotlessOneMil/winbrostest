@@ -36,8 +36,10 @@ customer's **earliest** lead (via `normalizeChannel`).
 ## Known limitations / intended follow-ups
 1. **LSA spend is the account month-to-date total**, not per-range-exact. For precise weekly spend,
    diff consecutive snapshots (a small follow-up).
-2. **Revenue excludes recurring LTV** — it's first-job completed-job price. Recurring value is the
-   bigger prize; add a members/LTV join next.
+2. ~~Revenue excludes recurring LTV~~ **DONE** — the P&L now joins `service_plans`
+   (status active/signed) → per channel `activeMembers`, `annualRecurringValue`,
+   `ltvValue` (× `workflow_config.ltv_years`, default 1.5), and `trueValue`/`trueRoas`
+   (first-job revenue + LTV). Cadence→visits/yr: monthly 12, quarterly 4, tri 3, bi 2.
 3. **Optional: expand the `leads.source` CHECK constraint** to allow granular channels
    (`seo`,`gbp`,`social`,`email`) so `leads.source` stores the channel directly at write time, and
    set it in the website webhook via `normalizeChannel`. Report already works without this.

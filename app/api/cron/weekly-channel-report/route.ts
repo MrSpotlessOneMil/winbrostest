@@ -50,7 +50,9 @@ export async function GET(request: NextRequest) {
       const msg =
         `Spotless — last 7 days\n` +
         `${t.bookedJobs} booked jobs · $${t.revenue.toLocaleString()} revenue · $${t.spend.toLocaleString()} ad spend` +
-        (t.blendedCostPerBookedJob != null ? ` · $${t.blendedCostPerBookedJob}/booked blended` : "") +
+        (t.blendedCostPerBookedJob != null ? ` · $${t.blendedCostPerBookedJob}/booked` : "") +
+        `\n${t.activeMembers} recurring members · $${t.trueValue.toLocaleString()} true value (jobs + LTV)` +
+        (t.blendedTrueRoas != null ? ` · ${t.blendedTrueRoas}x true ROAS` : "") +
         (lines.length ? `\n${lines.join("\n")}` : "\n(no leads yet this week)")
 
       await alertOwner(msg, { tenant, metadata: { report: "weekly_channel_pnl", pnl } })
