@@ -55,8 +55,27 @@ export async function GET(request: NextRequest) {
         (t.blendedTrueRoas != null ? ` · ${t.blendedTrueRoas}x true ROAS` : "") +
         (lines.length ? `\n${lines.join("\n")}` : "\n(no leads yet this week)")
 
-      await alertOwner(msg, { tenant, metadata: { report: "weekly_channel_pnl", pnl } })
-      results[tenant.slug] = { sent: true, bookedJobs: t.bookedJobs, revenue: t.revenue, spend: t.spend }
+      // LSA leads worth reviewing for a dispute (charged + still untouched after a few
+      // days = likely wrong-number/junk). We do NOT auto-dispute — Google requires manual
+      // disputes in the LSA UI and abusive auto-disputes can penalize the account — so we
+      // just surface candidates for the owner to eyeball + dispute (reclaims wasted spend).
+      const threeDaysAgo = new Date(Date.now() - 3 * 864e5).toISOString()
+      const { count: disputeCandidates } = await supabase
+        .from("leads")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenant.id)
+        .eq("source", "google_lsa")
+        .eq("status", "new")
+        .lte("created_at", threeDaysAgo)
+        .gte("created_at", startISO)
+        .filter("form_data->>lsa_charged", "eq", "CHARGED")
+
+      const fullMsg = disputeCandidates && disputeCandidates > 0
+        ? `${msg}\n⚠️ ${disputeCandidates} charged LSA lead(s) went cold — review in the LSA app for a dispute (refund).`
+        : msg
+
+      await alertOwner(fullMsg, { tenant, metadata: { report: "weekly_channel_pnl", pnl, disputeCandidates: disputeCandidates ?? 0 } })
+      results[tenant.slug] = { sent: true, bookedJobs: t.bookedJobs, revenue: t.revenue, spend: t.spend, disputeCandidates: disputeCandidates ?? 0 }
     } catch (e) {
       results[tenant.slug] = { error: e instanceof Error ? e.message : String(e) }
     }
