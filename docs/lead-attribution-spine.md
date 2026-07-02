@@ -16,7 +16,9 @@ changes to lead intake); it's a read-layer over data we already capture.
 |---|---|
 | `lib/marketing/attribution.ts` | Pure `normalizeChannel()` — decodes `leads.source` + `form_data.source_detail` + UTMs + LSA markers into one canonical channel (`lsa`, `seo`, `gbp`, `social`, `paid_search`, `email`, `referral`, `phone`, `direct`). Single source of truth. |
 | `tests/unit/attribution.test.ts` | 14 unit tests covering every channel + precedence rules. |
+| `lib/marketing/channel-pnl.ts` | Shared P&L computation (`computeChannelPnl`) used by both the API route and the weekly cron. |
 | `app/api/actions/insights/channel-pnl/route.ts` | `GET /api/actions/insights/channel-pnl?range=30d` — the scoreboard. Admin-gated (`requireAuthWithTenant`). |
+| `app/api/cron/weekly-channel-report/route.ts` | Weekly self-report cron → texts the owner a plain-language P&L digest + logs the full report as a `system_event`. **Opt-in per tenant** via `workflow_config.weekly_channel_report === true` (default OFF, so it never messages other tenants). Register a weekly QStash schedule → `GET /api/cron/weekly-channel-report`. |
 
 ## The scoreboard endpoint
 `GET /api/actions/insights/channel-pnl?range=7d|30d|90d|ytd|custom&from=&to=`
