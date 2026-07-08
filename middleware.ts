@@ -77,7 +77,8 @@ export function middleware(request: NextRequest) {
     if (pathname.startsWith('/api/') || pathname.startsWith('/_next/')) {
       return NextResponse.next()
     }
-    const legacyTarget = LEGACY_REDIRECTS[pathname.replace(/\/+$/, '') || '/']
+    const legacyTarget =
+      routePrefix === '/spotless' ? LEGACY_REDIRECTS[pathname.replace(/\/+$/, '') || '/'] : undefined
     if (legacyTarget) {
       const url = request.nextUrl.clone()
       url.pathname = legacyTarget
