@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { trackLead, trackFormSubmit } from "@/lib/marketing/tracking"
 import { SPOTLESS_SERVICES } from "@/lib/marketing/spotless-services"
+import { SPOTLESS_BUSINESS } from "@/lib/marketing/spotless-areas"
 
 interface BookingFormProps {
   preselectedService?: string
@@ -89,8 +90,8 @@ export function BookingForm({ preselectedService, source = "website", compact = 
       {/* Star rating — social proof near form */}
       <div className="flex items-center gap-2 justify-center text-sm text-slate-600">
         <div className="flex text-amber-400 tracking-tight">★★★★★</div>
-        <span className="font-semibold">5.0</span>
-        <span className="text-slate-400">from 47 reviews</span>
+        <span className="font-semibold">{SPOTLESS_BUSINESS.rating.toFixed(1)}</span>
+        <span className="text-slate-400">from {SPOTLESS_BUSINESS.reviewCount} reviews</span>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
