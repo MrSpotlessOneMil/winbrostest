@@ -109,6 +109,12 @@ export async function POST(
   const message = (body.message as string) || (body.notes as string) || ""
   const sourceDetail = (body.source as string) || "website"
   const source = "website" // DB CHECK constraint — detail preserved in form_data
+
+  // CI smoke probe: validate the live route end-to-end without writing a
+  // customer/lead or firing SMS (see tests/e2e/spotless-landing-smoke.spec.ts).
+  if (sourceDetail === "ci-smoke") {
+    return NextResponse.json({ success: true, ci_smoke: true }, { headers: corsHeaders })
+  }
   const bedrooms = typeof body.bedrooms === "number" ? body.bedrooms : null
   const bathrooms = typeof body.bathrooms === "number" ? body.bathrooms : null
   const frequency = (body.frequency as string) || null

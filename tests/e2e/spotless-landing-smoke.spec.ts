@@ -70,10 +70,12 @@ for (const landing of LANDINGS) {
 
 test('BookingForm POST endpoint accepts a synthetic lead (end-to-end)', async ({ request }) => {
   const marker = `ci-smoke-${Date.now()}`
-  // Forms now post to the Robin Line proxy. source='ci-smoke' makes the proxy
-  // short-circuit (returns { success: true }) WITHOUT forwarding to Robin Line,
-  // so CI validates the live endpoint without creating junk leads / fake texts.
-  const res = await request.post(`${BASE}/api/robinline-lead/spotless-scrubbers`, {
+  // Forms post to /api/webhooks/website/[slug] (the old /api/robinline-lead
+  // proxy was removed — this test 404ed on every main push until repointed).
+  // source='ci-smoke' makes the handler short-circuit (returns { success: true })
+  // WITHOUT writing a customer/lead or sending SMS, so CI validates the live
+  // endpoint without creating junk leads / fake texts.
+  const res = await request.post(`${BASE}/api/webhooks/website/spotless-scrubbers`, {
     data: {
       name: marker,
       phone: `+1555${String(Date.now()).slice(-7)}`,
@@ -85,7 +87,7 @@ test('BookingForm POST endpoint accepts a synthetic lead (end-to-end)', async ({
     },
   })
 
-  expect(res.ok(), `POST /api/robinline-lead/spotless-scrubbers returned ${res.status()}`).toBe(true)
+  expect(res.ok(), `POST /api/webhooks/website/spotless-scrubbers returned ${res.status()}`).toBe(true)
   const body = await res.json().catch(() => ({}))
   expect(body?.success, 'Robin Line lead proxy should reply { success: true }').toBe(true)
 })
