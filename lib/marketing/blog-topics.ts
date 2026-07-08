@@ -317,6 +317,9 @@ const SPOTLESS_TOPICS: BlogTopic[] = [
 const TOPIC_REGISTRY: Record<string, BlogTopic[]> = {
   winbros: WINBROS_TOPICS,
   spotless: SPOTLESS_TOPICS,
+  // The live tenant row's slug is "spotless-scrubbers" (see scripts/05-add-tenant-timezone.sql);
+  // without this entry the blog cron finds zero topics for the tenant and never generates.
+  "spotless-scrubbers": SPOTLESS_TOPICS,
 }
 
 /**

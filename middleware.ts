@@ -11,6 +11,15 @@ const DOMAIN_MAP: Record<string, string> = {
   'www.theosirisai.com': '/osiris-marketing',
 }
 
+// Old WordPress-era URLs still indexed by Google for spotlessscrubbers.org.
+// 301 them to the current pages so the link equity isn't lost to 404s.
+const LEGACY_REDIRECTS: Record<string, string> = {
+  '/contact-2': '/contact',
+  '/about-2': '/about',
+  '/terms-of-service-tos': '/terms',
+  '/privacy-policy': '/privacy',
+}
+
 // Public routes that don't require authentication
 const publicRoutes = [
   '/login',
@@ -67,6 +76,13 @@ export function middleware(request: NextRequest) {
   if (routePrefix) {
     if (pathname.startsWith('/api/') || pathname.startsWith('/_next/')) {
       return NextResponse.next()
+    }
+    const legacyTarget =
+      routePrefix === '/spotless' ? LEGACY_REDIRECTS[pathname.replace(/\/+$/, '') || '/'] : undefined
+    if (legacyTarget) {
+      const url = request.nextUrl.clone()
+      url.pathname = legacyTarget
+      return NextResponse.redirect(url, 301)
     }
     if (pathname === '/sitemap.xml' || pathname === '/robots.txt') {
       const url = request.nextUrl.clone()
