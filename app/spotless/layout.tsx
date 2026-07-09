@@ -13,6 +13,9 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://spotlessscrubbers.org"),
+  verification: {
+    other: { "msvalidate.01": "7DBF739161DEB981E026B269B3F1AE53" },
+  },
   icons: {
     icon: "/images/marketing/spotless-logo.jpg",
     apple: "/images/marketing/spotless-logo.jpg",
