@@ -45,9 +45,19 @@ export async function generateMetadata({
   const area = getAreaBySlug(city)
   if (!service || !area) return {}
 
+  // Airbnb targets the full short-term-rental keyword cluster (VRBO, vacation rental,
+  // turnover, same-day flip), not just "airbnb cleaning" — hosts search all of these.
+  const isAirbnb = service.slug === "airbnb-cleaning"
+  const title = isAirbnb
+    ? `Airbnb & Short-Term Rental Turnover Cleaning in ${area.city}, CA | Spotless Scrubbers`
+    : `${service.shortTitle} in ${area.city}, CA | Spotless Scrubbers`
+  const description = isAirbnb
+    ? `Airbnb, VRBO & vacation rental turnover cleaning in ${area.city}. Same-day flips, linen changes, restocking, and damage reports between guests. Insured, 5-star rated. Book online or text today.`
+    : `Professional ${service.title.toLowerCase()} in ${area.city}. Insured, 5-star rated. Book online or call today.`
+
   return {
-    title: `${service.shortTitle} in ${area.city}, CA | Spotless Scrubbers`,
-    description: `Professional ${service.title.toLowerCase()} in ${area.city}. Insured, 5-star rated. Book online or call today.`,
+    title,
+    description,
     alternates: {
       canonical: `${SPOTLESS_BUSINESS.url}/services/${slug}/${city}`,
     },
@@ -56,6 +66,39 @@ export async function generateMetadata({
 
 function getCityServiceFAQs(service: SpotlessService, area: SpotlessArea) {
   const neighborhoodList = area.neighborhoods.slice(0, 4).join(", ")
+
+  // Airbnb/STR hosts ask different questions than homeowners (turnaround speed, linens,
+  // calendar sync, damage reports, per-turnover pricing). Answer-first copy here feeds
+  // both the visible FAQ and FAQ schema — the biggest GEO/AI-citation lever for this niche.
+  if (service.slug === "airbnb-cleaning") {
+    return [
+      {
+        question: `How fast is your Airbnb turnover cleaning in ${area.city}?`,
+        answer: `We offer same-day turnovers in ${area.city}, so your rental is guest-ready between check-out and check-in. Send us your booking gaps and we hit every window - even tight same-day flips - so you never have to block a night for cleaning.`,
+      },
+      {
+        question: `Do you change linens and restock supplies between guests?`,
+        answer: `Yes. Every ${area.city} turnover includes fresh linen and towel changes, bed making, and restocking the essentials guests expect - toiletries, paper goods, coffee, and more. We can work from your supply closet or a checklist you provide so each stay starts 5-star ready.`,
+      },
+      {
+        question: `Do you report damage or missing items after each stay?`,
+        answer: `Always. After every clean we send a quick damage-and-maintenance report with photos, so you catch issues before the next guest checks in - protecting your reviews and any AirCover or VRBO claims.`,
+      },
+      {
+        question: `Can you coordinate with my booking calendar in ${area.city}?`,
+        answer: `Yes. Share your Airbnb or VRBO calendar, or just text us your turn dates, and we schedule cleans around your check-ins automatically. Property managers with multiple ${area.city} units get one point of contact for all of them.`,
+      },
+      {
+        question: `How much does Airbnb cleaning cost in ${area.city}?`,
+        answer: `${area.city} short-term rental turnovers start at ${service.priceRange}, priced per turnover based on unit size and whether linens and restocking are included - not by the hour. You get a flat per-clean rate up front so your margins stay predictable.`,
+      },
+      {
+        question: `Do you serve ${neighborhoodList}?`,
+        answer: `Yes! We clean short-term rentals across ${area.city}, including ${neighborhoodList}, and surrounding areas. If your ${area.county} property books guests, we can turn it over.`,
+      },
+    ]
+  }
+
   return [
     {
       question: `How much does ${service.title.toLowerCase()} cost in ${area.city}?`,
