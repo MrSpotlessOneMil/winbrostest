@@ -18,7 +18,7 @@ async function getAllBlogSitemapEntries(): Promise<
   }))
   const seedSlugs = new Set(seed.map((p) => p.slug))
   try {
-    const tenant = await getTenantBySlug("spotless")
+    const tenant = await getTenantBySlug("spotless-scrubbers")
     if (!tenant) return seed
     const client = getSupabaseServiceClient()
     const { data: dbPosts } = await client

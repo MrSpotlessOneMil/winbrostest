@@ -260,14 +260,13 @@ export async function getTenantBySlug(slug: string, activeOnly = true): Promise<
     .select("*")
     .eq("slug", slug)
   if (activeOnly) query = query.eq("active", true)
-  const { data, error } = await query.single()
+  const { data, error } = await query.maybeSingle()
 
   if (error || !data) {
-    if (!activeOnly) {
-      // Don't log for dashboard/auth fallback lookups
-      return null
+    // 0 rows is expected (retired/inactive tenants) — only log real query errors
+    if (error && activeOnly) {
+      console.error(`[Tenant] Error fetching tenant by slug '${slug}':`, error)
     }
-    console.error(`[Tenant] Error fetching tenant by slug '${slug}':`, error)
     return null
   }
 

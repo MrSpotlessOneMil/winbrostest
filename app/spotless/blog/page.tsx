@@ -30,7 +30,7 @@ async function getAllPosts(): Promise<BlogPost[]> {
   const seedSlugs = new Set(seedPosts.map((p) => p.slug))
 
   try {
-    const tenant = await getTenantBySlug("spotless")
+    const tenant = await getTenantBySlug("spotless-scrubbers")
     if (!tenant) return seedPosts
 
     const client = getSupabaseServiceClient()
