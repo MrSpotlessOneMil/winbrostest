@@ -361,6 +361,38 @@ const SPOTLESS_TOPICS: BlogTopic[] = [
     topic: "Gym and studio cleaning that shows up in reviews: the high-touch checklist that protects member retention",
     category: "Business",
   },
+  // --- HOA / community association cluster (boards + community managers) ---
+  {
+    keyword: "hoa common area cleaning cost los angeles",
+    topic: "What HOA common area cleaning costs in LA: pricing by building size, amenities, and visit frequency, with a budget table for boards",
+    category: "Pricing",
+  },
+  {
+    keyword: "hoa cleaning vendor requirements coi additional insured",
+    topic: "What HOAs require from a cleaning vendor: COI, additional-insured endorsements, and vendor portals like NetVendor and VIVE explained",
+    category: "Business",
+  },
+  {
+    keyword: "hoa common area cleaning checklist",
+    topic: "The common area cleaning checklist community managers use: lobbies, clubhouses, fitness rooms, and shared restrooms by frequency",
+    category: "Business",
+  },
+  // --- Warehouse / industrial cluster (ops + facility managers) ---
+  {
+    keyword: "warehouse cleaning cost per square foot",
+    topic: "Warehouse cleaning cost per square foot in LA: what drives the rate and how big facilities budget monthly service",
+    category: "Pricing",
+  },
+  {
+    keyword: "warehouse cleaning checklist distribution center",
+    topic: "The warehouse cleaning checklist for distribution centers: offices, breakrooms, restrooms, and floor care without stopping operations",
+    category: "Business",
+  },
+  {
+    keyword: "industrial facility cleaning south bay los angeles",
+    topic: "Keeping South Bay industrial and aerospace facilities clean: overnight janitorial that works around production shifts",
+    category: "Business",
+  },
 ]
 
 // ============================================================================
