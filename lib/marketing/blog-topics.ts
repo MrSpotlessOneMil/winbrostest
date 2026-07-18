@@ -309,6 +309,58 @@ const SPOTLESS_TOPICS: BlogTopic[] = [
     topic: "Getting your LA home guest-ready before holiday hosting, room by room",
     category: "Home Care",
   },
+  // --- Post-construction cluster (GCs, builders, remodeling homeowners) ---
+  {
+    keyword: "post construction cleaning cost los angeles",
+    topic: "What post-construction cleaning costs in LA in 2026, priced by square footage and phase, with a clear cost table",
+    category: "Pricing",
+  },
+  {
+    keyword: "final clean checklist general contractor",
+    topic: "The final clean checklist LA general contractors run before the punch walk",
+    category: "Business",
+  },
+  {
+    keyword: "rough clean vs final clean construction",
+    topic: "Rough clean vs final clean vs touch-up clean: what happens at each construction phase and who books which",
+    category: "Comparisons",
+  },
+  {
+    keyword: "drywall dust removal after renovation",
+    topic: "Why drywall dust keeps coming back after a renovation, and how pros actually get rid of it",
+    category: "Home Care",
+  },
+  // --- Commercial / facility management cluster (office, janitorial, FM buyers) ---
+  {
+    keyword: "commercial cleaning cost per square foot los angeles",
+    topic: "Commercial cleaning cost per square foot in LA: real 2026 rates by facility type, with a pricing table",
+    category: "Pricing",
+  },
+  {
+    keyword: "janitorial services vs commercial cleaning difference",
+    topic: "Janitorial services vs commercial cleaning: what each covers and which your facility needs",
+    category: "Comparisons",
+  },
+  {
+    keyword: "how to choose commercial cleaning company facility manager",
+    topic: "How facility managers vet a commercial cleaning company: COI, scope, walkthroughs, and the red flags",
+    category: "Business",
+  },
+  {
+    keyword: "office cleaning checklist daily weekly monthly",
+    topic: "The office cleaning checklist LA facility managers use: daily, weekly, and monthly tasks by area",
+    category: "Business",
+  },
+  {
+    keyword: "medical office cleaning standards los angeles",
+    topic: "What medical and dental office cleaning requires that regular office cleaning doesn't",
+    category: "Business",
+  },
+  {
+    keyword: "gym cleaning checklist member retention",
+    topic: "Gym and studio cleaning that shows up in reviews: the high-touch checklist that protects member retention",
+    category: "Business",
+  },
 ]
 
 // ============================================================================
