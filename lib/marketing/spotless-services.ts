@@ -143,6 +143,58 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
     icon: "Building2",
   },
   {
+    slug: "hoa-community-cleaning",
+    title: "HOA & Community Area Cleaning",
+    shortTitle: "HOA / Community",
+    description:
+      "Recurring cleaning for HOA common areas, clubhouses, fitness rooms, lobbies, mailrooms, and shared amenities in condo and apartment communities. One insured vendor for the whole property, with COI and vendor-portal onboarding handled - so boards and community managers never chase a cleaner again.",
+    metaDescription:
+      "HOA and community association cleaning in Los Angeles. Common areas, clubhouses, lobbies, fitness rooms. Insured, COI with additional-insured endorsements, vendor-portal onboarding. Free walkthrough.",
+    features: [
+      "Lobby, hallway, and mailroom cleaning",
+      "Clubhouse and community room upkeep",
+      "Fitness room and amenity cleaning",
+      "Shared restroom cleaning and restocking",
+      "Elevator and stairwell detailing",
+      "Trash room and common-area floor care",
+      "Pool area and cabana wipe-downs (interior surfaces)",
+      "COI and vendor-portal onboarding support",
+    ],
+    idealFor: [
+      "HOA boards and community associations",
+      "Community association managers",
+      "Condo and apartment property managers",
+    ],
+    priceRange: "Starting at $200",
+    icon: "Building",
+  },
+  {
+    slug: "warehouse-industrial-cleaning",
+    title: "Warehouse & Industrial Cleaning",
+    shortTitle: "Warehouse / Industrial",
+    description:
+      "Interior cleaning for warehouses, distribution centers, 3PL operations, and manufacturing facilities. We keep the office areas, breakrooms, restrooms, and floors your team actually uses clean on overnight or weekend schedules - so operations never stop for cleaning.",
+    metaDescription:
+      "Warehouse and industrial cleaning in Los Angeles. Distribution centers, 3PL, manufacturing facilities. Offices, breakrooms, restrooms, floor care. Overnight schedules. Insured, COI available.",
+    features: [
+      "Warehouse office and admin area cleaning",
+      "Breakroom and locker room cleaning",
+      "Restroom deep cleaning and restocking",
+      "Warehouse floor sweeping and scrubbing",
+      "High-dust removal from ledges and racking (reachable areas)",
+      "Trash and debris removal",
+      "Entryway, lobby, and reception upkeep",
+      "Overnight and weekend scheduling around operations",
+    ],
+    idealFor: [
+      "Warehouses and distribution centers",
+      "3PL and logistics operators",
+      "Manufacturing and aerospace facilities",
+    ],
+    priceRange: "Starting at $250",
+    icon: "Warehouse",
+  },
+  {
     slug: "airbnb-cleaning",
     title: "Airbnb & Short-Term Rental Cleaning",
     shortTitle: "Airbnb Cleaning",

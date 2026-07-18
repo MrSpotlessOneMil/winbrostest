@@ -40,7 +40,7 @@ function getServiceFAQs(service: { title: string; priceRange: string; slug: stri
   return [
     {
       question: `How much does ${service.title.toLowerCase()} cost?`,
-      answer: `Our ${service.title.toLowerCase()} typically ranges from ${service.priceRange}, depending on the size of your home and the scope of work. We provide a free, no-obligation quote before every job so there are no surprises.`,
+      answer: `Our ${service.title.toLowerCase()} typically ranges from ${service.priceRange}, depending on the size of the space and the scope of work. We provide a free, no-obligation quote before every job so there are no surprises.`,
     },
     {
       question: `How long does ${service.title.toLowerCase()} take?`,

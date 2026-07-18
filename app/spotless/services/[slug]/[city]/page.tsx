@@ -54,11 +54,15 @@ export async function generateMetadata({
     "airbnb-cleaning": `Airbnb & Short-Term Rental Turnover Cleaning in ${area.city}, CA | Spotless Scrubbers`,
     "post-construction-cleaning": `Post-Construction Cleaning in ${area.city}, CA | Final Clean & Construction Cleanup`,
     "commercial-cleaning": `Commercial Cleaning & Janitorial Services in ${area.city}, CA | Spotless Scrubbers`,
+    "hoa-community-cleaning": `HOA & Community Association Cleaning in ${area.city}, CA | Common Areas & Clubhouses`,
+    "warehouse-industrial-cleaning": `Warehouse & Industrial Cleaning in ${area.city}, CA | Distribution & Manufacturing Facilities`,
   }
   const clusterDescriptions: Record<string, string> = {
     "airbnb-cleaning": `Airbnb, VRBO & vacation rental turnover cleaning in ${area.city}. Same-day flips, linen changes, restocking, and damage reports between guests. Insured, 5-star rated. Book online or text today.`,
     "post-construction-cleaning": `Post-construction and final cleaning in ${area.city} for general contractors, builders, and homeowners. Rough, final, and touch-up cleans, drywall dust removal, sticker removal, punch-walk ready. Insured, COI available.`,
     "commercial-cleaning": `Office cleaning and janitorial services in ${area.city} for facility managers and business owners. Nightly or weekly after-hours service, restroom restocking, floor care. Insured and bonded, COI available. Free walkthrough quote.`,
+    "hoa-community-cleaning": `HOA common area cleaning in ${area.city} for boards and community managers. Lobbies, clubhouses, fitness rooms, shared restrooms on a recurring schedule. Insured, COI with additional-insured endorsements, vendor-portal onboarding handled. Free walkthrough.`,
+    "warehouse-industrial-cleaning": `Warehouse and industrial facility cleaning in ${area.city}. Offices, breakrooms, restrooms, and floor care for distribution centers, 3PL, and manufacturing. Overnight and weekend schedules. Insured, COI available. Free walkthrough quote.`,
   }
   const title =
     clusterTitles[service.slug] ??
@@ -173,6 +177,68 @@ function getCityServiceFAQs(service: SpotlessService, area: SpotlessArea) {
     ]
   }
 
+  // HOA boards and community managers vet vendors on insurance and credentialing
+  // (additional-insured endorsements, vendor portals) before price — answer that first.
+  if (service.slug === "hoa-community-cleaning") {
+    return [
+      {
+        question: `How much does HOA common area cleaning cost in ${area.city}?`,
+        answer: `Most ${area.city} community associations run $200 to a few thousand dollars per month depending on the number of buildings, amenity spaces, and visit frequency. We walk the property with your manager or board member, scope exactly what's covered - lobbies, clubhouse, fitness room, shared restrooms, elevators - and quote a flat monthly rate the board can approve once.`,
+      },
+      {
+        question: `Can you provide a COI naming our association as additional insured?`,
+        answer: `Yes. We're insured and can provide a certificate of insurance for your association as part of vendor onboarding, including additional-insured endorsements as your management company requires. If your community routes vendors through a compliance portal like NetVendor or VIVE, we complete that registration too.`,
+      },
+      {
+        question: `What common areas do you clean in ${area.city} communities?`,
+        answer: `Everything shared: lobbies, hallways, mailrooms, elevators, stairwells, clubhouses and community rooms, fitness rooms, shared restrooms, trash rooms, and interior pool-area surfaces. Scope is set per property - a 20-unit ${area.city} condo building needs a different checklist than a 300-unit community with a clubhouse.`,
+      },
+      {
+        question: `Do you work with community association managers and property management companies?`,
+        answer: `Yes - community managers get one point of contact, consistent crews, and reporting when something needs board attention. If you manage multiple properties in ${area.county}, one vendor relationship covers your whole ${area.city}-area portfolio.`,
+      },
+      {
+        question: `How often should HOA common areas be cleaned?`,
+        answer: `High-traffic lobbies and elevators in ${area.city} buildings typically get service 2-5x per week; clubhouses and fitness rooms daily to weekly depending on use; full detail work monthly. We'll recommend a schedule at the walkthrough and adjust it seasonally - you're never locked into a frequency that isn't working.`,
+      },
+      {
+        question: `Do you serve communities in ${neighborhoodList}?`,
+        answer: `Yes! We serve condo buildings, HOAs, and apartment communities across ${area.city}, including ${neighborhoodList}, and all of ${area.county}.`,
+      },
+    ]
+  }
+
+  // Warehouse/ops managers ask about working around operations, scope (office vs
+  // production areas), and safety/insurance — not home-cleaning questions.
+  if (service.slug === "warehouse-industrial-cleaning") {
+    return [
+      {
+        question: `How much does warehouse cleaning cost in ${area.city}?`,
+        answer: `Warehouse and industrial cleaning in ${area.city} is priced by square footage, scope, and frequency - office areas, breakrooms, and restrooms cost more per square foot than open floor sweeping and scrubbing. After a quick walkthrough we quote a flat monthly rate. Large footprints reach meaningful monthly contracts even at low per-square-foot rates, and you'll know the exact number before we start.`,
+      },
+      {
+        question: `Can you clean around our operations schedule?`,
+        answer: `Yes - overnight, early morning, and weekend service are our default for ${area.city} warehouses and production facilities, so cleaning never interrupts receiving, picking, or production shifts. We coordinate site access and safety requirements with your operations or facility manager.`,
+      },
+      {
+        question: `What do you clean in a warehouse or industrial facility?`,
+        answer: `The interior spaces your team lives in: warehouse offices and admin areas, breakrooms and locker rooms, restrooms with restocking, entryways and reception, plus warehouse floor sweeping and scrubbing, reachable high-dust removal from ledges and racking, and trash removal. If it's interior, we can scope it.`,
+      },
+      {
+        question: `Do you serve distribution centers and 3PL facilities in ${area.city}?`,
+        answer: `Yes - distribution centers, 3PL and logistics operations, manufacturing floors, and aerospace facilities across ${area.city} and ${area.county}. Recurring service keeps the facility inspection-ready and gives your team a clean space to work every shift.`,
+      },
+      {
+        question: `Are you insured for industrial facilities?`,
+        answer: `Yes. We're insured, every cleaner is background-checked, and we provide a COI for your facility as part of vendor onboarding. We follow your site's safety and PPE requirements and can work with your vendor compliance process.`,
+      },
+      {
+        question: `Do you serve facilities in ${neighborhoodList}?`,
+        answer: `Yes! We clean warehouses and industrial facilities across ${area.city}, including ${neighborhoodList}, and throughout ${area.county}.`,
+      },
+    ]
+  }
+
   return [
     {
       question: `How much does ${service.title.toLowerCase()} cost in ${area.city}?`,
@@ -209,6 +275,8 @@ function getCityServiceContent(service: SpotlessService, area: SpotlessArea) {
     "move-in-out-cleaning": `Moving in or out of a place in ${area.city}? Our move-in/out cleaning is designed to help tenants get their deposits back and new homeowners start fresh. We clean inside every cabinet, every appliance, and every surface. Property managers near ${landmarkMention} rely on us for reliable turnovers between tenants.`,
     "post-construction-cleaning": `After a renovation or build in ${area.city}, the dust and debris can be overwhelming. Our post-construction crews handle every phase - rough cleans mid-project, the full final clean once trades are done, and touch-up cleans after the punch walk. We remove drywall dust from every surface, pull stickers and tape off new windows, scrub floors, and clean out vents and registers. General contractors and builders near ${landmarkMention} use us as their handover crew because we hit deadlines, move when the schedule moves, and can put a COI on file for the job site - and homeowners finishing a remodel get the same detail-obsessed final clean.`,
     "commercial-cleaning": `A clean workspace matters in ${area.city}. Our commercial cleaning and janitorial service keeps offices, medical practices, gyms, retail spaces, and managed facilities spotless on a nightly, weekly, or custom schedule - almost always after hours, so your team and customers never see us work. Facility and property managers near ${landmarkMention} get one insured, bonded vendor with a COI on file, a single point of contact, and month-to-month terms with no lock-in contract. From restroom restocking and floor care to lobby and breakroom upkeep, the space is simply always presentable.`,
+    "hoa-community-cleaning": `Shared spaces are the first thing residents and prospective buyers judge in a ${area.city} community. Our HOA cleaning keeps lobbies, hallways, clubhouses, fitness rooms, and shared restrooms consistently presentable on a schedule the board approves once and never has to think about again. Community association managers near ${landmarkMention} get one insured vendor for the whole property - COI with additional-insured endorsements, vendor-portal registration (NetVendor, VIVE) handled, consistent crews, and a single point of contact when something needs attention before the next board meeting.`,
+    "warehouse-industrial-cleaning": `${area.city}'s warehouses, distribution centers, and manufacturing facilities run hard - and the offices, breakrooms, and restrooms inside them take the beating. Our industrial cleaning crews work overnight and weekend schedules so receiving, picking, and production never stop for a mop bucket. Operations managers near ${landmarkMention} get scoped, flat-rate recurring service: admin areas, breakrooms, locker rooms, restrooms with restocking, floor sweeping and scrubbing, and reachable high-dust removal - with a COI on file and your site's safety requirements followed.`,
     "airbnb-cleaning": `${area.city} is a popular destination for short-term rentals, and guest expectations are high. Our Airbnb turnover cleaning ensures your property near ${landmarkMention} is 5-star ready for every check-in. We handle linen changes, restocking, deep cleaning, and damage reporting - with same-day turnarounds available so you never miss a booking.`,
   }
 
