@@ -47,13 +47,25 @@ export async function generateMetadata({
 
   // Airbnb targets the full short-term-rental keyword cluster (VRBO, vacation rental,
   // turnover, same-day flip), not just "airbnb cleaning" — hosts search all of these.
-  const isAirbnb = service.slug === "airbnb-cleaning"
-  const title = isAirbnb
-    ? `Airbnb & Short-Term Rental Turnover Cleaning in ${area.city}, CA | Spotless Scrubbers`
-    : `${service.shortTitle} in ${area.city}, CA | Spotless Scrubbers`
-  const description = isAirbnb
-    ? `Airbnb, VRBO & vacation rental turnover cleaning in ${area.city}. Same-day flips, linen changes, restocking, and damage reports between guests. Insured, 5-star rated. Book online or text today.`
-    : `Professional ${service.title.toLowerCase()} in ${area.city}. Insured, 5-star rated. Book online or call today.`
+  // Post-construction and commercial get the same treatment: contractors search "final
+  // clean" / "construction cleanup", facility managers search "janitorial" / "office
+  // cleaning" — the default title only wins the literal service name.
+  const clusterTitles: Record<string, string> = {
+    "airbnb-cleaning": `Airbnb & Short-Term Rental Turnover Cleaning in ${area.city}, CA | Spotless Scrubbers`,
+    "post-construction-cleaning": `Post-Construction Cleaning in ${area.city}, CA | Final Clean & Construction Cleanup`,
+    "commercial-cleaning": `Commercial Cleaning & Janitorial Services in ${area.city}, CA | Spotless Scrubbers`,
+  }
+  const clusterDescriptions: Record<string, string> = {
+    "airbnb-cleaning": `Airbnb, VRBO & vacation rental turnover cleaning in ${area.city}. Same-day flips, linen changes, restocking, and damage reports between guests. Insured, 5-star rated. Book online or text today.`,
+    "post-construction-cleaning": `Post-construction and final cleaning in ${area.city} for general contractors, builders, and homeowners. Rough, final, and touch-up cleans, drywall dust removal, sticker removal, punch-walk ready. Insured, COI available.`,
+    "commercial-cleaning": `Office cleaning and janitorial services in ${area.city} for facility managers and business owners. Nightly or weekly after-hours service, restroom restocking, floor care. Insured and bonded, COI available. Free walkthrough quote.`,
+  }
+  const title =
+    clusterTitles[service.slug] ??
+    `${service.shortTitle} in ${area.city}, CA | Spotless Scrubbers`
+  const description =
+    clusterDescriptions[service.slug] ??
+    `Professional ${service.title.toLowerCase()} in ${area.city}. Insured, 5-star rated. Book online or call today.`
 
   return {
     title,
@@ -99,6 +111,68 @@ function getCityServiceFAQs(service: SpotlessService, area: SpotlessArea) {
     ]
   }
 
+  // Contractors and builders ask job-site questions (phases, COI, scheduling around
+  // trades, punch walks) — not homeowner questions. Same answer-first pattern as Airbnb.
+  if (service.slug === "post-construction-cleaning") {
+    return [
+      {
+        question: `How much does post-construction cleaning cost in ${area.city}?`,
+        answer: `Post-construction cleaning in ${area.city} starts at $300 and is priced by square footage and the condition of the site - a light final clean on a small remodel costs less than a full new build covered in drywall dust. Send us the square footage and a few photos and we quote it flat, up front. No hourly surprises.`,
+      },
+      {
+        question: `What's the difference between a rough clean and a final clean?`,
+        answer: `A rough clean happens mid-project - removing debris and heavy dust so trades can keep working. The final clean happens after all trades are done: drywall dust wiped from every surface, windows cleaned with stickers and tape removed, floors scrubbed, paint splatter removed, fixtures polished. We also do touch-up cleans after the punch walk. You can book any phase or all three.`,
+      },
+      {
+        question: `Do you work with general contractors in ${area.city}?`,
+        answer: `Yes - general contractors and builders across ${area.county} use us as their go-to final-clean crew. We're insured, we can provide a COI for your job site, and we schedule around your trades and your punch-walk date so the clean never holds up the handover.`,
+      },
+      {
+        question: `How soon can you get a crew to a job site in ${area.city}?`,
+        answer: `Usually within a few days, and we can often accommodate tight handover deadlines in ${area.city}. Construction schedules slip - when your completion date moves, we move with it at no charge. Text us the new date and we rebook the crew.`,
+      },
+      {
+        question: `What does your post-construction cleaning include?`,
+        answer: `Everything between construction-done and move-in ready: construction dust and debris removal, drywall dust wiped from walls, ceilings, and every surface, window and glass cleaning with sticker and tape removal, floor scrubbing and polishing, paint splatter removal, HVAC vent and register cleaning, and a final detail inspection against your punch list.`,
+      },
+      {
+        question: `Do you serve job sites in ${neighborhoodList}?`,
+        answer: `Yes! We handle post-construction cleans across ${area.city}, including ${neighborhoodList}, and all of ${area.county} - residential remodels, new builds, and commercial buildouts alike.`,
+      },
+    ]
+  }
+
+  // Facility and office managers ask vendor questions (contracts, COI, after-hours,
+  // consistency) — the generic homeowner FAQ answers none of them.
+  if (service.slug === "commercial-cleaning") {
+    return [
+      {
+        question: `How much does commercial cleaning cost in ${area.city}?`,
+        answer: `Commercial cleaning in ${area.city} starts at $150 per visit, with most offices on a flat monthly rate based on square footage, cleaning frequency, and scope. We do a free 10-minute walkthrough of your space and give you an exact quote - no obligation, no hidden fees.`,
+      },
+      {
+        question: `Do you require long-term janitorial contracts?`,
+        answer: `No. We're month-to-month with no lock-in. Most commercial clients in ${area.city} stay because the cleaning is consistent, not because a contract forces them to. If you're stuck with an unreliable janitorial vendor, switching is a single walkthrough away.`,
+      },
+      {
+        question: `Can you clean after business hours in ${area.city}?`,
+        answer: `Yes - most of our ${area.city} commercial cleaning happens after hours or before opening, so your team and your customers never see a mop bucket. Nightly, weekly, or custom schedules all work, and we coordinate building access with your facility or property manager.`,
+      },
+      {
+        question: `What types of facilities do you clean in ${area.city}?`,
+        answer: `Offices and office buildings, coworking spaces, medical and dental practices, gyms and fitness studios, retail stores and showrooms, and managed commercial facilities across ${area.city}. Each space gets a scope tailored to how it's actually used - restrooms, breakrooms, lobbies, treatment rooms, or sales floors.`,
+      },
+      {
+        question: `Are you insured, and can you provide a COI for our building?`,
+        answer: `Yes. We're fully insured and bonded, every cleaner is background-checked, and we can provide a certificate of insurance for your building or property management company as part of vendor onboarding. Facility managers get one point of contact for scheduling, walkthroughs, and any issue that comes up.`,
+      },
+      {
+        question: `Do you serve businesses in ${neighborhoodList}?`,
+        answer: `Yes! We clean commercial spaces across ${area.city}, including ${neighborhoodList}, and all of ${area.county}. Book a free walkthrough and we'll quote your space this week.`,
+      },
+    ]
+  }
+
   return [
     {
       question: `How much does ${service.title.toLowerCase()} cost in ${area.city}?`,
@@ -133,8 +207,8 @@ function getCityServiceContent(service: SpotlessService, area: SpotlessArea) {
     "standard-cleaning": `Keeping a home clean in ${area.city} can be tough with busy schedules. Our standard cleaning service gives ${area.city} residents a consistently fresh home without the hassle. We handle everything from dusting and vacuuming to kitchen and bathroom deep-sanitizing, using products that are safe for your family and pets. Many of our clients near ${landmarkMention} have been with us for years on weekly and biweekly plans.`,
     "deep-cleaning": `${area.city} homes deserve a thorough refresh. Our deep cleaning goes far beyond a surface wipe-down - we scrub baseboards, detail grout, clean inside appliances, and reach every corner that regular cleaning misses. Whether your home near ${landmarkMention} needs a seasonal reset or a first-time deep clean, we will leave it feeling brand new.`,
     "move-in-out-cleaning": `Moving in or out of a place in ${area.city}? Our move-in/out cleaning is designed to help tenants get their deposits back and new homeowners start fresh. We clean inside every cabinet, every appliance, and every surface. Property managers near ${landmarkMention} rely on us for reliable turnovers between tenants.`,
-    "post-construction-cleaning": `After a renovation or build in ${area.city}, the dust and debris can be overwhelming. Our post-construction cleaning team removes drywall dust, cleans windows, scrubs floors, and makes your newly remodeled space move-in ready. Contractors and homeowners near ${landmarkMention} trust us to handle the final detail work so the space shines.`,
-    "commercial-cleaning": `A clean workspace matters in ${area.city}. Our commercial cleaning service keeps offices, retail spaces, and professional environments spotless with flexible scheduling that works around your business hours. From coworking spaces near ${landmarkMention} to medical offices and storefronts, we deliver consistent, professional results.`,
+    "post-construction-cleaning": `After a renovation or build in ${area.city}, the dust and debris can be overwhelming. Our post-construction crews handle every phase - rough cleans mid-project, the full final clean once trades are done, and touch-up cleans after the punch walk. We remove drywall dust from every surface, pull stickers and tape off new windows, scrub floors, and clean out vents and registers. General contractors and builders near ${landmarkMention} use us as their handover crew because we hit deadlines, move when the schedule moves, and can put a COI on file for the job site - and homeowners finishing a remodel get the same detail-obsessed final clean.`,
+    "commercial-cleaning": `A clean workspace matters in ${area.city}. Our commercial cleaning and janitorial service keeps offices, medical practices, gyms, retail spaces, and managed facilities spotless on a nightly, weekly, or custom schedule - almost always after hours, so your team and customers never see us work. Facility and property managers near ${landmarkMention} get one insured, bonded vendor with a COI on file, a single point of contact, and month-to-month terms with no lock-in contract. From restroom restocking and floor care to lobby and breakroom upkeep, the space is simply always presentable.`,
     "airbnb-cleaning": `${area.city} is a popular destination for short-term rentals, and guest expectations are high. Our Airbnb turnover cleaning ensures your property near ${landmarkMention} is 5-star ready for every check-in. We handle linen changes, restocking, deep cleaning, and damage reporting - with same-day turnarounds available so you never miss a booking.`,
   }
 
