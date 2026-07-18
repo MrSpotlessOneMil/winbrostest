@@ -60,10 +60,18 @@ export async function POST(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 12_000)
 
+  // Robin Line rate-limits per client IP; without this every visitor shares
+  // this proxy's egress IP. Forward the visitor's IP so the upstream can key
+  // limits per visitor (harmless if the upstream edge overwrites the header).
+  const visitorIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+
   try {
     const upstream = await fetch(target, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(visitorIp ? { "X-Forwarded-For": visitorIp } : {}),
+      },
       body: JSON.stringify({ answers: body }),
       signal: controller.signal,
     })
