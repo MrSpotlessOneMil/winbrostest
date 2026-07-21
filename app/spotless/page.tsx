@@ -240,7 +240,7 @@ export default function HomePage() {
               </p>
 
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 leading-[1.1]">
-                Book a Cleaning in 60 Seconds
+                House Cleaning in Los Angeles — Booked in 60 Seconds
               </h1>
 
               <p className="text-lg text-white/80 mb-10 max-w-xl mx-auto lg:mx-0 leading-relaxed">
